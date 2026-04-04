@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sua Lista de Compras - Osasco</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 font-sans">
+
+    <nav class="bg-blue-600 p-4 text-white shadow-lg">
+        <h1 class="text-xl font-bold">🛒 Minha Lista Inteligente</h1>
+    </nav>
+
+    <main class="p-4 max-w-md mx-auto">
+        <div id="scanner-container" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
+            <h2 class="text-gray-700 font-semibold mb-3">Escanear Nota Fiscal</h2>
+            <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-300"></div>
+            <p class="text-xs text-gray-500 mt-2 text-center italic">Aponte para o QR Code da nota fiscal</p>
+        </div>
+
+        <div id="status" class="mt-4 p-4 rounded-xl hidden"></div>
+
+        <div id="preview-container" class="mt-6 hidden">
+            <h3 class="font-bold text-gray-800 mb-2">Itens Detectados:</h3>
+            <div id="lista-itens" class="space-y-2">
+                </div>
+            <button onclick="salvarNoBanco()" class="w-full mt-6 bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform">
+                Confirmar e Salvar no Banco
+            </button>
+        </div>
+    </main>
+
+    <script>
+        let dadosUltimaNota = null;
+
+        function onScanSuccess(decodedText) {
+            // Para o scanner para processar
+            html5QrcodeScanner.clear();
+            
+            const statusDiv = document.getElementById('status');
+            statusDiv.classList.remove('hidden');
+            statusDiv.className = "mt-4 p-4 rounded-xl bg-blue-100 text-blue-700";
+            statusDiv.innerText = "Processando nota em Osasco... aguarde.";
+
+            // Envia para a sua Azure Function (Local ou Nuvem)
+            fetch('http://localhost:7071/api/ProcessarNota', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: decodedText })
+            })
+            .then(response => response.json())
+            .then(data => {
+                statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
+                statusDiv.innerText = "Nota lida com sucesso!";
+                renderPreview(data.dados); // Vamos ajustar a function para retornar os dados lidos
+            })
+            .catch(err => {
+                statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
+                statusDiv.innerText = "Erro ao processar nota. Tente novamente.";
+                console.error(err);
+            });
+        }
+
+        const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+        html5QrcodeScanner.render(onScanSuccess);
+
+        function renderPreview(dados) {
+    const previewContainer = document.getElementById('preview-container');
+    const listaItens = document.getElementById('lista-itens');
+    
+    // Limpa a lista anterior
+    listaItens.innerHTML = '';
+    previewContainer.classList.remove('hidden');
+
+    // Cabeçalho do Preview
+    const header = document.createElement('div');
+    header.className = "mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100";
+    header.innerHTML = `
+        <p class="text-sm font-bold text-blue-800">${dados.estabelecimento}</p>
+        <p class="text-xs text-blue-600">Total: R$ ${dados.valor_total.toFixed(2)}</p>
+    `;
+    listaItens.appendChild(header);
+
+    // Lista de Itens
+    dados.itens.forEach(item => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = "flex justify-between items-center p-3 bg-white border-b border-gray-100 last:border-0";
+        itemDiv.innerHTML = `
+            <div class="flex-1">
+                <p class="text-sm font-medium text-gray-800">${item.descricao}</p>
+                <p class="text-xs text-gray-500">${item.quantidade}x R$ ${item.preco_unitario.toFixed(2)}</p>
+            </div>
+            <div class="text-sm font-bold text-gray-700">
+                R$ ${item.preco_total.toFixed(2)}
+            </div>
+        `;
+        listaItens.appendChild(itemDiv);
+    });
+}
+    </script>
+</body>
+</html>
