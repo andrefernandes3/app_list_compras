@@ -184,6 +184,8 @@
             if (dados.itens && dados.itens.length > 0) {
                 dados.itens.forEach(item => {
                     // Dentro do dados.itens.forEach no seu renderPreview:
+                    const infoDiv = itemDiv.querySelector('.flex-1');
+                    buscarComparativo(item.descricao, infoDiv);
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "flex justify-between items-center p-3 bg-white border-b border-gray-100";
                     itemDiv.innerHTML = `
@@ -246,6 +248,26 @@
                         console.error(err);
                         alert("Erro ao guardar vínculo: " + err.message);
                     });
+            }
+        }
+
+        async function buscarComparativo(nomeProduto, elementoDestino) {
+            try {
+                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+                if (!response.ok) return;
+                const dados = await response.json();
+
+                if (dados.length > 0) {
+                    const melhorOpcao = dados[0]; // O primeiro é o mais barato devido ao sort
+                    const htmlComparativo = `
+                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100">
+                    💡 Melhor preço: R$ ${melhorOpcao.menorPreco.toFixed(2)} no ${melhorOpcao._id.split(' ')[0]}
+                </div>
+            `;
+                    elementoDestino.innerHTML += htmlComparativo;
+                }
+            } catch (err) {
+                console.error("Erro ao buscar comparativo:", err);
             }
         }
 
