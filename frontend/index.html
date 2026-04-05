@@ -87,10 +87,15 @@
             */
         }
         const html5QrcodeScanner = new Html5QrcodeScanner("reader", {
-            fps: 10,
-            qrbox: 250,
-            // Removendo o 'exact' para funcionar tanto no PC quanto no Celular
-            videoConstraints: { facingMode: "environment" }
+            fps: 20, // Aumentamos os quadros por segundo
+            qrbox: { width: 250, height: 250 }, // Box fixo ajuda a focar
+            aspectRatio: 1.0,
+            videoConstraints: {
+                facingMode: "environment",
+                focusMode: "continuous", // Tenta forçar o foco contínuo
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
         });
 
         html5QrcodeScanner.render(onScanSuccess);
