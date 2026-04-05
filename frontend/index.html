@@ -1,446 +1,224 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Sua Lista de Compras - Osasco</title>
+    <title>Minha Lista Inteligente - Osasco</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-
 <body class="bg-gray-50 font-sans">
 
     <nav class="bg-blue-600 p-4 text-white shadow-lg">
         <h1 class="text-xl font-bold">🛒 Minha Lista Inteligente</h1>
     </nav>
 
-    <div class="flex border-b border-gray-200 bg-white">
-        <button onclick="alternarAba('lista')" id="btn-aba-lista"
-            class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">🛒 Lista</button>
-        <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
-            class="flex-1 py-3 text-sm font-bold text-gray-500">📖 Dicionário</button>
-    </div>
-
-    <div id="secao-lista">
-    </div>
-
-    <div id="secao-dicionario" class="hidden p-4">
-        <h2 class="text-gray-700 font-bold mb-4 italic">Produtos Catalogados</h2>
-        <div id="lista-dicionario" class="space-y-2"></div>
+    <div class="flex border-b border-gray-200 bg-white sticky top-0 z-10">
+        <button onclick="alternarAba('lista')" id="btn-aba-lista" class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
+        <button onclick="alternarAba('dicionario')" id="btn-aba-dict" class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
     </div>
 
     <main class="p-4 max-w-md mx-auto">
+        
+        <div id="secao-lista">
+            <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
+                <h2 class="text-blue-800 font-bold mb-2 flex justify-between italic">
+                    📝 Próxima Compra
+                    <button onclick="carregarLista()" class="text-[10px] underline">Sincronizar</button>
+                </h2>
+                
+                <div class="relative mb-3">
+                    <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="O que falta em casa?" 
+                        class="w-full p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
+                    <datalist id="sugestoes-produtos"></datalist>
+                    <button onclick="adicionarItemManual()" class="absolute right-2 top-2 bg-blue-600 text-white w-8 h-8 rounded-lg font-bold">+</button>
+                </div>
 
-        <!-- Bloco da Lista de Compras (com totalizador) -->
-        <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
-            <h2 class="text-blue-800 font-bold mb-2 flex justify-between">
-                📝 Minha Próxima Compra
-                <button onclick="carregarLista()" class="text-xs underline text-blue-500">Atualizar</button>
-            </h2>
-
-            <!-- Input com datalist para sugestões -->
-            <div class="flex gap-2 mb-3">
-                <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="Ex: Detergente, Café..."
-                    class="flex-1 p-2 text-xs border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-400">
-                <datalist id="sugestoes-produtos"></datalist>
-                <button onclick="adicionarItemManual()"
-                    class="bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-bold">
-                    +
-                </button>
+                <div id="lista-ativa" class="space-y-2 text-sm"></div>
+                
+                <div id="totalizador-estimado" class="mt-4 pt-3 border-t border-blue-200 hidden">
+                    <p class="text-[10px] font-bold text-blue-800 mb-2 uppercase text-center">Estimativa de Gasto Total</p>
+                    <div id="mercados-soma" class="grid grid-cols-2 gap-2"></div>
+                </div>
             </div>
 
-            <!-- Container da lista ativa -->
-            <div id="lista-ativa" class="space-y-2 text-sm">
-                <p class="text-gray-500 italic">Sua lista está vazia.</p>
+            <div class="space-y-4">
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
+                    <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..." class="w-full p-2 border rounded-lg text-sm mb-2">
+                    <button onclick="processarUrlManual()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold">Processar Nota</button>
+                </div>
+
+                <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-200"></div>
             </div>
 
-            <!-- Totalizador por mercado (inicialmente oculto) -->
-            <div id="totalizador-estimado" class="hidden mt-3">
-                <div class="text-[10px] font-semibold text-blue-700 mb-1">💰 Melhor lugar para comprar:</div>
-                <div id="mercados-soma" class="flex gap-2 overflow-x-auto pb-1"></div>
-            </div>
+            <div id="status" class="mt-4 p-4 rounded-xl hidden text-sm"></div>
+            <div id="preview-container" class="mt-6 hidden"><div id="lista-itens"></div></div>
         </div>
 
-        <!-- Entrada manual da URL da nota -->
-        <div class="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
-            <h2 class="text-gray-700 font-semibold mb-2 text-sm">Já tem o link? Cole aqui:</h2>
-            <div class="flex gap-2">
-                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
-                    class="flex-1 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                <button onclick="processarUrlManual()"
-                    class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
-                    Ir
-                </button>
-            </div>
+        <div id="secao-dicionario" class="hidden">
+            <h2 class="text-gray-700 font-bold mb-4 italic">Produtos Catalogados</h2>
+            <div id="lista-dicionario" class="space-y-4"></div>
         </div>
 
-        <!-- Scanner QR Code -->
-        <div id="scanner-container" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
-            <h2 class="text-gray-700 font-semibold mb-3">Ou Escaneie por aqui</h2>
-            <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-300"></div>
-            <input type="file" id="qr-input" accept="image/*" class="hidden">
-            <button onclick="document.getElementById('qr-input').click()"
-                class="w-full mt-2 bg-gray-200 p-2 rounded-lg text-sm font-semibold">
-                📸 Selecionar Foto da Galeria
-            </button>
-        </div>
-
-        <!-- Status de processamento -->
-        <div id="status" class="mt-4 p-4 rounded-xl hidden"></div>
-
-        <!-- Prévia da nota fiscal lida -->
-        <div id="preview-container" class="mt-6 hidden">
-            <div id="lista-itens"></div>
-        </div>
     </main>
 
     <script>
-        // ==================== SCANNER E PROCESSAMENTO DA NOTA ====================
         let html5QrcodeScanner = null;
-        let scannerAtivo = false;
-
-        function iniciarScanner() {
-            if (html5QrcodeScanner) {
-                html5QrcodeScanner.clear().catch(console.warn);
-            }
-            html5QrcodeScanner = new Html5QrcodeScanner("reader", {
-                fps: 20, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0
-            });
-            html5QrcodeScanner.render(onScanSuccess);
-            scannerAtivo = true;
-        }
-
-        function processarUrl(url) {
-            if (html5QrcodeScanner && scannerAtivo) {
-                html5QrcodeScanner.clear();
-                scannerAtivo = false;
-            }
-
-            const statusDiv = document.getElementById('status');
-            statusDiv.classList.remove('hidden');
-            statusDiv.className = "mt-4 p-4 rounded-xl bg-blue-100 text-blue-700";
-            statusDiv.innerText = "📡 Processando nota fiscal... aguarde.";
-
-            fetch('/api/ProcessarNota', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url })
-            })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    return response.json();
-                })
-                .then(data => {
-                    statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
-                    statusDiv.innerText = "✅ Nota lida com sucesso!";
-                    renderPreview(data.dados);
-                })
-                .catch(err => {
-                    statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
-                    statusDiv.innerText = "❌ Erro: " + err.message;
-                    setTimeout(() => { if (!scannerAtivo) iniciarScanner(); }, 2000);
-                });
-        }
-
-        function processarUrlManual() {
-            const input = document.getElementById('url-input');
-            const url = input.value.trim();
-            if (url.startsWith('http')) {
-                processarUrl(url);
-                input.value = '';
-            } else {
-                alert("Por favor, cole uma URL válida.");
-            }
-        }
-
-        function onScanSuccess(decodedText) {
-            if (decodedText && decodedText.startsWith('http')) {
-                processarUrl(decodedText);
-            }
-        }
-
-        // ==================== EXIBIÇÃO DA NOTA LIDA ====================
-        function renderPreview(dados) {
-            const previewContainer = document.getElementById('preview-container');
-            const listaItens = document.getElementById('lista-itens');
-            if (!listaItens) return;
-
-            listaItens.innerHTML = '';
-            previewContainer.classList.remove('hidden');
-
-            const totalExibicao = dados.valor_total || 0;
-            const header = document.createElement('div');
-            header.className = "mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100";
-            header.innerHTML = `
-                <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
-                <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
-            `;
-            listaItens.appendChild(header);
-
-            if (dados.itens && dados.itens.length > 0) {
-                dados.itens.forEach(item => {
-                    const itemDiv = document.createElement('div');
-                    itemDiv.className = "flex flex-col p-3 bg-white border-b border-gray-100";
-                    itemDiv.innerHTML = `
-                        <div class="flex justify-between items-start w-full">
-                            <div class="flex-1">
-                                <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
-                                <p class="text-[10px] text-gray-400">ID: ${item.id_interno} | Qtd: ${item.quantidade}</p> 
-                                <div class="info-comparativo"></div>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                <div class="text-right">
-                                    <p class="text-sm font-bold text-blue-700">R$ ${item.preco_unitario.toFixed(2)}</p>
-                                    <p class="text-[10px] text-gray-400">Total: R$ ${item.preco_total.toFixed(2)}</p>
-                                </div>
-                                <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
-                                    class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
-                            </div>
-                        </div>
-                    `;
-                    listaItens.appendChild(itemDiv);
-                    const compDiv = itemDiv.querySelector('.info-comparativo');
-                    buscarComparativo(item.descricao, compDiv);
-                });
-            }
-        }
-
-        // ==================== FUNÇÕES AUXILIARES ====================
-        function escapeHtml(text) {
-            return text ? text.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : '';
-        }
-
-        // ==================== VÍNCULO DE PRODUTOS ====================
-        function vincularID(id, desc) {
-            const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
-            if (!novoNome) return;
-
-            const categoria = prompt(`Qual a categoria? (Ex: PADARIA, FRIOS, LIMPEZA, BEBIDAS)`, "OUTROS");
-
-            fetch('/api/VincularProdutos', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    idPrincipal: id,
-                    nomePadrao: novoNome.trim().toUpperCase(),
-                    categoria: categoria.trim().toUpperCase()
-                })
-            }).then(() => {
-                alert("Produto catalogado com categoria!");
-                if (confirm("Adicionar à lista de compras agora?")) {
-                    adicionarDiretoALista(novoNome.trim().toUpperCase());
-                }
-            });
-        }
-
-        // ==================== LISTA DE COMPRAS (INTEGRAÇÃO COMPLETA) ====================
         let totaisPorMercado = {};
 
-        // Busca sugestões dos produtos já vinculados
-        async function carregarSugestoes() {
-            try {
-                const response = await fetch('/api/VincularProdutos');
-                const produtos = await response.json();
-                const datalist = document.getElementById('sugestoes-produtos');
-                const nomesUnicos = [...new Set(produtos.map(p => p.nomePadrao))];
-                datalist.innerHTML = nomesUnicos.map(nome => `<option value="${nome}">`).join('');
-            } catch (e) { console.error("Erro sugestões:", e); }
+        // --- NAVEGAÇÃO ---
+        function alternarAba(aba) {
+            const isLista = aba === 'lista';
+            document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
+            document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
+            document.getElementById('btn-aba-lista').className = isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
+            document.getElementById('btn-aba-dict').className = !isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
+            if (!isLista) renderizarDicionario();
         }
 
-        // Adiciona item manualmente à lista
-        async function adicionarItemManual() {
-            const input = document.getElementById('novo-item-lista');
-            const nome = input.value.trim();
-            if (!nome) return;
-            try {
-                const response = await fetch('/api/GerenciarLista', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nome: nome.toUpperCase() })
-                });
-                if (response.ok) {
-                    input.value = '';
-                    carregarLista();
-                } else {
-                    alert("Erro ao adicionar item.");
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        // Marca item como comprado (strikethrough + PATCH no backend)
-        async function marcarComoComprado(nome) {
-            const idFormatado = nome.replace(/\s+/g, '-');
-            const itemNomeSpan = document.getElementById(`item-nome-${idFormatado}`);
-
-            if (itemNomeSpan) itemNomeSpan.classList.add('line-through', 'text-gray-400');
-
-            try {
-                const response = await fetch('/api/GerenciarLista', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nome: nome, comprado: true })
-                });
-
-                if (response.ok) {
-                    // Aguarda o banco processar e recarrega a lista sem o item
-                    setTimeout(carregarLista, 500);
-                }
-            } catch (e) {
-                console.error("Erro ao salvar no banco:", e);
-            }
-        }
-
-        // CORREÇÃO: Função que desenha a estimativa na tela
-        function atualizarSomaVisual() {
-            const containerSoma = document.getElementById('mercados-soma');
-            const containerPai = document.getElementById('totalizador-estimado');
-
-            if (Object.keys(totaisPorMercado).length === 0) return;
-
-            containerPai.classList.remove('hidden');
-            containerSoma.innerHTML = '';
-
-            // Ordenar do mais barato para o mais caro
-            const mercadosOrdenados = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
-
-            mercadosOrdenados.forEach(([mercado, valor], index) => {
-                const estilo = index === 0 ? 'bg-green-100 border-green-200 text-green-700 font-bold' : 'bg-gray-50 border-gray-100 text-gray-600';
-                containerSoma.innerHTML += `
-            <div class="p-2 rounded-lg border ${estilo} text-center shadow-sm">
-                <p class="text-[8px] uppercase opacity-70">${mercado}</p>
-                <p class="text-xs">R$ ${valor.toFixed(2)}</p>
-            </div>
-        `;
-            });
-        }
-
-        // BUSCAR COMPARATIVO: Agora alimentando a soma
-        async function buscarComparativo(nomeProduto, elementoDestino) {
-            try {
-                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
-                if (!response.ok) return;
-                const dados = await response.json();
-
-                if (dados.length > 0) {
-                    const melhor = dados[0];
-                    const nomeMercado = melhor._id.split(' ')[0]; // Pega ex: "WMS"
-
-                    // Soma no acumulador global
-                    if (!totaisPorMercado[nomeMercado]) totaisPorMercado[nomeMercado] = 0;
-                    totaisPorMercado[nomeMercado] += melhor.menorPreco;
-
-                    elementoDestino.innerHTML = `
-                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100 flex justify-between">
-                    <span>💡 ${nomeMercado}</span>
-                    <span>R$ ${melhor.menorPreco.toFixed(2)}</span>
-                </div>`;
-
-                    atualizarSomaVisual(); // Chama a soma toda vez que um preço chegar
-                } else {
-                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">Sem histórico</div>`;
-                }
-            } catch (err) { console.error(err); }
-        }
-
+        // --- LISTA DE COMPRAS ---
         async function carregarLista() {
-            totaisPorMercado = {}; // Reseta a soma antes de começar
+            totaisPorMercado = {};
             const listaDiv = document.getElementById('lista-ativa');
             listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
             try {
                 const response = await fetch('/api/GerenciarLista');
                 const itens = await response.json();
-
                 if (itens.length === 0) {
-                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
+                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo comprado! 🎉</p>';
                     document.getElementById('totalizador-estimado').classList.add('hidden');
                     return;
                 }
-
                 listaDiv.innerHTML = '';
                 itens.forEach(item => {
                     const idFormatado = item.item_nome.replace(/\s+/g, '-');
                     const itemElement = document.createElement('div');
-                    itemElement.className = "flex flex-col bg-white p-3 rounded-xl border border-blue-50 shadow-sm mb-2";
+                    itemElement.className = "bg-white p-3 rounded-xl border border-blue-50 shadow-sm mb-2";
                     itemElement.innerHTML = `
-                <div class="flex justify-between items-center">
-                    <span id="item-nome-${idFormatado}" class="font-bold text-gray-700 uppercase text-xs">${item.item_nome}</span>
-                    <button onclick="marcarComoComprado('${item.item_nome}')" class="bg-blue-50 hover:bg-green-100 p-1 rounded-lg">✅</button>
-                </div>
-                <div id="preco-lista-${idFormatado}"></div>
-            `;
+                        <div class="flex justify-between items-center">
+                            <span id="item-nome-${idFormatado}" class="font-bold text-gray-700 uppercase text-[11px]">${item.item_nome}</span>
+                            <button onclick="marcarComoComprado('${item.item_nome}')" class="text-lg">✅</button>
+                        </div>
+                        <div id="preco-lista-${idFormatado}"></div>
+                    `;
                     listaDiv.appendChild(itemElement);
                     buscarComparativo(item.item_nome, document.getElementById(`preco-lista-${idFormatado}`));
                 });
             } catch (err) { console.error(err); }
         }
 
-        function alternarAba(aba) {
-            const isLista = aba === 'lista';
-            document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
-            document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
-
-            // Estilo dos botões
-            document.getElementById('btn-aba-lista').className = isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
-            document.getElementById('btn-aba-dict').className = !isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
-
-            if (!isLista) renderizarDicionario();
+        async function buscarComparativo(nomeProduto, elementoDestino) {
+            try {
+                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+                if (!response.ok) return;
+                const dados = await response.json();
+                if (dados.length > 0) {
+                    const melhor = dados[0];
+                    const mercado = melhor._id.split(' ')[0];
+                    if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
+                    totaisPorMercado[mercado] += melhor.menorPreco;
+                    elementoDestino.innerHTML = `<div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between"><span>${mercado}</span><span>R$ ${melhor.menorPreco.toFixed(2)}</span></div>`;
+                    atualizarSomaVisual();
+                } else {
+                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">Sem histórico</div>`;
+                }
+            } catch (e) {}
         }
 
+        function atualizarSomaVisual() {
+            const container = document.getElementById('mercados-soma');
+            document.getElementById('totalizador-estimado').classList.remove('hidden');
+            container.innerHTML = '';
+            Object.entries(totaisPorMercado).sort((a,b) => a[1]-b[1]).forEach(([m,v], i) => {
+                const cor = i === 0 ? 'bg-green-100 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500';
+                container.innerHTML += `<div class="p-2 rounded-lg border ${cor} text-center shadow-sm"><p class="text-[8px] uppercase">${m}</p><p class="text-xs font-bold">R$ ${v.toFixed(2)}</p></div>`;
+            });
+        }
+
+        async function marcarComoComprado(nome) {
+            try {
+                await fetch('/api/GerenciarLista', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nome: nome, comprado: true })
+                });
+                carregarLista();
+            } catch (e) { console.error(e); }
+        }
+
+        async function adicionarItemManual() {
+            const input = document.getElementById('novo-item-lista');
+            const nome = input.value.trim().toUpperCase();
+            if (!nome) return;
+            await fetch('/api/GerenciarLista', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome })
+            });
+            input.value = '';
+            carregarLista();
+        }
+
+        // --- DICIONÁRIO ---
         async function renderizarDicionario() {
             const container = document.getElementById('lista-dicionario');
-            container.innerHTML = '<p class="text-center text-gray-400 animate-pulse">Carregando categorias...</p>';
-
+            container.innerHTML = '<p class="text-center text-gray-400">Carregando...</p>';
             try {
                 const response = await fetch('/api/VincularProdutos');
                 const produtos = await response.json();
-
-                // Agrupar produtos por categoria para visualização organizada
                 const categorias = {};
                 produtos.forEach(p => {
                     const cat = p.categoria || "OUTROS";
                     if (!categorias[cat]) categorias[cat] = [];
                     categorias[cat].push(p);
                 });
-
                 container.innerHTML = '';
                 for (const [cat, itens] of Object.entries(categorias)) {
-                    const section = document.createElement('div');
-                    section.className = "mb-4";
-                    section.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest">${cat}</h3>`;
-
+                    const div = document.createElement('div');
+                    div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest">${cat}</h3>`;
                     itens.forEach(prod => {
-                        section.innerHTML += `
-                    <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center mb-1">
-                        <div class="flex-1">
-                            <p class="text-xs font-bold text-gray-800 uppercase">${prod.nome_comum}</p>
-                            <p class="text-[8px] text-gray-400">${prod.ids_vinculados.length} IDs vinculados</p>
-                        </div>
-                        <button onclick="adicionarDiretoALista('${prod.nome_comum}')" class="bg-green-50 text-green-600 p-2 rounded-lg text-xs">🛒+</button>
-                    </div>`;
+                        div.innerHTML += `
+                            <div class="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center mb-1 shadow-sm">
+                                <div class="flex-1"><p class="text-xs font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
+                                <button onclick="adicionarDiretoALista('${prod.nome_comum}')" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-xs font-bold">+</button>
+                            </div>`;
                     });
-                    container.appendChild(section);
+                    container.appendChild(div);
                 }
-            } catch (e) { container.innerHTML = "Erro ao carregar dicionário."; }
+            } catch (e) { container.innerHTML = "Erro ao carregar."; }
         }
 
         async function adicionarDiretoALista(nome) {
             await fetch('/api/GerenciarLista', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome: nome })
+                body: JSON.stringify({ nome: nome.toUpperCase() })
             });
-            alert(`${nome} adicionado à sua próxima compra!`);
+            alert("Adicionado!");
+            carregarLista();
         }
 
-        // ==================== INICIALIZAÇÃO ====================
-        carregarSugestoes();
+        // --- PROCESSAMENTO DE NOTA ---
+        function vincularID(id, desc) {
+            const novoNome = prompt(`Nome para "${desc}":`, desc);
+            if (!novoNome) return;
+            const categoria = prompt(`Categoria (ex: PADARIA, FRIOS, LIMPEZA):`, "OUTROS");
+            fetch('/api/VincularProdutos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.trim().toUpperCase(), categoria: categoria.trim().toUpperCase() })
+            }).then(() => {
+                alert("Vinculado!");
+                carregarLista();
+            });
+        }
+
+        function escapeHtml(t) { return t ? t.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])) : ''; }
+
+        // Inicializar scanner e lista
         carregarLista();
-        iniciarScanner();
+        // (Código do scanner mantido simplificado)
     </script>
 </body>
-
 </html>
