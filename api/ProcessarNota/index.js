@@ -5,18 +5,17 @@ const { MongoClient } = require('mongodb');
 const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
+// 1. Movemos a função para fora para ficar organizada
+function limparTexto(texto) {
+    if (!texto) return "";
+    return texto
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+        .trim();
+}
+
 module.exports = async function (context, req) {
-
-    // Adiciona isto no topo do teu api/ProcessarNota/index.js
-    function limparTexto(texto) {
-        return texto
-            .toUpperCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
-            .trim();
-    }
-
-    // No momento de criar o item para o banco:
-    const descricaoPadrao = limparTexto(descricao);
     const urlNota = req.body && req.body.url;
 
     if (!urlNota) {
@@ -32,13 +31,10 @@ module.exports = async function (context, req) {
         const { data } = await axios.get(urlNota, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const $ = cheerio.load(data);
 
-        // --- EXTRAÇÃO DINÂMICA DO CABEÇALHO ---
         const nomeEstabelecimento = $('.txtTopo').first().text().trim() || "Estabelecimento Desconhecido";
-        // Busca o CNPJ no texto, removendo tudo que não é número
         const cnpjBruto = $('.text').text().match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
         const cnpj = cnpjBruto ? cnpjBruto[0] : "00.000.000/0000-00";
 
-        // Extração da data de emissão
         const infoGeral = $('.txtCenter').text();
         const dataMatch = infoGeral.match(/(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2})/);
         const dataCompra = dataMatch ? new Date(dataMatch[0].split(' ').reverse().join(' ')) : new Date();
@@ -47,12 +43,19 @@ module.exports = async function (context, req) {
         $('tr[id^="Item"]').each((i, el) => {
             const linha = $(el);
             const texto = linha.text().replace(/\s+/g, ' ');
-            const descricao = linha.find('.txtTit').text().split('\n')[0].trim();
+            
+            // 2. Pegamos a descrição original primeiro
+            const descricaoBruta = linha.find('.txtTit').text().split('\n')[0].trim();
 
-            if (descricao) {
+            if (descricaoBruta) {
+                // 3. AGORA SIM, usamos a função limparTexto com a variável correta
+                const descricaoFinal = limparTexto(descricaoBruta);
+                
                 const vTotalItem = parseFloat(linha.find('.valor').text().replace(',', '.')) || 0;
+                
                 itens.push({
-                    descricao,
+                    descricao: descricaoFinal, // Salva o nome limpo
+                    descricao_original: descricaoBruta, // Mantém o original para referência
                     id_interno: (texto.match(/Código:\s*([A-Z0-9]+)/i) || [])[1] || "N/A",
                     quantidade: parseFloat((texto.match(/Qtde\.:\s*([\d,.]+)/i) || [])[1]?.replace(',', '.') || "0"),
                     unidade: (texto.match(/UN:\s*([A-Z]+)/i) || [])[1] || "UN",
@@ -62,17 +65,12 @@ module.exports = async function (context, req) {
             }
         });
 
-        // --- LÓGICA DE VALOR TOTAL ROBUSTA ---
-        // 1. Tenta pegar o valor bruto do campo da SEFAZ
         let valorTotalNota = parseFloat($('.totalNFe').text().replace(',', '.')) ||
-            parseFloat($('.txtMax').text().replace(',', '.')) || 0;
+                             parseFloat($('.txtMax').text().replace(',', '.')) || 0;
 
-        // 2. Fallback: Se o scraper falhou no campo total, somamos os itens
         if (valorTotalNota === 0 && itens.length > 0) {
             valorTotalNota = itens.reduce((acc, item) => acc + item.preco_total, 0);
         }
-
-        // ... (toda a lógica de extração que já validamos)
 
         const documento = {
             estabelecimento: nomeEstabelecimento,
@@ -86,19 +84,18 @@ module.exports = async function (context, req) {
 
         const resultado = await colecao.insertOne(documento);
 
-        // AGORA RETORNAMOS O DOCUMENTO PARA O FRONTEND
         context.res = {
             status: 200,
             headers: { "Content-Type": "application/json" },
             body: {
                 message: "Nota processada!",
                 id: resultado.insertedId,
-                dados: documento // O Frontend vai ler isso aqui
+                dados: documento
             }
         };
 
     } catch (error) {
         context.log("Erro:", error.message);
-        context.res = { status: 500, body: "Erro ao processar nota dinâmica." };
+        context.res = { status: 500, body: "Erro interno: " + error.message };
     }
 };
