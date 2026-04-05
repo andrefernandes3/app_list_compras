@@ -258,67 +258,79 @@
         async function marcarComoComprado(nome) {
             const idFormatado = nome.replace(/\s+/g, '-');
             const itemNomeSpan = document.getElementById(`item-nome-${idFormatado}`);
+
             if (itemNomeSpan) itemNomeSpan.classList.add('line-through', 'text-gray-400');
 
             try {
-                await fetch('/api/GerenciarLista', {
+                const response = await fetch('/api/GerenciarLista', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ nome: nome, comprado: true })
                 });
-                setTimeout(carregarLista, 800);
+
+                if (response.ok) {
+                    // Aguarda o banco processar e recarrega a lista sem o item
+                    setTimeout(carregarLista, 500);
+                }
             } catch (e) {
-                console.error("Erro ao salvar status:", e);
+                console.error("Erro ao salvar no banco:", e);
             }
         }
 
-        // Busca o menor preço para o produto e acumula nos totais por mercado
+        // CORREÇÃO: Função que desenha a estimativa na tela
+        function atualizarSomaVisual() {
+            const containerSoma = document.getElementById('mercados-soma');
+            const containerPai = document.getElementById('totalizador-estimado');
+
+            if (Object.keys(totaisPorMercado).length === 0) return;
+
+            containerPai.classList.remove('hidden');
+            containerSoma.innerHTML = '';
+
+            // Ordenar do mais barato para o mais caro
+            const mercadosOrdenados = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
+
+            mercadosOrdenados.forEach(([mercado, valor], index) => {
+                const estilo = index === 0 ? 'bg-green-100 border-green-200 text-green-700 font-bold' : 'bg-gray-50 border-gray-100 text-gray-600';
+                containerSoma.innerHTML += `
+            <div class="p-2 rounded-lg border ${estilo} text-center shadow-sm">
+                <p class="text-[8px] uppercase opacity-70">${mercado}</p>
+                <p class="text-xs">R$ ${valor.toFixed(2)}</p>
+            </div>
+        `;
+            });
+        }
+
+        // BUSCAR COMPARATIVO: Agora alimentando a soma
         async function buscarComparativo(nomeProduto, elementoDestino) {
             try {
                 const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
                 if (!response.ok) return;
                 const dados = await response.json();
+
                 if (dados.length > 0) {
                     const melhor = dados[0];
-                    const nomeMercado = melhor._id.split(' ')[0]; // Ex: "CARREFOUR"
+                    const nomeMercado = melhor._id.split(' ')[0]; // Pega ex: "WMS"
+
+                    // Soma no acumulador global
                     if (!totaisPorMercado[nomeMercado]) totaisPorMercado[nomeMercado] = 0;
                     totaisPorMercado[nomeMercado] += melhor.menorPreco;
 
                     elementoDestino.innerHTML = `
-                        <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100 flex justify-between">
-                            <span>💡 ${nomeMercado}</span>
-                            <span>R$ ${melhor.menorPreco.toFixed(2)}</span>
-                        </div>`;
-                    atualizarSomaVisual();
+                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100 flex justify-between">
+                    <span>💡 ${nomeMercado}</span>
+                    <span>R$ ${melhor.menorPreco.toFixed(2)}</span>
+                </div>`;
+
+                    atualizarSomaVisual(); // Chama a soma toda vez que um preço chegar
                 } else {
-                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">Sem histórico de preço</div>`;
+                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">Sem histórico</div>`;
                 }
             } catch (err) { console.error(err); }
         }
 
-        // Atualiza o totalizador de melhor mercado no rodapé azul
-        function atualizarSomaVisual() {
-            const containerSoma = document.getElementById('mercados-soma');
-            const containerPai = document.getElementById('totalizador-estimado');
-            if (Object.keys(totaisPorMercado).length === 0) return;
-            containerPai.classList.remove('hidden');
-            containerSoma.innerHTML = '';
-            const mercadosOrdenados = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
-            mercadosOrdenados.forEach(([mercado, valor], index) => {
-                const cor = index === 0 ? 'text-green-600 font-bold' : 'text-gray-600';
-                const icone = index === 0 ? '🟢' : '⚪';
-                containerSoma.innerHTML += `
-                    <div class="bg-white p-2 rounded shadow-sm border border-blue-100 text-center min-w-[80px]">
-                        <p class="text-[8px] uppercase text-gray-400">${mercado}</p>
-                        <p class="text-xs ${cor}">${icone} R$ ${valor.toFixed(2)}</p>
-                    </div>
-                `;
-            });
-        }
-
-        // Carrega a lista de compras (itens ainda não comprados)
         async function carregarLista() {
-            totaisPorMercado = {};  // reseta soma ao recarregar
+            totaisPorMercado = {}; // Reseta a soma antes de começar
             const listaDiv = document.getElementById('lista-ativa');
             listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
@@ -327,7 +339,7 @@
                 const itens = await response.json();
 
                 if (itens.length === 0) {
-                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo comprado! 🎉</p>';
+                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
                     document.getElementById('totalizador-estimado').classList.add('hidden');
                     return;
                 }
@@ -338,12 +350,12 @@
                     const itemElement = document.createElement('div');
                     itemElement.className = "flex flex-col bg-white p-3 rounded-xl border border-blue-50 shadow-sm mb-2";
                     itemElement.innerHTML = `
-                        <div class="flex justify-between items-center">
-                            <span id="item-nome-${idFormatado}" class="font-bold text-gray-700 uppercase text-xs">${escapeHtml(item.item_nome)}</span>
-                            <button onclick="marcarComoComprado('${escapeHtml(item.item_nome)}')" class="bg-gray-50 hover:bg-green-100 p-1 rounded-full transition-colors">✅</button>
-                        </div>
-                        <div id="preco-lista-${idFormatado}" class="mt-1"></div>
-                    `;
+                <div class="flex justify-between items-center">
+                    <span id="item-nome-${idFormatado}" class="font-bold text-gray-700 uppercase text-xs">${item.item_nome}</span>
+                    <button onclick="marcarComoComprado('${item.item_nome}')" class="bg-blue-50 hover:bg-green-100 p-1 rounded-lg">✅</button>
+                </div>
+                <div id="preco-lista-${idFormatado}"></div>
+            `;
                     listaDiv.appendChild(itemElement);
                     buscarComparativo(item.item_nome, document.getElementById(`preco-lista-${idFormatado}`));
                 });

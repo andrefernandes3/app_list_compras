@@ -24,10 +24,11 @@ module.exports = async function (context, req) {
     }
     else if (metodo === 'PATCH') {
         const { nome, comprado } = req.body;
+        // Atualiza o status no banco para o item não voltar mais
         await colecao.updateOne(
             { item_nome: nome.toUpperCase() },
             { $set: { comprado: comprado } }
         );
-        context.res = { status: 200, body: "Atualizado!" };
+        context.res = { status: 200, body: "Atualizado no banco!" };
     }
 };
