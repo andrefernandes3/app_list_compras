@@ -18,22 +18,29 @@
     <main class="p-4 max-w-md mx-auto">
 
         <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
-            <h2 class="text-blue-800 font-bold mb-2 flex justify-between">
-                📝 Minha Próxima Compra
-                <button onclick="carregarLista()" class="text-xs underline text-blue-500">Atualizar</button>
+            <h2 class="text-blue-800 font-bold mb-2 flex justify-between italic">
+                📝 Próxima Compra
+                <button onclick="carregarLista()" class="text-[10px] underline">Sincronizar</button>
             </h2>
 
-            <div class="flex gap-2 mb-3">
-                <input type="text" id="novo-item-lista" placeholder="Ex: Detergente, Café..."
-                    class="flex-1 p-2 text-xs border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-400">
+            <div class="relative mb-3">
+                <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="O que falta em casa?"
+                    class="w-full p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
+                <datalist id="sugestoes-produtos">
+                </datalist>
                 <button onclick="adicionarItemManual()"
-                    class="bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-bold">
+                    class="absolute right-2 top-2 bg-blue-600 text-white w-8 h-8 rounded-lg font-bold">
                     +
                 </button>
             </div>
 
             <div id="lista-ativa" class="space-y-2 text-sm">
                 <p class="text-gray-500 italic">Sua lista está vazia.</p>
+            </div>
+
+            <div id="totalizador-estimado" class="mt-4 pt-3 border-t border-blue-200 hidden">
+                <p class="text-[10px] font-bold text-blue-800 mb-1 uppercase text-center">Estimativa de Gasto Total</p>
+                <div id="mercados-soma" class="grid grid-cols-2 gap-2"></div>
             </div>
         </div>
 
@@ -236,45 +243,78 @@
             }
         }
 
-        async function marcarComoComprado(nome) {
-            // Por enquanto, apenas recarrega a lista e mostra alerta (como no original)
-            // Futuro: fazer fetch para atualizar status 'comprado'
-            carregarLista();
-            alert(nome + " marcado como comprado!");
+        // 1. Busca os nomes que você já vinculou para sugerir no input
+        async function carregarSugestoes() {
+            try {
+                const response = await fetch('/api/VincularProdutos'); // Reaproveitamos a rota de vínculos
+                const produtos = await response.json();
+                const datalist = document.getElementById('sugestoes-produtos');
+
+                // Pega apenas os nomes únicos do dicionário
+                const nomesUnicos = [...new Set(produtos.map(p => p.nomePadrao))];
+                datalist.innerHTML = nomesUnicos.map(nome => `<option value="${nome}">`).join('');
+            } catch (e) { console.error("Erro sugestões:", e); }
         }
 
+        // 2. Corrigindo o feedback visual de "Comprado"
+        async function marcarComoComprado(nome) {
+            const itemEstilo = document.getElementById(`item-nome-${nome.replace(/\s+/g, '-')}`);
+            if (itemEstilo) {
+                itemEstilo.classList.add('line-through', 'text-gray-400');
+            }
+
+            try {
+                // Aqui chamamos a API para mudar o status no MongoDB
+                await fetch('/api/GerenciarLista', {
+                    method: 'PATCH', // Ou POST com um campo 'acao: concluir'
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nome: nome, comprado: true })
+                });
+
+                setTimeout(carregarLista, 1000); // Recarrega após 1 segundo para limpar a tela
+            } catch (e) { alert("Erro ao baixar item"); }
+        }
+
+        // 3. Atualizando a renderização da lista com ID para o estilo
         async function carregarLista() {
             const listaDiv = document.getElementById('lista-ativa');
-            listaDiv.innerHTML = '<p class="text-gray-500 animate-pulse">Buscando sua lista...</p>';
+            listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Atualizando preços...</p>';
+
             try {
                 const response = await fetch('/api/GerenciarLista');
-                if (!response.ok) throw new Error("Erro ao carregar lista");
                 const itens = await response.json();
+
                 if (itens.length === 0) {
-                    listaDiv.innerHTML = '<p class="text-gray-500 italic">Sua lista está vazia.</p>';
+                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center">Tudo pronto!</p>';
+                    document.getElementById('totalizador-estimado').classList.add('hidden');
                     return;
                 }
+
                 listaDiv.innerHTML = '';
-                itens.forEach(async (item) => {
+                document.getElementById('totalizador-estimado').classList.remove('hidden');
+
+                itens.forEach(item => {
+                    const idFormatado = item.item_nome.replace(/\s+/g, '-');
                     const itemElement = document.createElement('div');
-                    itemElement.className = "flex flex-col bg-white p-2 rounded-lg mb-1 border border-blue-100";
-                    const precoId = `preco-lista-${item.item_nome.replace(/\s+/g, '-')}`;
+                    itemElement.className = "flex flex-col bg-white p-3 rounded-xl border border-blue-50 shadow-sm";
                     itemElement.innerHTML = `
                 <div class="flex justify-between items-center">
-                    <span class="font-medium text-blue-900">${escapeHtml(item.item_nome)}</span>
-                    <button onclick="marcarComoComprado('${escapeHtml(item.item_nome)}')" class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">✓</button>
+                    <span id="item-nome-${idFormatado}" class="font-bold text-gray-700">${item.item_nome}</span>
+                    <button onclick="marcarComoComprado('${item.item_nome}')" class="text-xl">✅</button>
                 </div>
-                <div id="${precoId}" class="text-[9px] text-gray-500 mt-1 italic">Buscando melhor preço...</div>
+                <div id="preco-lista-${idFormatado}" class="text-[10px] text-blue-500 mt-1 font-medium">Buscando economia...</div>
             `;
                     listaDiv.appendChild(itemElement);
-                    const containerPreco = document.getElementById(precoId);
-                    buscarComparativo(item.item_nome, containerPreco);
+
+                    // Chama o comparativo que já temos
+                    buscarComparativo(item.item_nome, document.getElementById(`preco-lista-${idFormatado}`));
                 });
-            } catch (err) {
-                console.error(err);
-                listaDiv.innerHTML = '<p class="text-red-500">Erro ao carregar lista.</p>';
-            }
+            } catch (err) { console.error(err); }
         }
+
+        // Inicia tudo
+        carregarSugestoes();
+        carregarLista();
 
         // Inicialização
         carregarLista();
