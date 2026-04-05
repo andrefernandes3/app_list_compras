@@ -13,13 +13,18 @@ module.exports = async function (context, req) {
             // Busca apenas itens ativos (não comprados)
             const lista = await colecao.find({ comprado: false }).toArray();
             context.res = { status: 200, body: lista };
-        } 
+        }
         else if (metodo === 'POST') {
-            const { nome } = req.body;
-            // Upsert: Se já existir, volta para a lista (comprado: false)
+            const { nome, quantidade } = req.body;
             await colecao.updateOne(
                 { item_nome: nome.toUpperCase() },
-                { $set: { comprado: false, data_adicao: new Date() } },
+                {
+                    $set: {
+                        comprado: false,
+                        quantidade: parseFloat(quantidade) || 1, // Salva a quantidade
+                        data_adicao: new Date()
+                    }
+                },
                 { upsert: true }
             );
             context.res = { status: 201, body: "Item na lista!" };
