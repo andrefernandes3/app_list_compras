@@ -127,30 +127,28 @@
             try {
                 const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
                 if (!response.ok) return;
-
                 const dados = await response.json();
 
                 if (dados.length > 0) {
                     const melhor = dados[0];
                     const mercado = melhor._id.split(' ')[0];
-
-                    // CÁLCULO REAL: Preço Unitário x Quantidade da Lista
                     const qtdReal = quantidade || 1;
                     const subtotal = melhor.menorPreco * qtdReal;
 
                     if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
                     totaisPorMercado[mercado] += subtotal;
 
+                    // Exibe: Mercado | Unitário x Qtd = Total
                     elementoDestino.innerHTML = `
-                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between italic">
-                    <span>💡 ${mercado} (x${qtdReal})</span>
-                    <span>R$ ${subtotal.toFixed(2)}</span>
+                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center italic">
+                    <span>💡 ${mercado}</span>
+                    <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${qtdReal} = R$ ${subtotal.toFixed(2)}</span>
                 </div>`;
                     atualizarSomaVisual();
                 } else {
-                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico de preço</div>`;
+                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico</div>`;
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { }
         }
 
         function atualizarSomaVisual() {
@@ -205,9 +203,14 @@
                 const response = await fetch('/api/VincularProdutos');
                 const produtos = await response.json();
                 const datalist = document.getElementById('sugestoes-produtos');
+
+                // Pega nomes únicos do seu dicionário
                 const nomesUnicos = [...new Set(produtos.map(p => p.nome_comum))];
-                datalist.innerHTML = nomesUnicos.map(n => `<option value="${n.toUpperCase()}">`).join('');
-            } catch (e) { }
+
+                datalist.innerHTML = nomesUnicos
+                    .map(nome => `<option value="${nome.toUpperCase()}">`)
+                    .join('');
+            } catch (e) { console.error("Erro nas sugestões:", e); }
         }
 
         async function renderizarDicionario() {
