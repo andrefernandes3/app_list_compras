@@ -221,6 +221,24 @@
             });
         }
 
+        function vincularID(id, descricaoAtual) {
+            const nomePadrao = prompt(`Como você quer chamar o produto "${descricaoAtual}" na sua lista oficial?`, descricaoAtual);
+
+            if (nomePadrao) {
+                fetch('/api/VincularProdutos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        idPrincipal: id,
+                        idNovo: id, // Por enquanto vinculamos ele a ele mesmo no dicionário
+                        nomePadrao: nomePadrao.toUpperCase()
+                    })
+                })
+                    .then(() => alert("Produto catalogado!"))
+                    .catch(err => alert("Erro ao vincular: " + err.message));
+            }
+        }
+
         // ==================== INICIAR TUDO ====================
         iniciarScanner();
 
