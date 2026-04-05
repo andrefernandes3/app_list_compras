@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
@@ -7,6 +8,7 @@
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-50 font-sans">
 
     <nav class="bg-blue-600 p-4 text-white shadow-lg">
@@ -17,9 +19,10 @@
         <div class="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="text-gray-700 font-semibold mb-2 text-sm">Já tem o link? Cole aqui:</h2>
             <div class="flex gap-2">
-                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..." 
+                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
                     class="flex-1 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                <button onclick="processarUrlManual()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
+                <button onclick="processarUrlManual()"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
                     Ir
                 </button>
             </div>
@@ -29,7 +32,8 @@
             <h2 class="text-gray-700 font-semibold mb-3">Ou Escaneie por aqui</h2>
             <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-300"></div>
             <input type="file" id="qr-input" accept="image/*" class="hidden">
-            <button onclick="document.getElementById('qr-input').click()" class="w-full mt-2 bg-gray-200 p-2 rounded-lg text-sm font-semibold">
+            <button onclick="document.getElementById('qr-input').click()"
+                class="w-full mt-2 bg-gray-200 p-2 rounded-lg text-sm font-semibold">
                 📸 Selecionar Foto da Galeria
             </button>
         </div>
@@ -72,20 +76,20 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: url })
             })
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
-                statusDiv.innerText = "✅ Nota lida com sucesso!";
-                renderPreview(data.dados);
-            })
-            .catch(err => {
-                statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
-                statusDiv.innerText = "❌ Erro: " + err.message;
-                setTimeout(() => { if (!scannerAtivo) iniciarScanner(); }, 2000);
-            });
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
+                    statusDiv.innerText = "✅ Nota lida com sucesso!";
+                    renderPreview(data.dados);
+                })
+                .catch(err => {
+                    statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
+                    statusDiv.innerText = "❌ Erro: " + err.message;
+                    setTimeout(() => { if (!scannerAtivo) iniciarScanner(); }, 2000);
+                });
         }
 
         function processarUrlManual() {
@@ -127,24 +131,25 @@
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "flex flex-col p-3 bg-white border-b border-gray-100";
                     itemDiv.innerHTML = `
-                        <div class="flex justify-between items-center w-full">
-                            <div class="flex-1">
-                                <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
-                                <p class="text-[10px] text-gray-400">ID: ${item.id_interno}</p> 
-                                <div class="info-comparativo"></div>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                <div class="text-right">
-                                    <p class="text-sm font-bold text-gray-700">R$ ${item.preco_total.toFixed(2)}</p>
-                                </div>
-                                <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
-                                    class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
-                            </div>
-                        </div>
-                    `;
+            <div class="flex justify-between items-start w-full">
+                <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
+                    <p class="text-[10px] text-gray-400">ID: ${item.id_interno} | Qtd: ${item.quantidade}</p> 
+                    <div class="info-comparativo"></div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-right">
+                        <p class="text-sm font-bold text-blue-700">R$ ${item.preco_unitario.toFixed(2)}</p>
+                        <p class="text-[10px] text-gray-400">Total: R$ ${item.preco_total.toFixed(2)}</p>
+                    </div>
+                    <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
+                        class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
+                </div>
+            </div>
+        `;
                     listaItens.appendChild(itemDiv);
-                    
-                    // Busca comparativo após inserir na tela
+
+                    // Mantemos a busca do comparativo inteligente
                     const compDiv = itemDiv.querySelector('.info-comparativo');
                     buscarComparativo(item.descricao, compDiv);
                 });
@@ -178,10 +183,11 @@
         }
 
         function escapeHtml(text) {
-            return text ? text.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])) : '';
+            return text ? text.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : '';
         }
 
         iniciarScanner();
     </script>
 </body>
+
 </html>
