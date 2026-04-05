@@ -124,24 +124,33 @@
         }
 
         async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
-            // ... fetch existente ...
-            if (dados.length > 0) {
-                const melhor = dados[0];
-                const mercado = melhor._id.split(' ')[0];
+            try {
+                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+                if (!response.ok) return;
 
-                // CÁLCULO COM QUANTIDADE:
-                const subtotal = melhor.menorPreco * quantidade;
+                const dados = await response.json();
 
-                if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
-                totaisPorMercado[mercado] += subtotal;
+                if (dados.length > 0) {
+                    const melhor = dados[0];
+                    const mercado = melhor._id.split(' ')[0];
 
-                elementoDestino.innerHTML = `
-            <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between italic">
-                <span>💡 ${mercado} (x${quantidade})</span>
-                <span>R$ ${subtotal.toFixed(2)}</span>
-            </div>`;
-                atualizarSomaVisual();
-            }
+                    // CÁLCULO REAL: Preço Unitário x Quantidade da Lista
+                    const qtdReal = quantidade || 1;
+                    const subtotal = melhor.menorPreco * qtdReal;
+
+                    if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
+                    totaisPorMercado[mercado] += subtotal;
+
+                    elementoDestino.innerHTML = `
+                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between italic">
+                    <span>💡 ${mercado} (x${qtdReal})</span>
+                    <span>R$ ${subtotal.toFixed(2)}</span>
+                </div>`;
+                    atualizarSomaVisual();
+                } else {
+                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico de preço</div>`;
+                }
+            } catch (e) { console.error(e); }
         }
 
         function atualizarSomaVisual() {
@@ -169,15 +178,25 @@
         }
 
         async function adicionarItemManual() {
-            const input = document.getElementById('novo-item-lista');
-            const nome = input.value.trim().toUpperCase();
+            const inputNome = document.getElementById('novo-item-lista');
+            const inputQtd = document.getElementById('qtd-item-lista'); // Pega o novo campo
+
+            const nome = inputNome.value.trim().toUpperCase();
+            const quantidade = parseFloat(inputQtd.value) || 1;
+
             if (!nome) return;
+
             await fetch('/api/GerenciarLista', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome: nome })
+                body: JSON.stringify({
+                    nome: nome,
+                    quantidade: quantidade // Envia a quantidade para a API
+                })
             });
-            input.value = '';
+
+            inputNome.value = '';
+            inputQtd.value = '1'; // Reseta para 1
             carregarLista();
         }
 
