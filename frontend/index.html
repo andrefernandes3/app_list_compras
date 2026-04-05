@@ -93,6 +93,8 @@
             videoConstraints: { facingMode: "environment" }
         });
 
+        html5QrcodeScanner.render(onScanSuccess);
+
         function renderPreview(dados) {
             const previewContainer = document.getElementById('preview-container');
             const listaItens = document.getElementById('lista-itens');
