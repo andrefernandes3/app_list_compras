@@ -228,6 +228,14 @@
             }
         }
 
+
+        async function marcarComoComprado(nome) {
+            // Por enquanto, apenas removemos da tela para dar o feedback visual
+            // No futuro, faremos um fetch para o banco atualizar o status 'comprado' para true
+            carregarLista();
+            alert(nome + " marcado como comprado!");
+        }
+
         // Chame a função ao carregar a página para a lista já aparecer
         carregarLista();
 
