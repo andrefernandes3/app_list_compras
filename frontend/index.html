@@ -197,6 +197,40 @@
             return text ? text.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : '';
         }
 
+        async function carregarLista() {
+            const listaDiv = document.getElementById('lista-ativa');
+            listaDiv.innerHTML = '<p class="text-gray-500 animate-pulse">Buscando sua lista...</p>';
+
+            try {
+                const response = await fetch('/api/GerenciarLista'); // Chama a nova rota que criamos
+                if (!response.ok) throw new Error("Erro ao carregar lista");
+
+                const itens = await response.json();
+
+                if (itens.length === 0) {
+                    listaDiv.innerHTML = '<p class="text-gray-500 italic">Sua lista está vazia.</p>';
+                    return;
+                }
+
+                listaDiv.innerHTML = ''; // Limpa o "vazio"
+
+                itens.forEach(item => {
+                    const itemElement = document.createElement('div');
+                    itemElement.className = "flex justify-between items-center bg-white p-2 rounded-lg mb-1 border border-blue-100";
+                    itemElement.innerHTML = `
+                <span class="font-medium text-blue-900">${item.item_nome}</span>
+                <button onclick="marcarComoComprado('${item.item_nome}')" class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">✓</button>
+            `;
+                    listaDiv.appendChild(itemElement);
+                });
+            } catch (err) {
+                listaDiv.innerHTML = `<p class="text-red-500 text-xs">Erro: ${err.message}</p>`;
+            }
+        }
+
+        // Chame a função ao carregar a página para a lista já aparecer
+        carregarLista();
+
         iniciarScanner();
     </script>
 </body>
