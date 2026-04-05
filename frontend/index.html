@@ -183,13 +183,24 @@
         }
 
         function vincularID(id, desc) {
-            const novoNome = prompt(`Nome para o produto "${desc}":`, desc);
+            const novoNome = prompt(`Confirmar nome para a lista de compras:`, desc);
             if (novoNome) {
+                // 1. Faz o vínculo normal que já tínhamos
                 fetch('/api/VincularProdutos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.trim() })
-                }).then(() => alert("Vinculado!")).catch(err => alert(err.message));
+                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.trim().toUpperCase() })
+                }).then(() => {
+                    // 2. ADICIONA AUTOMATICAMENTE À LISTA DE COMPRAS
+                    return fetch('/api/GerenciarLista', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nome: novoNome.trim().toUpperCase() })
+                    });
+                }).then(() => {
+                    alert("Produto vinculado e adicionado à sua lista!");
+                    carregarLista(); // Atualiza a seção azul automaticamente
+                }).catch(err => alert("Erro: " + err.message));
             }
         }
 
