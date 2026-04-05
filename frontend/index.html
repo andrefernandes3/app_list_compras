@@ -17,33 +17,37 @@
 
     <main class="p-4 max-w-md mx-auto">
 
+        <!-- Bloco da Lista de Compras (com totalizador) -->
         <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
-            <h2 class="text-blue-800 font-bold mb-2 flex justify-between italic">
-                📝 Próxima Compra
-                <button onclick="carregarLista()" class="text-[10px] underline">Sincronizar</button>
+            <h2 class="text-blue-800 font-bold mb-2 flex justify-between">
+                📝 Minha Próxima Compra
+                <button onclick="carregarLista()" class="text-xs underline text-blue-500">Atualizar</button>
             </h2>
 
-            <div class="relative mb-3">
-                <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="O que falta em casa?"
-                    class="w-full p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
-                <datalist id="sugestoes-produtos">
-                </datalist>
+            <!-- Input com datalist para sugestões -->
+            <div class="flex gap-2 mb-3">
+                <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="Ex: Detergente, Café..."
+                    class="flex-1 p-2 text-xs border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-400">
+                <datalist id="sugestoes-produtos"></datalist>
                 <button onclick="adicionarItemManual()"
-                    class="absolute right-2 top-2 bg-blue-600 text-white w-8 h-8 rounded-lg font-bold">
+                    class="bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-bold">
                     +
                 </button>
             </div>
 
+            <!-- Container da lista ativa -->
             <div id="lista-ativa" class="space-y-2 text-sm">
                 <p class="text-gray-500 italic">Sua lista está vazia.</p>
             </div>
 
-            <div id="totalizador-estimado" class="mt-4 pt-3 border-t border-blue-200 hidden">
-                <p class="text-[10px] font-bold text-blue-800 mb-1 uppercase text-center">Estimativa de Gasto Total</p>
-                <div id="mercados-soma" class="grid grid-cols-2 gap-2"></div>
+            <!-- Totalizador por mercado (inicialmente oculto) -->
+            <div id="totalizador-estimado" class="hidden mt-3">
+                <div class="text-[10px] font-semibold text-blue-700 mb-1">💰 Melhor lugar para comprar:</div>
+                <div id="mercados-soma" class="flex gap-2 overflow-x-auto pb-1"></div>
             </div>
         </div>
 
+        <!-- Entrada manual da URL da nota -->
         <div class="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="text-gray-700 font-semibold mb-2 text-sm">Já tem o link? Cole aqui:</h2>
             <div class="flex gap-2">
@@ -56,6 +60,7 @@
             </div>
         </div>
 
+        <!-- Scanner QR Code -->
         <div id="scanner-container" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="text-gray-700 font-semibold mb-3">Ou Escaneie por aqui</h2>
             <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-300"></div>
@@ -66,14 +71,17 @@
             </button>
         </div>
 
+        <!-- Status de processamento -->
         <div id="status" class="mt-4 p-4 rounded-xl hidden"></div>
 
+        <!-- Prévia da nota fiscal lida -->
         <div id="preview-container" class="mt-6 hidden">
             <div id="lista-itens"></div>
         </div>
     </main>
 
     <script>
+        // ==================== SCANNER E PROCESSAMENTO DA NOTA ====================
         let html5QrcodeScanner = null;
         let scannerAtivo = false;
 
@@ -137,6 +145,7 @@
             }
         }
 
+        // ==================== EXIBIÇÃO DA NOTA LIDA ====================
         function renderPreview(dados) {
             const previewContainer = document.getElementById('preview-container');
             const listaItens = document.getElementById('lista-itens');
@@ -149,9 +158,9 @@
             const header = document.createElement('div');
             header.className = "mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100";
             header.innerHTML = `
-        <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
-        <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
-    `;
+                <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
+                <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
+            `;
             listaItens.appendChild(header);
 
             if (dados.itens && dados.itens.length > 0) {
@@ -159,22 +168,22 @@
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "flex flex-col p-3 bg-white border-b border-gray-100";
                     itemDiv.innerHTML = `
-                <div class="flex justify-between items-start w-full">
-                    <div class="flex-1">
-                        <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
-                        <p class="text-[10px] text-gray-400">ID: ${item.id_interno} | Qtd: ${item.quantidade}</p> 
-                        <div class="info-comparativo"></div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <div class="text-right">
-                            <p class="text-sm font-bold text-blue-700">R$ ${item.preco_unitario.toFixed(2)}</p>
-                            <p class="text-[10px] text-gray-400">Total: R$ ${item.preco_total.toFixed(2)}</p>
+                        <div class="flex justify-between items-start w-full">
+                            <div class="flex-1">
+                                <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
+                                <p class="text-[10px] text-gray-400">ID: ${item.id_interno} | Qtd: ${item.quantidade}</p> 
+                                <div class="info-comparativo"></div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="text-right">
+                                    <p class="text-sm font-bold text-blue-700">R$ ${item.preco_unitario.toFixed(2)}</p>
+                                    <p class="text-[10px] text-gray-400">Total: R$ ${item.preco_total.toFixed(2)}</p>
+                                </div>
+                                <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
+                                    class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
+                            </div>
                         </div>
-                        <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
-                            class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
-                    </div>
-                </div>
-            `;
+                    `;
                     listaItens.appendChild(itemDiv);
                     const compDiv = itemDiv.querySelector('.info-comparativo');
                     buscarComparativo(item.descricao, compDiv);
@@ -182,21 +191,12 @@
             }
         }
 
-        async function buscarComparativo(nomeProduto, elementoDestino) {
-            try {
-                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
-                if (!response.ok) return;
-                const dados = await response.json();
-                if (dados.length > 0) {
-                    const melhor = dados[0];
-                    elementoDestino.innerHTML = `
-                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100">
-                    💡 Melhor preço: R$ ${melhor.menorPreco.toFixed(2)} no ${melhor._id.split(' ')[0]}
-                </div>`;
-                }
-            } catch (err) { console.error(err); }
+        // ==================== FUNÇÕES AUXILIARES ====================
+        function escapeHtml(text) {
+            return text ? text.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : '';
         }
 
+        // ==================== VÍNCULO DE PRODUTOS ====================
         function vincularID(id, desc) {
             const novoNome = prompt(`Confirmar nome para a lista de compras:`, desc);
             if (novoNome) {
@@ -213,15 +213,26 @@
                 }).then(() => {
                     alert("Produto vinculado e adicionado à sua lista!");
                     carregarLista();
+                    carregarSugestoes();  // atualiza as sugestões
                 }).catch(err => alert("Erro: " + err.message));
             }
         }
 
-        function escapeHtml(text) {
-            return text ? text.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : '';
+        // ==================== LISTA DE COMPRAS (INTEGRAÇÃO COMPLETA) ====================
+        let totaisPorMercado = {};
+
+        // Busca sugestões dos produtos já vinculados
+        async function carregarSugestoes() {
+            try {
+                const response = await fetch('/api/VincularProdutos');
+                const produtos = await response.json();
+                const datalist = document.getElementById('sugestoes-produtos');
+                const nomesUnicos = [...new Set(produtos.map(p => p.nomePadrao))];
+                datalist.innerHTML = nomesUnicos.map(nome => `<option value="${nome}">`).join('');
+            } catch (e) { console.error("Erro sugestões:", e); }
         }
 
-        // ========== FUNÇÕES GLOBAIS DA LISTA DE COMPRAS ==========
+        // Adiciona item manualmente à lista
         async function adicionarItemManual() {
             const input = document.getElementById('novo-item-lista');
             const nome = input.value.trim();
@@ -243,80 +254,104 @@
             }
         }
 
-        // 1. Busca os nomes que você já vinculou para sugerir no input
-        async function carregarSugestoes() {
-            try {
-                const response = await fetch('/api/VincularProdutos'); // Reaproveitamos a rota de vínculos
-                const produtos = await response.json();
-                const datalist = document.getElementById('sugestoes-produtos');
-
-                // Pega apenas os nomes únicos do dicionário
-                const nomesUnicos = [...new Set(produtos.map(p => p.nomePadrao))];
-                datalist.innerHTML = nomesUnicos.map(nome => `<option value="${nome}">`).join('');
-            } catch (e) { console.error("Erro sugestões:", e); }
-        }
-
-        // 2. Corrigindo o feedback visual de "Comprado"
+        // Marca item como comprado (strikethrough + PATCH no backend)
         async function marcarComoComprado(nome) {
-            const itemEstilo = document.getElementById(`item-nome-${nome.replace(/\s+/g, '-')}`);
-            if (itemEstilo) {
-                itemEstilo.classList.add('line-through', 'text-gray-400');
-            }
+            const idFormatado = nome.replace(/\s+/g, '-');
+            const itemNomeSpan = document.getElementById(`item-nome-${idFormatado}`);
+            if (itemNomeSpan) itemNomeSpan.classList.add('line-through', 'text-gray-400');
 
             try {
-                // Aqui chamamos a API para mudar o status no MongoDB
                 await fetch('/api/GerenciarLista', {
-                    method: 'PATCH', // Ou POST com um campo 'acao: concluir'
+                    method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ nome: nome, comprado: true })
                 });
-
-                setTimeout(carregarLista, 1000); // Recarrega após 1 segundo para limpar a tela
-            } catch (e) { alert("Erro ao baixar item"); }
+                setTimeout(carregarLista, 800);
+            } catch (e) {
+                console.error("Erro ao salvar status:", e);
+            }
         }
 
-        // 3. Atualizando a renderização da lista com ID para o estilo
+        // Busca o menor preço para o produto e acumula nos totais por mercado
+        async function buscarComparativo(nomeProduto, elementoDestino) {
+            try {
+                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+                if (!response.ok) return;
+                const dados = await response.json();
+                if (dados.length > 0) {
+                    const melhor = dados[0];
+                    const nomeMercado = melhor._id.split(' ')[0]; // Ex: "CARREFOUR"
+                    if (!totaisPorMercado[nomeMercado]) totaisPorMercado[nomeMercado] = 0;
+                    totaisPorMercado[nomeMercado] += melhor.menorPreco;
+
+                    elementoDestino.innerHTML = `
+                        <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100 flex justify-between">
+                            <span>💡 ${nomeMercado}</span>
+                            <span>R$ ${melhor.menorPreco.toFixed(2)}</span>
+                        </div>`;
+                    atualizarSomaVisual();
+                } else {
+                    elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">Sem histórico de preço</div>`;
+                }
+            } catch (err) { console.error(err); }
+        }
+
+        // Atualiza o totalizador de melhor mercado no rodapé azul
+        function atualizarSomaVisual() {
+            const containerSoma = document.getElementById('mercados-soma');
+            const containerPai = document.getElementById('totalizador-estimado');
+            if (Object.keys(totaisPorMercado).length === 0) return;
+            containerPai.classList.remove('hidden');
+            containerSoma.innerHTML = '';
+            const mercadosOrdenados = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
+            mercadosOrdenados.forEach(([mercado, valor], index) => {
+                const cor = index === 0 ? 'text-green-600 font-bold' : 'text-gray-600';
+                const icone = index === 0 ? '🟢' : '⚪';
+                containerSoma.innerHTML += `
+                    <div class="bg-white p-2 rounded shadow-sm border border-blue-100 text-center min-w-[80px]">
+                        <p class="text-[8px] uppercase text-gray-400">${mercado}</p>
+                        <p class="text-xs ${cor}">${icone} R$ ${valor.toFixed(2)}</p>
+                    </div>
+                `;
+            });
+        }
+
+        // Carrega a lista de compras (itens ainda não comprados)
         async function carregarLista() {
+            totaisPorMercado = {};  // reseta soma ao recarregar
             const listaDiv = document.getElementById('lista-ativa');
-            listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Atualizando preços...</p>';
+            listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
             try {
                 const response = await fetch('/api/GerenciarLista');
                 const itens = await response.json();
 
                 if (itens.length === 0) {
-                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center">Tudo pronto!</p>';
+                    listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo comprado! 🎉</p>';
                     document.getElementById('totalizador-estimado').classList.add('hidden');
                     return;
                 }
 
                 listaDiv.innerHTML = '';
-                document.getElementById('totalizador-estimado').classList.remove('hidden');
-
                 itens.forEach(item => {
                     const idFormatado = item.item_nome.replace(/\s+/g, '-');
                     const itemElement = document.createElement('div');
-                    itemElement.className = "flex flex-col bg-white p-3 rounded-xl border border-blue-50 shadow-sm";
+                    itemElement.className = "flex flex-col bg-white p-3 rounded-xl border border-blue-50 shadow-sm mb-2";
                     itemElement.innerHTML = `
-                <div class="flex justify-between items-center">
-                    <span id="item-nome-${idFormatado}" class="font-bold text-gray-700">${item.item_nome}</span>
-                    <button onclick="marcarComoComprado('${item.item_nome}')" class="text-xl">✅</button>
-                </div>
-                <div id="preco-lista-${idFormatado}" class="text-[10px] text-blue-500 mt-1 font-medium">Buscando economia...</div>
-            `;
+                        <div class="flex justify-between items-center">
+                            <span id="item-nome-${idFormatado}" class="font-bold text-gray-700 uppercase text-xs">${escapeHtml(item.item_nome)}</span>
+                            <button onclick="marcarComoComprado('${escapeHtml(item.item_nome)}')" class="bg-gray-50 hover:bg-green-100 p-1 rounded-full transition-colors">✅</button>
+                        </div>
+                        <div id="preco-lista-${idFormatado}" class="mt-1"></div>
+                    `;
                     listaDiv.appendChild(itemElement);
-
-                    // Chama o comparativo que já temos
                     buscarComparativo(item.item_nome, document.getElementById(`preco-lista-${idFormatado}`));
                 });
             } catch (err) { console.error(err); }
         }
 
-        // Inicia tudo
+        // ==================== INICIALIZAÇÃO ====================
         carregarSugestoes();
-        carregarLista();
-
-        // Inicialização
         carregarLista();
         iniciarScanner();
     </script>
