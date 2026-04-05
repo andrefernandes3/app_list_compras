@@ -89,7 +89,8 @@
         const html5QrcodeScanner = new Html5QrcodeScanner("reader", {
             fps: 10,
             qrbox: 250,
-            videoConstraints: { facingMode: { exact: "environment" } }
+            // Removendo o 'exact' para funcionar tanto no PC quanto no Celular
+            videoConstraints: { facingMode: "environment" }
         });
 
         function renderPreview(dados) {
