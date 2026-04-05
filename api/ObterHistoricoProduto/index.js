@@ -3,26 +3,35 @@ const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
 module.exports = async function (context, req) {
-    const idInterno = req.query.id; // Ex: /api/ObterHistoricoProduto?id=789...
+    const nomeComum = req.query.nome; // Agora buscamos pelo Nome do Dicionário
 
-    if (!idInterno) {
-        context.res = { status: 400, body: "ID do produto necessário." };
+    if (!nomeComum) {
+        context.res = { status: 400, body: "Nome do produto necessário." };
         return;
     }
 
     try {
         await client.connect();
         const db = client.db('app_compras');
-        const colecao = db.collection('historico_precos');
+        
+        // 1. Pega os IDs vinculados a este nome no dicionário
+        const vinculo = await db.collection('dicionario_produtos').findOne({ 
+            nome_comum: nomeComum.toUpperCase() 
+        });
+        
+        if (!vinculo) {
+            context.res = { status: 404, body: "Produto não catalogado." };
+            return;
+        }
 
-        // Busca todas as notas que contêm esse produto
-        const historico = await colecao.aggregate([
+        // 2. Busca o histórico de todos esses IDs para montar o gráfico
+        const historico = await db.collection('historico_precos').aggregate([
             { $unwind: "$itens" },
-            { $match: { "itens.id_interno": idInterno } },
-            { $sort: { "data_compra": -1 } },
+            { $match: { "itens.id_interno": { $in: vinculo.ids_vinculados } } },
+            { $sort: { "data_compra": 1 } }, // Ordem cronológica para o gráfico
             { $project: { 
-                estabelecimento: 1, 
-                data_compra: 1, 
+                mercado: "$estabelecimento", 
+                data: "$data_compra", 
                 preco: "$itens.preco_unitario" 
             }}
         ]).toArray();

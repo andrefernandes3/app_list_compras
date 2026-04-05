@@ -7,6 +7,7 @@
     <title>Minha Lista Inteligente - Osasco</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body class="bg-gray-50 font-sans">
@@ -313,7 +314,46 @@
         }
 
         function escapeHtml(t) { return t ? t.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : ''; }
+        async function abrirGrafico(nome) {
+            // Cria um modal simples ou área para o gráfico
+            let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center">
+        <div class="bg-white rounded-2xl p-4 w-full max-w-lg">
+            <div class="flex justify-between mb-4">
+                <h3 class="text-xs font-bold uppercase">${nome}</h3>
+                <button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold">X</button>
+            </div>
+            <canvas id="meuGrafico"></canvas>
+        </div>
+    </div>`;
+            document.body.insertAdjacentHTML('beforeend', canvasHtml);
 
+            const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+            const dados = await response.json();
+
+            const ctx = document.getElementById('meuGrafico').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
+                    datasets: [{
+                        label: 'Preço Unitário (R$)',
+                        data: dados.map(d => d.preco),
+                        borderColor: '#2563eb',
+                        tension: 0.1,
+                        pointBackgroundColor: dados.map(d => d.mercado.includes('WMS') ? '#f59e0b' : '#ef4444')
+                    }]
+                },
+                options: {
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: (context) => `Mercado: ${dados[context.dataIndex].mercado}`
+                            }
+                        }
+                    }
+                }
+            });
+        }
         carregarLista();
     </script>
 </body>
