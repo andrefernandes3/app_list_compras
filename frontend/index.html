@@ -20,8 +20,18 @@
         <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
             <h2 class="text-blue-800 font-bold mb-2 flex justify-between">
                 📝 Minha Próxima Compra
-                <button onclick="carregarLista()" class="text-xs underline">Atualizar</button>
+                <button onclick="carregarLista()" class="text-xs underline text-blue-500">Atualizar</button>
             </h2>
+
+            <div class="flex gap-2 mb-3">
+                <input type="text" id="novo-item-lista" placeholder="Ex: Detergente, Café..."
+                    class="flex-1 p-2 text-xs border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-400">
+                <button onclick="adicionarItemManual()"
+                    class="bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-bold">
+                    +
+                </button>
+            </div>
+
             <div id="lista-ativa" class="space-y-2 text-sm">
                 <p class="text-gray-500 italic">Sua lista está vazia.</p>
             </div>
@@ -132,9 +142,9 @@
             const header = document.createElement('div');
             header.className = "mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100";
             header.innerHTML = `
-                <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
-                <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
-            `;
+        <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
+        <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
+    `;
             listaItens.appendChild(header);
 
             if (dados.itens && dados.itens.length > 0) {
@@ -142,25 +152,23 @@
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "flex flex-col p-3 bg-white border-b border-gray-100";
                     itemDiv.innerHTML = `
-            <div class="flex justify-between items-start w-full">
-                <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
-                    <p class="text-[10px] text-gray-400">ID: ${item.id_interno} | Qtd: ${item.quantidade}</p> 
-                    <div class="info-comparativo"></div>
-                </div>
-                <div class="flex items-center gap-3">
-                    <div class="text-right">
-                        <p class="text-sm font-bold text-blue-700">R$ ${item.preco_unitario.toFixed(2)}</p>
-                        <p class="text-[10px] text-gray-400">Total: R$ ${item.preco_total.toFixed(2)}</p>
+                <div class="flex justify-between items-start w-full">
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
+                        <p class="text-[10px] text-gray-400">ID: ${item.id_interno} | Qtd: ${item.quantidade}</p> 
+                        <div class="info-comparativo"></div>
                     </div>
-                    <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
-                        class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
+                    <div class="flex items-center gap-3">
+                        <div class="text-right">
+                            <p class="text-sm font-bold text-blue-700">R$ ${item.preco_unitario.toFixed(2)}</p>
+                            <p class="text-[10px] text-gray-400">Total: R$ ${item.preco_total.toFixed(2)}</p>
+                        </div>
+                        <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
+                            class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
                     listaItens.appendChild(itemDiv);
-
-                    // Mantemos a busca do comparativo inteligente
                     const compDiv = itemDiv.querySelector('.info-comparativo');
                     buscarComparativo(item.descricao, compDiv);
                 });
@@ -175,9 +183,9 @@
                 if (dados.length > 0) {
                     const melhor = dados[0];
                     elementoDestino.innerHTML = `
-                        <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100">
-                            💡 Melhor preço: R$ ${melhor.menorPreco.toFixed(2)} no ${melhor._id.split(' ')[0]}
-                        </div>`;
+                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100">
+                    💡 Melhor preço: R$ ${melhor.menorPreco.toFixed(2)} no ${melhor._id.split(' ')[0]}
+                </div>`;
                 }
             } catch (err) { console.error(err); }
         }
@@ -185,13 +193,11 @@
         function vincularID(id, desc) {
             const novoNome = prompt(`Confirmar nome para a lista de compras:`, desc);
             if (novoNome) {
-                // 1. Faz o vínculo normal que já tínhamos
                 fetch('/api/VincularProdutos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.trim().toUpperCase() })
                 }).then(() => {
-                    // 2. ADICIONA AUTOMATICAMENTE À LISTA DE COMPRAS
                     return fetch('/api/GerenciarLista', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -199,7 +205,7 @@
                     });
                 }).then(() => {
                     alert("Produto vinculado e adicionado à sua lista!");
-                    carregarLista(); // Atualiza a seção azul automaticamente
+                    carregarLista();
                 }).catch(err => alert("Erro: " + err.message));
             }
         }
@@ -208,48 +214,70 @@
             return text ? text.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : '';
         }
 
-        async function carregarLista() {
-            const listaDiv = document.getElementById('lista-ativa');
-            listaDiv.innerHTML = '<p class="text-gray-500 animate-pulse">Buscando sua lista...</p>';
-
+        // ========== FUNÇÕES GLOBAIS DA LISTA DE COMPRAS ==========
+        async function adicionarItemManual() {
+            const input = document.getElementById('novo-item-lista');
+            const nome = input.value.trim();
+            if (!nome) return;
             try {
-                const response = await fetch('/api/GerenciarLista'); // Chama a nova rota que criamos
-                if (!response.ok) throw new Error("Erro ao carregar lista");
-
-                const itens = await response.json();
-
-                if (itens.length === 0) {
-                    listaDiv.innerHTML = '<p class="text-gray-500 italic">Sua lista está vazia.</p>';
-                    return;
-                }
-
-                listaDiv.innerHTML = ''; // Limpa o "vazio"
-
-                itens.forEach(item => {
-                    const itemElement = document.createElement('div');
-                    itemElement.className = "flex justify-between items-center bg-white p-2 rounded-lg mb-1 border border-blue-100";
-                    itemElement.innerHTML = `
-                <span class="font-medium text-blue-900">${item.item_nome}</span>
-                <button onclick="marcarComoComprado('${item.item_nome}')" class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">✓</button>
-            `;
-                    listaDiv.appendChild(itemElement);
+                const response = await fetch('/api/GerenciarLista', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nome: nome.toUpperCase() })
                 });
+                if (response.ok) {
+                    input.value = '';
+                    carregarLista();
+                } else {
+                    alert("Erro ao adicionar item.");
+                }
             } catch (err) {
-                listaDiv.innerHTML = `<p class="text-red-500 text-xs">Erro: ${err.message}</p>`;
+                console.error(err);
             }
         }
 
-
         async function marcarComoComprado(nome) {
-            // Por enquanto, apenas removemos da tela para dar o feedback visual
-            // No futuro, faremos um fetch para o banco atualizar o status 'comprado' para true
+            // Por enquanto, apenas recarrega a lista e mostra alerta (como no original)
+            // Futuro: fazer fetch para atualizar status 'comprado'
             carregarLista();
             alert(nome + " marcado como comprado!");
         }
 
-        // Chame a função ao carregar a página para a lista já aparecer
-        carregarLista();
+        async function carregarLista() {
+            const listaDiv = document.getElementById('lista-ativa');
+            listaDiv.innerHTML = '<p class="text-gray-500 animate-pulse">Buscando sua lista...</p>';
+            try {
+                const response = await fetch('/api/GerenciarLista');
+                if (!response.ok) throw new Error("Erro ao carregar lista");
+                const itens = await response.json();
+                if (itens.length === 0) {
+                    listaDiv.innerHTML = '<p class="text-gray-500 italic">Sua lista está vazia.</p>';
+                    return;
+                }
+                listaDiv.innerHTML = '';
+                itens.forEach(async (item) => {
+                    const itemElement = document.createElement('div');
+                    itemElement.className = "flex flex-col bg-white p-2 rounded-lg mb-1 border border-blue-100";
+                    const precoId = `preco-lista-${item.item_nome.replace(/\s+/g, '-')}`;
+                    itemElement.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <span class="font-medium text-blue-900">${escapeHtml(item.item_nome)}</span>
+                    <button onclick="marcarComoComprado('${escapeHtml(item.item_nome)}')" class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">✓</button>
+                </div>
+                <div id="${precoId}" class="text-[9px] text-gray-500 mt-1 italic">Buscando melhor preço...</div>
+            `;
+                    listaDiv.appendChild(itemElement);
+                    const containerPreco = document.getElementById(precoId);
+                    buscarComparativo(item.item_nome, containerPreco);
+                });
+            } catch (err) {
+                console.error(err);
+                listaDiv.innerHTML = '<p class="text-red-500">Erro ao carregar lista.</p>';
+            }
+        }
 
+        // Inicialização
+        carregarLista();
         iniciarScanner();
     </script>
 </body>
