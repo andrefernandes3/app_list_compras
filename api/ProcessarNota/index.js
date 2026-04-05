@@ -2,10 +2,21 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { MongoClient } = require('mongodb');
 
-const uri = process.env["MONGODB_URI"]; 
+const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
 module.exports = async function (context, req) {
+
+    // Adiciona isto no topo do teu api/ProcessarNota/index.js
+    function limparTexto(texto) {
+        return texto
+            .toUpperCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
+            .trim();
+    }
+
+    // No momento de criar o item para o banco:
+    const descricaoPadrao = limparTexto(descricao);
     const urlNota = req.body && req.body.url;
 
     if (!urlNota) {
@@ -26,7 +37,7 @@ module.exports = async function (context, req) {
         // Busca o CNPJ no texto, removendo tudo que não é número
         const cnpjBruto = $('.text').text().match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
         const cnpj = cnpjBruto ? cnpjBruto[0] : "00.000.000/0000-00";
-        
+
         // Extração da data de emissão
         const infoGeral = $('.txtCenter').text();
         const dataMatch = infoGeral.match(/(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2})/);
@@ -37,7 +48,7 @@ module.exports = async function (context, req) {
             const linha = $(el);
             const texto = linha.text().replace(/\s+/g, ' ');
             const descricao = linha.find('.txtTit').text().split('\n')[0].trim();
-            
+
             if (descricao) {
                 const vTotalItem = parseFloat(linha.find('.valor').text().replace(',', '.')) || 0;
                 itens.push({
@@ -53,15 +64,15 @@ module.exports = async function (context, req) {
 
         // --- LÓGICA DE VALOR TOTAL ROBUSTA ---
         // 1. Tenta pegar o valor bruto do campo da SEFAZ
-        let valorTotalNota = parseFloat($('.totalNFe').text().replace(',', '.')) || 
-                             parseFloat($('.txtMax').text().replace(',', '.')) || 0;
+        let valorTotalNota = parseFloat($('.totalNFe').text().replace(',', '.')) ||
+            parseFloat($('.txtMax').text().replace(',', '.')) || 0;
 
         // 2. Fallback: Se o scraper falhou no campo total, somamos os itens
         if (valorTotalNota === 0 && itens.length > 0) {
             valorTotalNota = itens.reduce((acc, item) => acc + item.preco_total, 0);
         }
 
-       // ... (toda a lógica de extração que já validamos)
+        // ... (toda a lógica de extração que já validamos)
 
         const documento = {
             estabelecimento: nomeEstabelecimento,
@@ -79,8 +90,8 @@ module.exports = async function (context, req) {
         context.res = {
             status: 200,
             headers: { "Content-Type": "application/json" },
-            body: { 
-                message: "Nota processada!", 
+            body: {
+                message: "Nota processada!",
                 id: resultado.insertedId,
                 dados: documento // O Frontend vai ler isso aqui
             }
