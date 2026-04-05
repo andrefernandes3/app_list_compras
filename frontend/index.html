@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
@@ -7,6 +8,7 @@
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-50 font-sans">
 
     <nav class="bg-blue-600 p-4 text-white shadow-lg">
@@ -18,13 +20,15 @@
         <div class="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="text-gray-700 font-semibold mb-2 text-sm">Já tem o link? Cole aqui:</h2>
             <div class="flex gap-2">
-                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..." 
+                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
                     class="flex-1 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                <button onclick="processarUrlManual()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
+                <button onclick="processarUrlManual()"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
                     Ir
                 </button>
             </div>
-            <p class="text-[10px] text-gray-400 mt-2 italic">* Use o Google Lens ou a câmera nativa para copiar o link mais rápido.</p>
+            <p class="text-[10px] text-gray-400 mt-2 italic">* Use o Google Lens ou a câmera nativa para copiar o link
+                mais rápido.</p>
         </div>
 
         <!-- Scanner QR Code -->
@@ -91,24 +95,24 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: url })
             })
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
-                statusDiv.innerText = "✅ Nota lida com sucesso!";
-                renderPreview(data.dados);   // data.dados contém os itens + total_nota
-            })
-            .catch(err => {
-                statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
-                statusDiv.innerText = "❌ Erro: " + err.message;
-                console.error(err);
-                // Opção: reativar scanner após erro
-                setTimeout(() => {
-                    if (!scannerAtivo) iniciarScanner();
-                }, 2000);
-            });
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
+                    statusDiv.innerText = "✅ Nota lida com sucesso!";
+                    renderPreview(data.dados);   // data.dados contém os itens + total_nota
+                })
+                .catch(err => {
+                    statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
+                    statusDiv.innerText = "❌ Erro: " + err.message;
+                    console.error(err);
+                    // Opção: reativar scanner após erro
+                    setTimeout(() => {
+                        if (!scannerAtivo) iniciarScanner();
+                    }, 2000);
+                });
         }
 
         // Função para o botão "Ir" (URL manual)
@@ -157,60 +161,55 @@
             fileInput.value = '';
         });
 
-        // ==================== RENDERIZAR LISTA DE COMPRAS ====================
         function renderPreview(dados) {
             const previewContainer = document.getElementById('preview-container');
             const listaItens = document.getElementById('lista-itens');
 
-            if (!listaItens) {
-                console.error("Elemento #lista-itens não encontrado!");
-                return;
-            }
+            if (!listaItens) return;
 
-            // Limpa e exibe o container
             listaItens.innerHTML = '';
             previewContainer.classList.remove('hidden');
 
-            // Cabeçalho com estabelecimento e total (usando 'total_nota' do backend)
-            const total = dados.total_nota !== undefined ? dados.total_nota : 0;
+            // CORREÇÃO: Verifica os dois nomes possíveis (valor_total ou total_nota)
+            const totalExibicao = dados.valor_total || dados.total_nota || 0;
+
             const header = document.createElement('div');
             header.className = "mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100";
             header.innerHTML = `
-                <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
-                <p class="text-xs text-blue-600">Total: R$ ${total.toFixed(2)}</p>
-            `;
+        <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
+        <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
+    `;
             listaItens.appendChild(header);
 
-            // Lista de itens
             if (dados.itens && dados.itens.length > 0) {
                 dados.itens.forEach(item => {
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "flex justify-between items-center p-3 bg-white border-b border-gray-100 last:border-0";
                     itemDiv.innerHTML = `
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
-                            <p class="text-xs text-gray-500">${item.quantidade}x R$ ${item.preco_unitario.toFixed(2)}</p>
-                        </div>
-                        <div class="text-sm font-bold text-gray-700">
-                            R$ ${item.preco_total.toFixed(2)}
-                        </div>
-                    `;
+                <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
+                    <p class="text-xs text-gray-500">${item.quantidade}x R$ ${item.preco_unitario.toFixed(2)}</p>
+                </div>
+                <div class="text-sm font-bold text-gray-700">
+                    R$ ${item.preco_total.toFixed(2)}
+                </div>
+            `;
                     listaItens.appendChild(itemDiv);
                 });
             } else {
                 listaItens.innerHTML += '<p class="text-gray-500 text-center p-4">Nenhum item encontrado.</p>';
             }
         }
-
+        
         // Função auxiliar para evitar XSS
         function escapeHtml(text) {
             if (!text) return '';
-            return text.replace(/[&<>]/g, function(m) {
+            return text.replace(/[&<>]/g, function (m) {
                 if (m === '&') return '&amp;';
                 if (m === '<') return '&lt;';
                 if (m === '>') return '&gt;';
                 return m;
-            }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(c) {
+            }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function (c) {
                 return c;
             });
         }
@@ -219,7 +218,7 @@
         iniciarScanner();
 
         // Opcional: permitir reiniciar scanner manualmente (ex: após erro)
-        window.restartScanner = function() {
+        window.restartScanner = function () {
             if (html5QrcodeScanner) {
                 html5QrcodeScanner.clear().then(() => iniciarScanner()).catch(console.warn);
             } else {
@@ -228,4 +227,5 @@
         };
     </script>
 </body>
+
 </html>
