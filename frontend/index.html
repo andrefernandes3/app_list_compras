@@ -15,6 +15,21 @@
         <h1 class="text-xl font-bold">🛒 Minha Lista Inteligente</h1>
     </nav>
 
+    <div class="flex border-b border-gray-200 bg-white">
+        <button onclick="alternarAba('lista')" id="btn-aba-lista"
+            class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">🛒 Lista</button>
+        <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
+            class="flex-1 py-3 text-sm font-bold text-gray-500">📖 Dicionário</button>
+    </div>
+
+    <div id="secao-lista">
+    </div>
+
+    <div id="secao-dicionario" class="hidden p-4">
+        <h2 class="text-gray-700 font-bold mb-4 italic">Produtos Catalogados</h2>
+        <div id="lista-dicionario" class="space-y-2"></div>
+    </div>
+
     <main class="p-4 max-w-md mx-auto">
 
         <!-- Bloco da Lista de Compras (com totalizador) -->
@@ -198,24 +213,25 @@
 
         // ==================== VÍNCULO DE PRODUTOS ====================
         function vincularID(id, desc) {
-            const novoNome = prompt(`Confirmar nome para a lista de compras:`, desc);
-            if (novoNome) {
-                fetch('/api/VincularProdutos', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.trim().toUpperCase() })
-                }).then(() => {
-                    return fetch('/api/GerenciarLista', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ nome: novoNome.trim().toUpperCase() })
-                    });
-                }).then(() => {
-                    alert("Produto vinculado e adicionado à sua lista!");
-                    carregarLista();
-                    carregarSugestoes();  // atualiza as sugestões
-                }).catch(err => alert("Erro: " + err.message));
-            }
+            const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
+            if (!novoNome) return;
+
+            const categoria = prompt(`Qual a categoria? (Ex: PADARIA, FRIOS, LIMPEZA, BEBIDAS)`, "OUTROS");
+
+            fetch('/api/VincularProdutos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    idPrincipal: id,
+                    nomePadrao: novoNome.trim().toUpperCase(),
+                    categoria: categoria.trim().toUpperCase()
+                })
+            }).then(() => {
+                alert("Produto catalogado com categoria!");
+                if (confirm("Adicionar à lista de compras agora?")) {
+                    adicionarDiretoALista(novoNome.trim().toUpperCase());
+                }
+            });
         }
 
         // ==================== LISTA DE COMPRAS (INTEGRAÇÃO COMPLETA) ====================
@@ -360,6 +376,64 @@
                     buscarComparativo(item.item_nome, document.getElementById(`preco-lista-${idFormatado}`));
                 });
             } catch (err) { console.error(err); }
+        }
+
+        function alternarAba(aba) {
+            const isLista = aba === 'lista';
+            document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
+            document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
+
+            // Estilo dos botões
+            document.getElementById('btn-aba-lista').className = isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
+            document.getElementById('btn-aba-dict').className = !isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
+
+            if (!isLista) renderizarDicionario();
+        }
+
+        async function renderizarDicionario() {
+            const container = document.getElementById('lista-dicionario');
+            container.innerHTML = '<p class="text-center text-gray-400 animate-pulse">Carregando categorias...</p>';
+
+            try {
+                const response = await fetch('/api/VincularProdutos');
+                const produtos = await response.json();
+
+                // Agrupar produtos por categoria para visualização organizada
+                const categorias = {};
+                produtos.forEach(p => {
+                    const cat = p.categoria || "OUTROS";
+                    if (!categorias[cat]) categorias[cat] = [];
+                    categorias[cat].push(p);
+                });
+
+                container.innerHTML = '';
+                for (const [cat, itens] of Object.entries(categorias)) {
+                    const section = document.createElement('div');
+                    section.className = "mb-4";
+                    section.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest">${cat}</h3>`;
+
+                    itens.forEach(prod => {
+                        section.innerHTML += `
+                    <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center mb-1">
+                        <div class="flex-1">
+                            <p class="text-xs font-bold text-gray-800 uppercase">${prod.nome_comum}</p>
+                            <p class="text-[8px] text-gray-400">${prod.ids_vinculados.length} IDs vinculados</p>
+                        </div>
+                        <button onclick="adicionarDiretoALista('${prod.nome_comum}')" class="bg-green-50 text-green-600 p-2 rounded-lg text-xs">🛒+</button>
+                    </div>`;
+                    });
+                    container.appendChild(section);
+                }
+            } catch (e) { container.innerHTML = "Erro ao carregar dicionário."; }
+        }
+
+        async function adicionarDiretoALista(nome) {
+            await fetch('/api/GerenciarLista', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome })
+            });
+            alert(`${nome} adicionado à sua próxima compra!`);
         }
 
         // ==================== INICIALIZAÇÃO ====================

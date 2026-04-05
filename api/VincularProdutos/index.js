@@ -3,7 +3,7 @@ const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
 module.exports = async function (context, req) {
-    const { idPrincipal, nomePadrao } = req.body;
+    const { idPrincipal, nomePadrao, categoria } = req.body; // categoria pode vir ou não
 
     if (!idPrincipal || !nomePadrao) {
         context.res = { status: 400, body: "Dados incompletos para vínculo." };
@@ -15,12 +15,24 @@ module.exports = async function (context, req) {
         const db = client.db('app_compras');
         const colecao = db.collection('dicionario_produtos');
 
-        // $addToSet garante que o ID entra no array mas não se repete
+        // Objeto com os campos que sempre serão atualizados
+        const updateFields = {
+            ultima_atualizacao: new Date()
+        };
+
+        // Se a categoria foi enviada, adiciona ao update
+        if (categoria) {
+            updateFields.categoria = categoria;
+        } else {
+            // Opcional: se quiser um valor padrão quando não enviado, descomente a linha abaixo
+            // updateFields.categoria = "OUTROS";
+        }
+
         await colecao.updateOne(
             { nome_comum: nomePadrao.toUpperCase() },
             {
                 $addToSet: { ids_vinculados: idPrincipal },
-                $set: { ultima_atualizacao: new Date() }
+                $set: updateFields
             },
             { upsert: true }
         );
