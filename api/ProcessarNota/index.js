@@ -40,33 +40,43 @@ module.exports = async function (context, req) {
         const dataCompra = dataMatch ? new Date(dataMatch[0].split(' ').reverse().join(' ')) : new Date();
 
         const itens = [];
-        $('tr[id^="Item"]').each((i, el) => {
+        // Usamos um loop for...of para permitir o uso de 'await' dentro da iteração
+        const linhasItens = $('tr[id^="Item"]').get();
+
+        for (const el of linhasItens) {
             const linha = $(el);
             const texto = linha.text().replace(/\s+/g, ' ');
-            
-            // 2. Pegamos a descrição original primeiro
+
+            // 1. Pegamos a descrição original e o ID da nota
             const descricaoBruta = linha.find('.txtTit').text().split('\n')[0].trim();
+            const idInterno = (texto.match(/Código:\s*([A-Z0-9]+)/i) || [])[1] || "N/A";
 
             if (descricaoBruta) {
-                // 3. AGORA SIM, usamos a função limparTexto com a variável correta
-                const descricaoFinal = limparTexto(descricaoBruta);
-                
+                // 2. BUSCA NO DICIONÁRIO: Verifica se este ID está vinculado a um nome comum
+                const vinculo = await db.collection('dicionario_produtos').findOne({
+                    ids_vinculados: idInterno
+                });
+
+                // 3. DEFINIÇÃO DO NOME: Se achou no dicionário, usa o seu nome. 
+                // Se não achou, usa o limparTexto na descrição da nota.
+                const descricaoFinal = vinculo ? vinculo.nome_comum : limparTexto(descricaoBruta);
+
                 const vTotalItem = parseFloat(linha.find('.valor').text().replace(',', '.')) || 0;
-                
+
                 itens.push({
-                    descricao: descricaoFinal, // Salva o nome limpo
-                    descricao_original: descricaoBruta, // Mantém o original para referência
-                    id_interno: (texto.match(/Código:\s*([A-Z0-9]+)/i) || [])[1] || "N/A",
+                    descricao: descricaoFinal, // Nome padronizado ou limpo
+                    descricao_original: descricaoBruta, // Original da nota para referência
+                    id_interno: idInterno,
                     quantidade: parseFloat((texto.match(/Qtde\.:\s*([\d,.]+)/i) || [])[1]?.replace(',', '.') || "0"),
                     unidade: (texto.match(/UN:\s*([A-Z]+)/i) || [])[1] || "UN",
                     preco_unitario: parseFloat((texto.match(/Vl\.\s*Unit\.:\s*([\d,.]+)/i) || [])[1]?.replace(',', '.') || "0"),
                     preco_total: vTotalItem
                 });
             }
-        });
+        }
 
         let valorTotalNota = parseFloat($('.totalNFe').text().replace(',', '.')) ||
-                             parseFloat($('.txtMax').text().replace(',', '.')) || 0;
+            parseFloat($('.txtMax').text().replace(',', '.')) || 0;
 
         if (valorTotalNota === 0 && itens.length > 0) {
             valorTotalNota = itens.reduce((acc, item) => acc + item.preco_total, 0);
