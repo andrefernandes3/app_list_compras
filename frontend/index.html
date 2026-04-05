@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
@@ -8,7 +7,6 @@
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-
 <body class="bg-gray-50 font-sans">
 
     <nav class="bg-blue-600 p-4 text-white shadow-lg">
@@ -16,69 +14,49 @@
     </nav>
 
     <main class="p-4 max-w-md mx-auto">
-        <!-- Entrada manual de URL -->
         <div class="mb-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="text-gray-700 font-semibold mb-2 text-sm">Já tem o link? Cole aqui:</h2>
             <div class="flex gap-2">
-                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
+                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..." 
                     class="flex-1 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                <button onclick="processarUrlManual()"
-                    class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
+                <button onclick="processarUrlManual()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95">
                     Ir
                 </button>
             </div>
-            <p class="text-[10px] text-gray-400 mt-2 italic">* Use o Google Lens ou a câmera nativa para copiar o link
-                mais rápido.</p>
         </div>
 
-        <!-- Scanner QR Code -->
         <div id="scanner-container" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="text-gray-700 font-semibold mb-3">Ou Escaneie por aqui</h2>
             <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-300"></div>
             <input type="file" id="qr-input" accept="image/*" class="hidden">
-            <button onclick="document.getElementById('qr-input').click()"
-                class="w-full mt-2 bg-gray-200 p-2 rounded-lg text-sm font-semibold">
+            <button onclick="document.getElementById('qr-input').click()" class="w-full mt-2 bg-gray-200 p-2 rounded-lg text-sm font-semibold">
                 📸 Selecionar Foto da Galeria
             </button>
         </div>
 
-        <!-- Status de processamento -->
         <div id="status" class="mt-4 p-4 rounded-xl hidden"></div>
 
-        <!-- Prévia da lista de compras (CORRIGIDO: adicionada div interna) -->
         <div id="preview-container" class="mt-6 hidden">
             <div id="lista-itens"></div>
         </div>
     </main>
 
     <script>
-        // ==================== VARIÁVEIS GLOBAIS ====================
-        let html5QrcodeScanner = null;  // Será inicializado depois
+        let html5QrcodeScanner = null;
         let scannerAtivo = false;
 
-        // ==================== INICIALIZAÇÃO ====================
         function iniciarScanner() {
             if (html5QrcodeScanner) {
                 html5QrcodeScanner.clear().catch(console.warn);
             }
             html5QrcodeScanner = new Html5QrcodeScanner("reader", {
-                fps: 20,
-                qrbox: { width: 250, height: 250 },
-                aspectRatio: 1.0,
-                videoConstraints: {
-                    facingMode: "environment",
-                    focusMode: "continuous",
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }
+                fps: 20, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0
             });
             html5QrcodeScanner.render(onScanSuccess);
             scannerAtivo = true;
         }
 
-        // ==================== PROCESSAR URL ====================
         function processarUrl(url) {
-            // Para o scanner se estiver ativo
             if (html5QrcodeScanner && scannerAtivo) {
                 html5QrcodeScanner.clear();
                 scannerAtivo = false;
@@ -89,200 +67,121 @@
             statusDiv.className = "mt-4 p-4 rounded-xl bg-blue-100 text-blue-700";
             statusDiv.innerText = "📡 Processando nota fiscal... aguarde.";
 
-            // Chamada para sua Azure Function (ajuste a URL conforme necessário)
             fetch('/api/ProcessarNota', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: url })
             })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    return response.json();
-                })
-                .then(data => {
-                    statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
-                    statusDiv.innerText = "✅ Nota lida com sucesso!";
-                    renderPreview(data.dados);   // data.dados contém os itens + total_nota
-                })
-                .catch(err => {
-                    statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
-                    statusDiv.innerText = "❌ Erro: " + err.message;
-                    console.error(err);
-                    // Opção: reativar scanner após erro
-                    setTimeout(() => {
-                        if (!scannerAtivo) iniciarScanner();
-                    }, 2000);
-                });
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700";
+                statusDiv.innerText = "✅ Nota lida com sucesso!";
+                renderPreview(data.dados);
+            })
+            .catch(err => {
+                statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700";
+                statusDiv.innerText = "❌ Erro: " + err.message;
+                setTimeout(() => { if (!scannerAtivo) iniciarScanner(); }, 2000);
+            });
         }
 
-        // Função para o botão "Ir" (URL manual)
         function processarUrlManual() {
             const input = document.getElementById('url-input');
             const url = input.value.trim();
             if (url.startsWith('http')) {
                 processarUrl(url);
-                input.value = '';  // limpa o campo
+                input.value = '';
             } else {
-                alert("Por favor, cole uma URL válida da SEFAZ (começando com http).");
+                alert("Por favor, cole uma URL válida.");
             }
         }
 
-        // Atalho: ao colar no campo, processa automaticamente
-        document.getElementById('url-input').addEventListener('paste', (e) => {
-            const paste = (e.clipboardData || window.clipboardData).getData('text');
-            if (paste && paste.startsWith('http')) {
-                setTimeout(() => processarUrlManual(), 100);
-            }
-        });
-
-        // ==================== LEITURA DO QR CODE ====================
         function onScanSuccess(decodedText) {
-            if (!decodedText || !decodedText.startsWith('http')) {
-                alert("QR Code não contém uma URL válida da nota fiscal.");
-                return;
+            if (decodedText && decodedText.startsWith('http')) {
+                processarUrl(decodedText);
             }
-            processarUrl(decodedText);
         }
-
-        // ==================== CARREGAR QR CODE DA GALERIA ====================
-        const fileInput = document.getElementById('qr-input');
-        fileInput.addEventListener('change', e => {
-            if (e.target.files.length === 0) return;
-            const imageFile = e.target.files[0];
-            // Usa o scanner existente para ler a imagem
-            if (html5QrcodeScanner) {
-                html5QrcodeScanner.scanFile(imageFile, true)
-                    .then(decodedText => onScanSuccess(decodedText))
-                    .catch(err => alert("Não foi possível ler o QR Code desta imagem. Tente uma foto mais nítida.\n\n" + err));
-            } else {
-                alert("Scanner não inicializado. Recarregue a página.");
-            }
-            // Limpa o input para permitir carregar a mesma imagem novamente
-            fileInput.value = '';
-        });
 
         function renderPreview(dados) {
             const previewContainer = document.getElementById('preview-container');
             const listaItens = document.getElementById('lista-itens');
-
             if (!listaItens) return;
 
             listaItens.innerHTML = '';
             previewContainer.classList.remove('hidden');
 
-            // CORREÇÃO: Verifica os dois nomes possíveis (valor_total ou total_nota)
-            const totalExibicao = dados.valor_total || dados.total_nota || 0;
-
+            const totalExibicao = dados.valor_total || 0;
             const header = document.createElement('div');
             header.className = "mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100";
             header.innerHTML = `
-        <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
-        <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
-    `;
+                <p class="text-sm font-bold text-blue-800">${dados.estabelecimento || "Estabelecimento"}</p>
+                <p class="text-xs text-blue-600 font-bold text-lg">Total: R$ ${parseFloat(totalExibicao).toFixed(2)}</p>
+            `;
             listaItens.appendChild(header);
 
             if (dados.itens && dados.itens.length > 0) {
                 dados.itens.forEach(item => {
-                    // 1. Primeiro criamos o elemento
                     const itemDiv = document.createElement('div');
-                    itemDiv.className = "flex justify-between items-center p-3 bg-white border-b border-gray-100";
+                    itemDiv.className = "flex flex-col p-3 bg-white border-b border-gray-100";
                     itemDiv.innerHTML = `
-        <div class="flex-1">
-            <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
-            <p class="text-[10px] text-gray-400">ID: ${item.id_interno}</p> 
-        </div>
-        <div class="flex items-center gap-3">
-            <div class="text-right">
-                <p class="text-sm font-bold text-gray-700">R$ ${item.preco_total.toFixed(2)}</p>
-            </div>
-            <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
-                class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">
-                🔗
-            </button>
-        </div>
-    `;
-
-                    // 2. Adicionamos na lista principal
+                        <div class="flex justify-between items-center w-full">
+                            <div class="flex-1">
+                                <p class="text-sm font-medium text-gray-800">${escapeHtml(item.descricao)}</p>
+                                <p class="text-[10px] text-gray-400">ID: ${item.id_interno}</p> 
+                                <div class="info-comparativo"></div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="text-right">
+                                    <p class="text-sm font-bold text-gray-700">R$ ${item.preco_total.toFixed(2)}</p>
+                                </div>
+                                <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
+                                    class="p-2 bg-gray-100 rounded-full hover:bg-blue-100 transition-colors">🔗</button>
+                            </div>
+                        </div>
+                    `;
                     listaItens.appendChild(itemDiv);
-
-                    // 3. AGORA SIM: buscamos o comparativo e passamos o local onde ele deve ser inserido
-                    const infoDiv = itemDiv.querySelector('.flex-1');
-                    buscarComparativo(item.descricao, infoDiv);
+                    
+                    // Busca comparativo após inserir na tela
+                    const compDiv = itemDiv.querySelector('.info-comparativo');
+                    buscarComparativo(item.descricao, compDiv);
                 });
+            }
+        }
 
-                // Função auxiliar para evitar XSS
-                function escapeHtml(text) {
-                    if (!text) return '';
-                    return text.replace(/[&<>]/g, function (m) {
-                        if (m === '&') return '&amp;';
-                        if (m === '<') return '&lt;';
-                        if (m === '>') return '&gt;';
-                        return m;
-                    }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function (c) {
-                        return c;
-                    });
+        async function buscarComparativo(nomeProduto, elementoDestino) {
+            try {
+                const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+                if (!response.ok) return;
+                const dados = await response.json();
+                if (dados.length > 0) {
+                    const melhor = dados[0];
+                    elementoDestino.innerHTML = `
+                        <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100">
+                            💡 Melhor preço: R$ ${melhor.menorPreco.toFixed(2)} no ${melhor._id.split(' ')[0]}
+                        </div>`;
                 }
+            } catch (err) { console.error(err); }
+        }
 
-                function vincularID(id, descricaoAtual) {
-                    const nomePadrao = prompt(`Como queres chamar o produto "${descricaoAtual}" na tua lista oficial?`, descricaoAtual);
+        function vincularID(id, desc) {
+            const novoNome = prompt(`Nome para o produto "${desc}":`, desc);
+            if (novoNome) {
+                fetch('/api/VincularProdutos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.trim() })
+                }).then(() => alert("Vinculado!")).catch(err => alert(err.message));
+            }
+        }
 
-                    if (nomePadrao && nomePadrao.trim() !== "") {
-                        const statusDiv = document.getElementById('status');
+        function escapeHtml(text) {
+            return text ? text.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])) : '';
+        }
 
-                        fetch('/api/VincularProdutos', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                idPrincipal: id,
-                                nomePadrao: nomePadrao.trim()
-                            })
-                        })
-                            .then(response => {
-                                if (!response.ok) throw new Error("Falha ao comunicar com a API");
-                                return response.json();
-                            })
-                            .then(() => {
-                                alert(`Sucesso! O ID ${id} agora está vinculado a "${nomePadrao.toUpperCase()}"`);
-                            })
-                            .catch(err => {
-                                console.error(err);
-                                alert("Erro ao guardar vínculo: " + err.message);
-                            });
-                    }
-                }
-
-                async function buscarComparativo(nomeProduto, elementoDestino) {
-                    try {
-                        const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
-                        if (!response.ok) return;
-                        const dados = await response.json();
-
-                        if (dados.length > 0) {
-                            const melhorOpcao = dados[0]; // O primeiro é o mais barato devido ao sort
-                            const htmlComparativo = `
-                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 rounded border border-green-100">
-                    💡 Melhor preço: R$ ${melhorOpcao.menorPreco.toFixed(2)} no ${melhorOpcao._id.split(' ')[0]}
-                </div>
-            `;
-                            elementoDestino.innerHTML += htmlComparativo;
-                        }
-                    } catch (err) {
-                        console.error("Erro ao buscar comparativo:", err);
-                    }
-                }
-
-                // ==================== INICIAR TUDO ====================
-                iniciarScanner();
-
-                // Opcional: permitir reiniciar scanner manualmente (ex: após erro)
-                window.restartScanner = function () {
-                    if (html5QrcodeScanner) {
-                        html5QrcodeScanner.clear().then(() => iniciarScanner()).catch(console.warn);
-                    } else {
-                        iniciarScanner();
-                    }
-                };
+        iniciarScanner();
     </script>
 </body>
-
 </html>
