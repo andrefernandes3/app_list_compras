@@ -5,12 +5,13 @@ const { MongoClient } = require('mongodb');
 const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
+// 1. Movemos a função para fora para ficar organizada
 function limparTexto(texto) {
     if (!texto) return "";
     return texto
         .toUpperCase()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "") 
+        .replace(/[\u0300-\u036f]/g, "") // Remove acentos
         .trim();
 }
 
@@ -34,46 +35,37 @@ module.exports = async function (context, req) {
         const cnpjBruto = $('.text').text().match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
         const cnpj = cnpjBruto ? cnpjBruto[0] : "00.000.000/0000-00";
 
-        // --- BLOCO CORRIGIDO: TRATAMENTO DE DATA ---
         const infoGeral = $('.txtCenter').text();
-        const dataMatch = infoGeral.match(/(\d{2})\/(\d{2})\/(\d{4})/); // Pega DD, MM e AAAA
-        
-        let dataCompra;
-        if (dataMatch) {
-            // Monta no formato AAAA-MM-DD que o JavaScript entende perfeitamente
-            const [_, dia, mes, ano] = dataMatch;
-            dataCompra = new Date(`${ano}-${mes}-${dia}T12:00:00Z`);
-        } else {
-            dataCompra = new Date(); // Se falhar, usa a data de hoje para não ficar 1970
-        }
-
-        // Caso a data ainda resulte em algo inválido ou 1970, força a data atual
-        if (isNaN(dataCompra.getTime()) || dataCompra.getFullYear() === 1970) {
-            dataCompra = new Date();
-        }
-        // -------------------------------------------
+        const dataMatch = infoGeral.match(/(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2})/);
+        const dataCompra = dataMatch ? new Date(dataMatch[0].split(' ').reverse().join(' ')) : new Date();
 
         const itens = [];
+        // Usamos um loop for...of para permitir o uso de 'await' dentro da iteração
         const linhasItens = $('tr[id^="Item"]').get();
 
         for (const el of linhasItens) {
             const linha = $(el);
             const texto = linha.text().replace(/\s+/g, ' ');
 
+            // 1. Pegamos a descrição original e o ID da nota
             const descricaoBruta = linha.find('.txtTit').text().split('\n')[0].trim();
             const idInterno = (texto.match(/Código:\s*([A-Z0-9]+)/i) || [])[1] || "N/A";
 
             if (descricaoBruta) {
+                // 2. BUSCA NO DICIONÁRIO: Verifica se este ID está vinculado a um nome comum
                 const vinculo = await db.collection('dicionario_produtos').findOne({
                     ids_vinculados: idInterno
                 });
 
+                // 3. DEFINIÇÃO DO NOME: Se achou no dicionário, usa o seu nome. 
+                // Se não achou, usa o limparTexto na descrição da nota.
                 const descricaoFinal = vinculo ? vinculo.nome_comum : limparTexto(descricaoBruta);
+
                 const vTotalItem = parseFloat(linha.find('.valor').text().replace(',', '.')) || 0;
 
                 itens.push({
-                    descricao: descricaoFinal,
-                    descricao_original: descricaoBruta,
+                    descricao: descricaoFinal, // Nome padronizado ou limpo
+                    descricao_original: descricaoBruta, // Original da nota para referência
                     id_interno: idInterno,
                     quantidade: parseFloat((texto.match(/Qtde\.:\s*([\d,.]+)/i) || [])[1]?.replace(',', '.') || "0"),
                     unidade: (texto.match(/UN:\s*([A-Z]+)/i) || [])[1] || "UN",
