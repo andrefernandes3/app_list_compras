@@ -307,6 +307,11 @@
         const temNomeAmigavel = !!produtoVinculado;
         const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
 
+        // Cálculos para exibição
+    const precoUnitario = item.preco_unitario || 0;
+    const qtd = item.quantidade || 0;
+    const precoTotalItem = item.preco_total || (precoUnitario * qtd);
+
         const itemDiv = document.createElement('div');
         itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
         
