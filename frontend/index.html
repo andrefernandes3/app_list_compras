@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
@@ -9,7 +8,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
 <body class="bg-gray-50 font-sans">
 
     <nav class="bg-blue-600 p-4 text-white shadow-lg">
@@ -17,14 +15,11 @@
     </nav>
 
     <div class="flex border-b border-gray-200 bg-white sticky top-0 z-10">
-        <button onclick="alternarAba('lista')" id="btn-aba-lista"
-            class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
-        <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
-            class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
+        <button onclick="alternarAba('lista')" id="btn-aba-lista" class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
+        <button onclick="alternarAba('dicionario')" id="btn-aba-dict" class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
     </div>
 
     <main class="p-4 max-w-md mx-auto">
-
         <div id="secao-lista">
             <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
                 <h2 class="text-blue-800 font-bold mb-2 flex justify-between italic">
@@ -48,8 +43,7 @@
                 <div id="lista-ativa" class="space-y-2 text-sm"></div>
 
                 <div id="totalizador-estimado" class="mt-4 pt-3 border-t border-blue-200 hidden">
-                    <p class="text-[10px] font-bold text-blue-800 mb-2 uppercase text-center">Estimativa de Gasto Total
-                    </p>
+                    <p class="text-[10px] font-bold text-blue-800 mb-2 uppercase text-center">Estimativa de Gasto Total</p>
                     <div id="mercados-soma" class="grid grid-cols-2 gap-2"></div>
                 </div>
             </div>
@@ -59,8 +53,7 @@
                     <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
                         class="w-full p-2 border rounded-lg text-sm mb-2 focus:ring-2 focus:ring-blue-500 outline-none">
                     <button onclick="processarUrlManual()"
-                        class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold active:scale-95 transition-transform">Processar
-                        Nota</button>
+                        class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold active:scale-95 transition-transform">Processar Nota</button>
                 </div>
                 <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-200"></div>
             </div>
@@ -68,8 +61,7 @@
             <div id="status" class="mt-4 p-4 rounded-xl hidden text-sm"></div>
             <div id="preview-container" class="mt-6 hidden">
                 <h3 class="text-gray-700 font-bold mb-2 text-sm">Itens da Nota:</h3>
-                <div id="lista-itens" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                </div>
+                <div id="lista-itens" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"></div>
             </div>
         </div>
 
@@ -77,11 +69,15 @@
             <h2 class="text-gray-700 font-bold mb-4 italic">Produtos Catalogados</h2>
             <div id="lista-dicionario" class="space-y-4"></div>
         </div>
-
     </main>
 
     <script>
         let totaisPorMercado = {};
+
+        function escapeHTML(str) {
+            if (!str) return "";
+            return str.replace(/'/g, "\\'");
+        }
 
         function alternarAba(aba) {
             const isLista = aba === 'lista';
@@ -108,20 +104,21 @@
                 listaDiv.innerHTML = '';
                 itens.forEach(item => {
                     const idFormatado = item.item_nome.replace(/\s+/g, '-');
+                    const nomeSeguro = escapeHTML(item.item_nome);
                     const itemElement = document.createElement('div');
                     itemElement.className = "bg-white p-3 rounded-xl border border-blue-50 shadow-sm mb-2";
                     itemElement.innerHTML = `
                         <div class="flex justify-between items-center">
-                            <span id="item-nome-${idFormatado}" onclick="abrirGrafico('${item.item_nome}')" 
-                                class="font-bold text-gray-700 uppercase text-[11px] cursor-pointer underline decoration-blue-300">
+                            <span onclick="abrirGrafico('${nomeSeguro}')" 
+                                class="font-bold text-gray-700 uppercase text-[11px] cursor-pointer underline decoration-blue-300 break-words pr-2">
                                 ${item.item_nome}
                             </span>
-                            <button onclick="marcarComoComprado('${item.item_nome}')" class="text-lg">✅</button>
+                            <button onclick="marcarComoComprado('${nomeSeguro}')" class="text-lg shrink-0">✅</button>
                         </div>
                         <div id="preco-lista-${idFormatado}"></div>
                     `;
                     listaDiv.appendChild(itemElement);
-                    buscarComparativo(item.item_nome, item.quantidade, document.getElementById(`preco-lista-${idFormatado}`));
+                    buscarComparativo(item.item_nome, item.quantidade || 1, document.getElementById(`preco-lista-${idFormatado}`));
                 });
                 carregarSugestoes();
             } catch (err) { console.error(err); }
@@ -132,22 +129,18 @@
                 const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
                 if (!response.ok) return;
                 const dados = await response.json();
-
                 if (dados.length > 0) {
                     const melhor = dados[0];
                     const mercado = melhor._id.split(' ')[0];
-                    const qtdReal = quantidade || 1;
-                    const subtotal = melhor.menorPreco * qtdReal;
-
+                    const subtotal = melhor.menorPreco * quantidade;
                     if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
                     totaisPorMercado[mercado] += subtotal;
 
-                    // Exibe: Mercado | Unitário x Qtd = Total
                     elementoDestino.innerHTML = `
-                <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center italic">
-                    <span>💡 ${mercado}</span>
-                    <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${qtdReal} = R$ ${subtotal.toFixed(2)}</span>
-                </div>`;
+                        <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center italic">
+                            <span>💡 ${mercado}</span>
+                            <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${quantidade} = R$ ${subtotal.toFixed(2)}</span>
+                        </div>`;
                     atualizarSomaVisual();
                 } else {
                     elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico</div>`;
@@ -166,39 +159,29 @@
         }
 
         async function marcarComoComprado(nome) {
-            const idFormatado = nome.replace(/\s+/g, '-');
-            const span = document.getElementById(`item-nome-${idFormatado}`);
-            if (span) span.classList.add('line-through', 'text-gray-400');
             try {
                 await fetch('/api/GerenciarLista', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ nome: nome.toUpperCase(), comprado: true })
                 });
-                setTimeout(carregarLista, 500);
-            } catch (e) { console.error("Erro ao marcar como comprado:", e); }
+                carregarLista();
+            } catch (e) { console.error(e); }
         }
 
         async function adicionarItemManual() {
             const inputNome = document.getElementById('novo-item-lista');
-            const inputQtd = document.getElementById('qtd-item-lista'); // Pega o novo campo
-
+            const inputQtd = document.getElementById('qtd-item-lista');
             const nome = inputNome.value.trim().toUpperCase();
             const quantidade = parseFloat(inputQtd.value) || 1;
-
             if (!nome) return;
-
             await fetch('/api/GerenciarLista', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nome: nome,
-                    quantidade: quantidade // Envia a quantidade para a API
-                })
+                body: JSON.stringify({ nome: nome, quantidade: quantidade })
             });
-
             inputNome.value = '';
-            inputQtd.value = '1'; // Reseta para 1
+            inputQtd.value = '1';
             carregarLista();
         }
 
@@ -207,19 +190,14 @@
                 const response = await fetch('/api/VincularProdutos');
                 const produtos = await response.json();
                 const datalist = document.getElementById('sugestoes-produtos');
-
-                // Pega nomes únicos do seu dicionário
                 const nomesUnicos = [...new Set(produtos.map(p => p.nome_comum))];
-
-                datalist.innerHTML = nomesUnicos
-                    .map(nome => `<option value="${nome.toUpperCase()}">`)
-                    .join('');
-            } catch (e) { console.error("Erro nas sugestões:", e); }
+                datalist.innerHTML = nomesUnicos.map(nome => `<option value="${nome.toUpperCase()}">`).join('');
+            } catch (e) { }
         }
 
         async function renderizarDicionario() {
             const container = document.getElementById('lista-dicionario');
-            container.innerHTML = '<p class="text-center text-gray-400 animate-pulse">Carregando categorias...</p>';
+            container.innerHTML = '<p class="text-center text-gray-400">Carregando...</p>';
             try {
                 const response = await fetch('/api/VincularProdutos');
                 const produtos = await response.json();
@@ -243,51 +221,27 @@
                     });
                     container.appendChild(div);
                 }
-            } catch (e) { container.innerHTML = "Erro ao carregar dicionário."; }
-        }
-
-        async function adicionarDiretoALista(nome) {
-            await fetch('/api/GerenciarLista', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome: nome.toUpperCase() })
-            });
-            alert(`${nome} adicionado!`);
-            carregarLista();
+            } catch (e) { }
         }
 
         function processarUrlManual() {
-            const input = document.getElementById('url-input');
-            const url = input.value.trim();
-            if (url.startsWith('http')) {
-                processarUrl(url);
-                input.value = '';
-            } else {
-                alert("Por favor, cole uma URL válida da nota fiscal.");
-            }
-        }
-
-        function processarUrl(url) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.classList.remove('hidden');
-            statusDiv.className = "mt-4 p-4 rounded-xl bg-blue-100 text-blue-700 text-sm";
-            statusDiv.innerText = "📡 Processando nota do mercado... aguarde.";
-
-            fetch('/api/ProcessarNota', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url })
-            })
+            const url = document.getElementById('url-input').value.trim();
+            if (url) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.classList.remove('hidden');
+                statusDiv.innerText = "📡 Processando nota...";
+                fetch('/api/ProcessarNota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                })
                 .then(r => r.json())
                 .then(data => {
-                    statusDiv.className = "mt-4 p-4 rounded-xl bg-green-100 text-green-700 text-sm";
-                    statusDiv.innerText = "✅ Nota lida com sucesso!";
+                    statusDiv.innerText = "✅ Nota lida!";
                     renderPreview(data.dados);
                 })
-                .catch(err => {
-                    statusDiv.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-700 text-sm";
-                    statusDiv.innerText = "❌ Erro ao ler nota.";
-                });
+                .catch(() => statusDiv.innerText = "❌ Erro ao ler nota.");
+            }
         }
 
         function renderPreview(dados) {
@@ -295,25 +249,15 @@
             const listaItens = document.getElementById('lista-itens');
             listaItens.innerHTML = '';
             previewContainer.classList.remove('hidden');
-
-            const header = document.createElement('div');
-            header.className = "p-3 bg-gray-50 border-b border-gray-200";
-            header.innerHTML = `
-                <p class="text-[10px] font-bold text-gray-500 uppercase">${dados.estabelecimento || "MERCADO"}</p>
-                <p class="text-sm font-black text-blue-600">Total: R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p>
-            `;
-            listaItens.appendChild(header);
-
             dados.itens.forEach(item => {
                 const itemDiv = document.createElement('div');
-                itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
+                itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100";
                 itemDiv.innerHTML = `
                     <div class="flex-1">
-                        <p class="text-[11px] font-bold text-gray-800 uppercase">${escapeHtml(item.descricao)}</p>
-                        <p class="text-[9px] text-gray-400">ID: ${item.id_interno} | R$ ${item.preco_unitario.toFixed(2)}</p>
+                        <p class="text-[11px] font-bold text-gray-800 uppercase">${item.descricao}</p>
+                        <p class="text-[9px] text-gray-400">R$ ${item.preco_unitario.toFixed(2)}</p>
                     </div>
-                    <button onclick="vincularID('${item.id_interno}', '${escapeHtml(item.descricao)}')" 
-                        class="ml-2 p-2 bg-blue-50 text-blue-600 rounded-full">🔗</button>
+                    <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" class="ml-2 p-2 bg-blue-50 text-blue-600 rounded-full">🔗</button>
                 `;
                 listaItens.appendChild(itemDiv);
             });
@@ -321,117 +265,54 @@
 
         function vincularID(id, desc) {
             const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
-            if (!novoNome) return;
-            const categoria = prompt(`Categoria (ex: PADARIA, FRIOS, LIMPEZA):`, "OUTROS");
-            fetch('/api/VincularProdutos', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    idPrincipal: id,
-                    nomePadrao: novoNome.trim().toUpperCase(),
-                    categoria: categoria.trim().toUpperCase()
-                })
-            }).then(() => {
-                alert("Vinculado!");
-                carregarLista();
-            });
+            const categoria = prompt(`Categoria:`, "OUTROS");
+            if (novoNome) {
+                fetch('/api/VincularProdutos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.toUpperCase(), categoria: categoria.toUpperCase() })
+                }).then(() => carregarLista());
+            }
         }
-
-        // Função auxiliar para tratar aspas em nomes de produtos
-        function escapeHTML(str) {
-            if (!str) return "";
-            return str.replace(/'/g, "\\'");
-        }
-
-        // Dentro do seu carregarLista(), na parte que gera o itemElement.innerHTML:
-        const nomeSeguro = escapeHTML(item.item_nome);
-
-        itemElement.innerHTML = `
-    <div class="flex justify-between items-center">
-        <span onclick="abrirGrafico('${nomeSeguro}')" 
-            class="font-bold text-gray-700 uppercase text-[11px] cursor-pointer underline decoration-blue-300 break-words pr-2">
-            ${item.item_nome}
-        </span>
-        <button onclick="marcarComoComprado('${nomeSeguro}')" class="text-lg shrink-0">✅</button>
-    </div>
-    <div id="preco-lista-${idFormatado}"></div>
-`;
 
         async function abrirGrafico(nome) {
-            // 1. Cria o Modal (Janela flutuante)
             let canvasHtml = `
-    <div id="modal-grafico" class="fixed inset-0 bg-bFlack/80 z-50 p-4 flex flex-col justify-center">
-        <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl">
-            <div class="flex justify-between items-center mb-4 border-b pb-2">
-                <h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3>
-                <button onclick="document.getElementById('modal-grafico').remove()" 
-                    class="text-red-500 font-bold px-3 py-1 hover:bg-red-50 rounded-lg transition-colors">X</button>
-            </div>
-            <div class="relative h-64">
-                <canvas id="meuGrafico"></canvas>
-            </div>
-            <p class="text-[9px] text-gray-400 mt-4 text-center italic">Toque nos pontos para detalhes por mercado</p>
-        </div>
-    </div>`;
+            <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center">
+                <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl">
+                    <div class="flex justify-between items-center mb-4 border-b pb-2">
+                        <h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3>
+                        <button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3">X</button>
+                    </div>
+                    <div class="relative h-64"><canvas id="meuGrafico"></canvas></div>
+                </div>
+            </div>`;
             document.body.insertAdjacentHTML('beforeend', canvasHtml);
-
             try {
                 const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
                 const dados = await response.json();
-
-                if (!dados || dados.length === 0) {
-                    document.getElementById('meuGrafico').parentElement.innerHTML =
-                        "<p class='text-center py-10 text-gray-500 text-xs'>Sem histórico para este item.</p>";
-                    return;
-                }
-
                 const ctx = document.getElementById('meuGrafico').getContext('2d');
                 new Chart(ctx, {
                     type: 'line',
                     data: {
-                        // FORMATAÇÃO BRASILEIRA: DD/MM/AAAA HH:mm
                         labels: dados.map(d => {
                             const dt = new Date(d.data);
-                            return dt.toLocaleDateString('pt-BR') + ' ' +
-                                dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                            return dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                         }),
                         datasets: [{
-                            label: 'Preço Unitário (R$)',
+                            label: 'Preço (R$)',
                             data: dados.map(d => d.preco),
                             borderColor: '#2563eb',
-                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                            fill: true,
                             tension: 0.3,
-                            // Identificação visual por mercado
-                            pointBackgroundColor: dados.map(d => d.mercado.includes('WMS') ? '#f59e0b' : '#ef4444'),
-                            pointRadius: 6,
-                            pointHoverRadius: 8
+                            pointBackgroundColor: dados.map(d => d.mercado.includes('WMS') ? '#f59e0b' : '#ef4444')
                         }]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: false, ticks: { callback: v => 'R$ ' + v.toFixed(2) } }
-                        },
-                        plugins: {
-                            tooltip: {
-                                callbacks: {
-                                    // Mostra o nome do mercado no detalhe ao clicar no ponto
-                                    afterLabel: (context) => `Mercado: ${dados[context.dataIndex].mercado}`
-                                }
-                            }
-                        }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false }
                 });
-            } catch (e) {
-                console.error("Erro ao carregar gráfico:", e);
-            }
+            } catch (e) { console.error(e); }
         }
 
         carregarLista();
         carregarSugestoes();
     </script>
 </body>
-
 </html>
