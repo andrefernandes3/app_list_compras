@@ -32,14 +32,17 @@
                     <button onclick="carregarLista()" class="text-[10px] underline">Sincronizar</button>
                 </h2>
 
-                <div class="flex gap-2 mb-3">
+                <div class="flex flex-wrap gap-2 mb-3">
                     <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="O que falta?"
-                        class="flex-[3] p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
+                        class="flex-[3] min-w-[150px] p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
                     <datalist id="sugestoes-produtos"></datalist>
-                    <input type="number" id="qtd-item-lista" value="1" min="1"
-                        class="flex-1 p-3 text-sm border border-blue-200 rounded-xl outline-none text-center">
-                    <button onclick="adicionarItemManual()"
-                        class="bg-blue-600 text-white w-10 h-10 rounded-lg font-bold">+</button>
+
+                    <div class="flex flex-1 gap-2 min-w-[100px]">
+                        <input type="number" id="qtd-item-lista" value="1" min="1"
+                            class="w-full p-3 text-sm border border-blue-200 rounded-xl outline-none text-center">
+                        <button onclick="adicionarItemManual()"
+                            class="bg-blue-600 text-white px-4 rounded-xl font-bold flex items-center justify-center shadow-md active:scale-95">+</button>
+                    </div>
                 </div>
 
                 <div id="lista-ativa" class="space-y-2 text-sm"></div>
@@ -334,7 +337,25 @@
             });
         }
 
-        function escapeHtml(t) { return t ? t.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])) : ''; }
+        // Função auxiliar para tratar aspas em nomes de produtos
+        function escapeHTML(str) {
+            if (!str) return "";
+            return str.replace(/'/g, "\\'");
+        }
+
+        // Dentro do seu carregarLista(), na parte que gera o itemElement.innerHTML:
+        const nomeSeguro = escapeHTML(item.item_nome);
+
+        itemElement.innerHTML = `
+    <div class="flex justify-between items-center">
+        <span onclick="abrirGrafico('${nomeSeguro}')" 
+            class="font-bold text-gray-700 uppercase text-[11px] cursor-pointer underline decoration-blue-300 break-words pr-2">
+            ${item.item_nome}
+        </span>
+        <button onclick="marcarComoComprado('${nomeSeguro}')" class="text-lg shrink-0">✅</button>
+    </div>
+    <div id="preco-lista-${idFormatado}"></div>
+`;
 
         async function abrirGrafico(nome) {
             // 1. Cria o Modal (Janela flutuante)
