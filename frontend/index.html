@@ -300,43 +300,45 @@
     listaItens.appendChild(header);
 
     // Listagem dos itens com checagem inteligente
-    dados.itens.forEach(item => {
-        // Verifica se o ID interno da nota já está em algum produto do dicionário
-        const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
-        
-        const temNomeAmigavel = !!produtoVinculado;
-        const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
+   dados.itens.forEach(item => {
+    // Verifica se o ID interno da nota já está em algum produto do dicionário
+    const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
+    
+    const temNomeAmigavel = !!produtoVinculado;
+    const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
 
-        // Cálculos para exibição
+    // Cálculos para exibição
     const precoUnitario = item.preco_unitario || 0;
     const qtd = item.quantidade || 0;
     const precoTotalItem = item.preco_total || (precoUnitario * qtd);
 
-        const itemDiv = document.createElement('div');
-        itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
-        
-        itemDiv.innerHTML = `
-            <div class="flex-1 pr-2">
-                <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-red-500'} uppercase leading-tight">
-                    ${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
+    const itemDiv = document.createElement('div');
+    itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
+    
+    itemDiv.innerHTML = `
+        <div class="flex-1 pr-2">
+            <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-red-500'} uppercase leading-tight">
+                ${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
+            </p>
+            <div class="flex flex-wrap gap-2 mt-1 items-center">
+                <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">
+                    ${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}
+                </span>
+                <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">
+                    ${temFoto ? 'Com Foto' : 'Sem Foto'}
+                </span>
+                <p class="text-[10px] font-black text-blue-600">
+                    ${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span>
                 </p>
-                <div class="flex gap-2 mt-1 items-center">
-                    <span class="text-[9px] px-1 rounded ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
-                        ${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}
-                    </span>
-                    <span class="text-[9px] px-1 rounded ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
-                        ${temFoto ? 'Com Foto' : 'Sem Foto'}
-                    </span>
-                    <p class="text-[9px] font-bold text-blue-500">R$ ${item.preco_unitario.toFixed(2)}</p>
-                </div>
             </div>
-            <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
-                class="ml-2 p-3 ${temNomeAmigavel && temFoto ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white'} rounded-full shadow-sm active:scale-90 transition-transform">
-                ${temNomeAmigavel && temFoto ? '✔️' : '🔗'}
-            </button>
-        `;
-        listaItens.appendChild(itemDiv);
-    });
+        </div>
+        <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
+            class="ml-2 p-3 ${temNomeAmigavel && temFoto ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white'} rounded-full shadow-sm active:scale-90 transition-transform">
+            ${temNomeAmigavel && temFoto ? '✔️' : '🔗'}
+        </button>
+    `;
+    listaItens.appendChild(itemDiv);
+});
 }
 
         function vincularID(id, desc) {
