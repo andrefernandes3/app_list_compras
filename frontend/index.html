@@ -229,12 +229,18 @@
                     const div = document.createElement('div');
                     div.className = "mb-4";
                     div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest">${cat}</h3>`;
-                    itens.forEach(prod => {
-                        div.innerHTML += `
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center mb-1 shadow-sm">
-                                <div class="flex-1"><p class="text-xs font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
-                                <button onclick="adicionarDiretoALista('${escapeHTML(prod.nome_comum)}')" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-xs font-bold active:scale-90 transition-transform">🛒+</button>
-                            </div>`;
+                    itens.forEach(prod => {                       
+div.innerHTML += `
+    <div class="bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3">
+        <img src="${prod.foto_url || 'https://via.placeholder.com/50'}" 
+             class="w-10 h-10 object-cover rounded-lg border border-gray-100 bg-gray-50"
+             onerror="this.src='https://via.placeholder.com/50'">
+        <div class="flex-1">
+            <p class="text-[10px] font-bold text-gray-800 uppercase leading-tight">${prod.nome_comum}</p>
+        </div>
+        <button onclick="adicionarDiretoALista('${escapeHTML(prod.nome_comum)}')" 
+            class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
+    </div>`;
                     });
                     container.appendChild(div);
                 }
@@ -305,16 +311,25 @@
         }
 
         function vincularID(id, desc) {
-            const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
-            const categoria = prompt(`Categoria:`, "OUTROS");
-            if (novoNome) {
-                fetch('/api/VincularProdutos', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.toUpperCase(), categoria: categoria.toUpperCase() })
-                }).then(() => carregarLista());
-            }
-        }
+    const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
+    if (!novoNome) return;
+    const categoria = prompt(`Categoria (ex: PADARIA, LIMPEZA):`, "OUTROS");
+    const fotoUrl = prompt(`Link da Foto do Produto (opcional):`, ""); // Novo prompt
+
+    fetch('/api/VincularProdutos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            idPrincipal: id,
+            nomePadrao: novoNome.toUpperCase(),
+            categoria: categoria.toUpperCase(),
+            fotoUrl: fotoUrl // Envia para a API
+        })
+    }).then(() => {
+        alert("Produto Vinculado com Foto!");
+        carregarLista();
+    });
+}
 
         async function abrirGrafico(nome) {
             let canvasHtml = `
