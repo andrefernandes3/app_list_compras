@@ -83,18 +83,16 @@
         }
 
         // Função para ampliar a imagem (Modal)
-        function ampliarImagem(url, nome) {
-            if (!url || url.includes('placeholder')) return;
-            const modalHtml = `
-            <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
-                <div class="relative max-w-full max-h-full">
-                    <img src="${url}" class="max-h-[80vh] rounded-2xl shadow-2xl border-4 border-white/10">
-                    <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-xs">${nome}</p>
-                    <p class="text-gray-400 text-center text-[10px] mt-1 italic">Toque para fechar</p>
-                </div>
-            </div>`;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-        }
+       function ampliarImagem(url, nome) {
+    if (!url || url.includes('placeholder')) return;
+    const modalHtml = `
+    <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
+        <div class="relative w-full max-w-sm"> <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
+            <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
 
         function alternarAba(aba) {
             const isLista = aba === 'lista';
