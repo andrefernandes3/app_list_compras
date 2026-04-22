@@ -61,7 +61,6 @@
                         class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold active:scale-95 transition-transform">Processar
                         Nota</button>
                 </div>
-                <div id="reader" class="rounded-xl overflow-hidden border-2 border-dashed border-blue-200"></div>
             </div>
 
             <div id="status" class="mt-4 p-4 rounded-xl hidden text-sm"></div>
@@ -81,11 +80,22 @@
     <script>
         let totaisPorMercado = {};
 
-        // Função de escape global para evitar quebra de strings com aspas
         function escapeHTML(str) {
             if (!str) return "";
             return str.replace(/'/g, "\\'");
         }
+
+        // Função para ampliar a imagem (Modal)
+       function ampliarImagem(url, nome) {
+    if (!url || url.includes('placeholder')) return;
+    const modalHtml = `
+    <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
+        <div class="relative w-full max-w-sm"> <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
+            <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
 
         function alternarAba(aba) {
             const isLista = aba === 'lista';
@@ -93,7 +103,7 @@
             document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
             document.getElementById('btn-aba-lista').className = isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
             document.getElementById('btn-aba-dict').className = !isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
-            if (!isLista) renderizarDicionario();
+            if (isLista) carregarLista(); else renderizarDicionario();
         }
 
         async function carregarLista() {
@@ -104,33 +114,80 @@
             try {
                 const response = await fetch('/api/GerenciarLista');
                 const itens = await response.json();
+                
+                // Buscamos o dicionário para pegar as URLs das fotos
+                const respDict = await fetch('/api/VincularProdutos');
+                const dicionario = await respDict.json();
+
                 if (itens.length === 0) {
                     listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
                     document.getElementById('totalizador-estimado').classList.add('hidden');
                     return;
                 }
+                
                 listaDiv.innerHTML = '';
                 itens.forEach(item => {
+                    const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
                     const idFormatado = item.item_nome.replace(/\s+/g, '-');
                     const nomeSeguro = escapeHTML(item.item_nome);
+                    const fotoUrl = infoDict.foto_url || 'https://via.placeholder.com/50';
+
                     const itemElement = document.createElement('div');
-                    itemElement.className = "bg-white p-3 rounded-xl border border-blue-50 shadow-sm mb-2";
+                    itemElement.className = "bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3";
                     itemElement.innerHTML = `
-                        <div class="flex justify-between items-center">
-                            <span onclick="abrirGrafico('${nomeSeguro}')" 
-                                class="font-bold text-gray-700 uppercase text-[11px] cursor-pointer underline decoration-blue-300 break-words pr-2">
-                                ${item.item_nome}
-                            </span>
-                            <button onclick="marcarComoComprado('${nomeSeguro}')" class="text-lg shrink-0">✅</button>
+                        <img src="${fotoUrl}" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')" 
+                             class="w-12 h-12 object-cover rounded-lg border border-gray-100 bg-gray-50 shrink-0 cursor-zoom-in">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-start">
+                                <span onclick="abrirGrafico('${nomeSeguro}')" 
+                                    class="font-bold text-gray-700 uppercase text-[10px] cursor-pointer underline decoration-blue-300 break-words line-clamp-2 pr-1">
+                                    ${item.item_nome}
+                                </span>
+                                <button onclick="marcarComoComprado('${nomeSeguro}')" class="text-lg shrink-0">✅</button>
+                            </div>
+                            <div id="preco-lista-${idFormatado}"></div>
                         </div>
-                        <div id="preco-lista-${idFormatado}"></div>
                     `;
                     listaDiv.appendChild(itemElement);
                     buscarComparativo(item.item_nome, item.quantidade || 1, document.getElementById(`preco-lista-${idFormatado}`));
                 });
-                carregarSugestoes();
             } catch (err) { console.error(err); }
         }
+
+        async function renderizarDicionario() {
+            const container = document.getElementById('lista-dicionario');
+            container.innerHTML = '<p class="text-center text-gray-400 animate-pulse">Carregando...</p>';
+            try {
+                const response = await fetch('/api/VincularProdutos');
+                const produtos = await response.json();
+                const categorias = {};
+                produtos.forEach(p => {
+                    const cat = p.categoria || "OUTROS";
+                    if (!categorias[cat]) categorias[cat] = [];
+                    categorias[cat].push(p);
+                });
+                container.innerHTML = '';
+                for (const [cat, itens] of Object.entries(categorias)) {
+                    const div = document.createElement('div');
+                    div.className = "mb-4";
+                    div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest">${cat}</h3>`;
+                    itens.forEach(prod => {
+                        const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
+                        const nomeSeguro = escapeHTML(prod.nome_comum);
+                        div.innerHTML += `
+                            <div class="bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3">
+                                <img src="${fotoUrl}" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')" 
+                                     class="w-10 h-10 object-cover rounded-lg border border-gray-100 bg-gray-50 cursor-zoom-in">
+                                <div class="flex-1"><p class="text-[10px] font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
+                                <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
+                            </div>`;
+                    });
+                    container.appendChild(div);
+                }
+            } catch (e) { }
+        }
+
+        // --- Funções Auxiliares (Preços, Manuseio, Nota) ---
 
         async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
             try {
@@ -143,11 +200,10 @@
                     const subtotal = melhor.menorPreco * quantidade;
                     if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
                     totaisPorMercado[mercado] += subtotal;
-
                     elementoDestino.innerHTML = `
-                        <div class="mt-1 text-[10px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center italic">
+                        <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center italic">
                             <span>💡 ${mercado}</span>
-                            <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${quantidade} = R$ ${subtotal.toFixed(2)}</span>
+                            <span class="font-bold">R$ ${subtotal.toFixed(2)}</span>
                         </div>`;
                     atualizarSomaVisual();
                 } else {
@@ -174,7 +230,7 @@
                     body: JSON.stringify({ nome: nome.toUpperCase(), comprado: true })
                 });
                 carregarLista();
-            } catch (e) { console.error(e); }
+            } catch (e) { }
         }
 
         async function adicionarItemManual() {
@@ -188,60 +244,17 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nome: nome, quantidade: quantidade })
             });
-            inputNome.value = '';
-            inputQtd.value = '1';
+            inputNome.value = ''; inputQtd.value = '1';
             carregarLista();
         }
 
         async function adicionarDiretoALista(nome) {
-            try {
-                await fetch('/api/GerenciarLista', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
-                });
-                alert(`${nome} adicionado!`);
-                carregarLista();
-            } catch (e) { console.error(e); }
-        }
-
-        async function carregarSugestoes() {
-            try {
-                const response = await fetch('/api/VincularProdutos');
-                const produtos = await response.json();
-                const datalist = document.getElementById('sugestoes-produtos');
-                const nomesUnicos = [...new Set(produtos.map(p => p.nome_comum))];
-                datalist.innerHTML = nomesUnicos.map(nome => `<option value="${nome.toUpperCase()}">`).join('');
-            } catch (e) { }
-        }
-
-        async function renderizarDicionario() {
-            const container = document.getElementById('lista-dicionario');
-            container.innerHTML = '<p class="text-center text-gray-400 animate-pulse">Carregando...</p>';
-            try {
-                const response = await fetch('/api/VincularProdutos');
-                const produtos = await response.json();
-                const categorias = {};
-                produtos.forEach(p => {
-                    const cat = p.categoria || "OUTROS";
-                    if (!categorias[cat]) categorias[cat] = [];
-                    categorias[cat].push(p);
-                });
-                container.innerHTML = '';
-                for (const [cat, itens] of Object.entries(categorias)) {
-                    const div = document.createElement('div');
-                    div.className = "mb-4";
-                    div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest">${cat}</h3>`;
-                    itens.forEach(prod => {
-                        div.innerHTML += `
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center mb-1 shadow-sm">
-                                <div class="flex-1"><p class="text-xs font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
-                                <button onclick="adicionarDiretoALista('${escapeHTML(prod.nome_comum)}')" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-xs font-bold active:scale-90 transition-transform">🛒+</button>
-                            </div>`;
-                    });
-                    container.appendChild(div);
-                }
-            } catch (e) { }
+            await fetch('/api/GerenciarLista', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
+            });
+            alert("Adicionado!");
         }
 
         function processarUrlManual() {
@@ -255,124 +268,184 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: url })
                 })
-                    .then(r => r.json())
-                    .then(data => {
-                        statusDiv.innerText = "✅ Nota lida!";
-                        renderPreview(data.dados);
-                    })
-                    .catch(() => statusDiv.innerText = "❌ Erro ao ler nota.");
+                .then(r => r.json())
+                .then(data => {
+                    statusDiv.innerText = "✅ Nota lida!";
+                    renderPreview(data.dados);
+                })
+                .catch(() => statusDiv.innerText = "❌ Erro ao ler nota.");
             }
         }
 
-        function renderPreview(dados) {
-            const previewContainer = document.getElementById('preview-container');
-            const listaItens = document.getElementById('lista-itens');
-            listaItens.innerHTML = '';
-            previewContainer.classList.remove('hidden');
+       async function renderPreview(dados) {
+    const previewContainer = document.getElementById('preview-container');
+    const listaItens = document.getElementById('lista-itens');
+    listaItens.innerHTML = '';
+    previewContainer.classList.remove('hidden');
 
-            const header = document.createElement('div');
-            header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
-            header.innerHTML = `
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p>
-                        <p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "MERCADO DESCONHECIDO"}</p>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total da Nota</p>
-                        <p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p>
-                    </div>
-                </div>
-                <div class="flex justify-between items-center pt-2 border-t border-blue-100">
-                    <p class="text-[10px] text-gray-500 font-medium">📦 ${dados.itens.length} itens encontrados</p>
-                    <p class="text-[10px] text-gray-500 font-medium">📅 ${new Date(dados.data_compra).toLocaleDateString('pt-BR')}</p>
-                </div>`;
-            listaItens.appendChild(header);
+    // Buscamos o dicionário atualizado para comparar
+    const respDict = await fetch('/api/VincularProdutos');
+    const dicionario = await respDict.json();
 
-            dados.itens.forEach(item => {
-                const itemDiv = document.createElement('div');
-                itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors";
-                itemDiv.innerHTML = `
-                    <div class="flex-1 pr-2">
-                        <p class="text-[11px] font-bold text-gray-800 uppercase leading-tight">${item.descricao}</p>
-                        <div class="flex gap-2 mt-1">
-                            <p class="text-[9px] text-gray-400">ID: ${item.id_interno}</p>
-                            <p class="text-[9px] font-bold text-blue-500">R$ ${item.preco_unitario.toFixed(2)} x ${item.quantidade}</p>
-                        </div>
-                    </div>
-                    <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
-                        class="ml-2 p-3 bg-blue-50 text-blue-600 rounded-full shadow-sm active:scale-90 transition-transform">🔗</button>
-                `;
-                listaItens.appendChild(itemDiv);
-            });
-        }
+    // Cabeçalho da Nota
+    const header = document.createElement('div');
+    header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
+    header.innerHTML = `
+        <div class="flex justify-between items-start mb-2">
+            <div>
+                <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p>
+                <p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "MERCADO"}</p>
+            </div>
+            <div class="text-right">
+                <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total</p>
+                <p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p>
+            </div>
+        </div>
+    `;
+    listaItens.appendChild(header);
+
+    // Listagem dos itens com checagem inteligente
+   dados.itens.forEach(item => {
+    // Verifica se o ID interno da nota já está em algum produto do dicionário
+    const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
+    
+    const temNomeAmigavel = !!produtoVinculado;
+    const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
+
+    // Cálculos para exibição
+    const precoUnitario = item.preco_unitario || 0;
+    const qtd = item.quantidade || 0;
+    const precoTotalItem = item.preco_total || (precoUnitario * qtd);
+
+    const itemDiv = document.createElement('div');
+    itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
+    
+    itemDiv.innerHTML = `
+        <div class="flex-1 pr-2">
+            <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-red-500'} uppercase leading-tight">
+                ${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
+            </p>
+            <div class="flex flex-wrap gap-2 mt-1 items-center">
+                <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">
+                    ${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}
+                </span>
+                <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">
+                    ${temFoto ? 'Com Foto' : 'Sem Foto'}
+                </span>
+                <p class="text-[10px] font-black text-blue-600">
+                    ${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span>
+                </p>
+            </div>
+        </div>
+        <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
+            class="ml-2 p-3 ${temNomeAmigavel && temFoto ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white'} rounded-full shadow-sm active:scale-90 transition-transform">
+            ${temNomeAmigavel && temFoto ? '✔️' : '🔗'}
+        </button>
+    `;
+    listaItens.appendChild(itemDiv);
+});
+}
 
         function vincularID(id, desc) {
             const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
-            const categoria = prompt(`Categoria:`, "OUTROS");
-            if (novoNome) {
-                fetch('/api/VincularProdutos', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.toUpperCase(), categoria: categoria.toUpperCase() })
-                }).then(() => carregarLista());
-            }
+            if (!novoNome) return;
+            const cat = prompt(`Categoria:`, "OUTROS");
+            const foto = prompt(`URL da Foto:`, "");
+            fetch('/api/VincularProdutos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.toUpperCase(), categoria: cat.toUpperCase(), fotoUrl: foto })
+            }).then(() => carregarLista());
         }
 
         async function abrirGrafico(nome) {
-            let canvasHtml = `
-            <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center">
-                <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl">
-                    <div class="flex justify-between items-center mb-4 border-b pb-2">
-                        <h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3>
-                        <button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1 hover:bg-red-50 rounded-lg transition-colors">X</button>
-                    </div>
-                    <div class="relative h-64"><canvas id="meuGrafico"></canvas></div>
-                    <p class="text-[9px] text-gray-400 mt-4 text-center italic">Toque nos pontos para ver o mercado e a hora exata</p>
-                </div>
-            </div>`;
-            document.body.insertAdjacentHTML('beforeend', canvasHtml);
+    let canvasHtml = `
+    <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center">
+        <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3>
+                <button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1 hover:bg-red-50 rounded-lg transition-colors">X</button>
+            </div>
+            <div class="relative h-64">
+                <canvas id="meuGrafico"></canvas>
+            </div>
+            <p class="text-[9px] text-gray-400 mt-4 text-center italic">Toque nos pontos para ver o mercado e a hora exata</p>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', canvasHtml);
 
-            try {
-                const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
-                const dados = await response.json();
-                if (!dados || dados.length === 0) {
-                    document.getElementById('meuGrafico').parentElement.innerHTML = "<p class='text-center py-10 text-gray-500 text-xs'>Sem histórico para este item.</p>";
-                    return;
-                }
-                const ctx = document.getElementById('meuGrafico').getContext('2d');
-                new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: dados.map(d => {
-                            const dt = new Date(d.data);
-                            return dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                        }),
-                        datasets: [{
-                            label: 'Preço (R$)',
-                            data: dados.map(d => d.preco),
-                            borderColor: '#2563eb',
-                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                            fill: true,
-                            tension: 0.3,
-                            pointBackgroundColor: dados.map(d => d.mercado.includes('WMS') ? '#f59e0b' : '#ef4444'),
-                            pointRadius: 6
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            tooltip: {
-                                callbacks: {
-                                    afterLabel: (context) => 'Mercado: ' + dados[context.dataIndex].mercado
-                                }
+    try {
+        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+        const dados = await response.json();
+
+        if (!dados || dados.length === 0) {
+            document.getElementById('meuGrafico').parentElement.innerHTML = 
+                "<p class='text-center py-10 text-gray-500 text-xs'>Sem histórico para este item.</p>";
+            return;
+        }
+
+        const ctx = document.getElementById('meuGrafico').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                // Formatação Brasileira: DD/MM/AAAA HH:mm
+                labels: dados.map(d => {
+                    const dt = new Date(d.data);
+                    return dt.toLocaleDateString('pt-BR') + ' ' + 
+                           dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                }),
+                datasets: [{
+                    label: 'Preço Unitário (R$)',
+                    data: dados.map(d => d.preco),
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    // Diferenciação visual por cores (Laranja para WMS, Vermelho para Carrefour)
+                    pointBackgroundColor: dados.map(d => d.mercado.includes('WMS') ? '#f59e0b' : '#ef4444'),
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 10,
+                        callbacks: {
+                            // RECUPERA A REFERÊNCIA DO MERCADO NO CLIQUE
+                            afterLabel: function(context) {
+                                const index = context.dataIndex;
+                                return 'Mercado: ' + dados[index].mercado;
                             }
-                        },
-                        scales: { y: { ticks: { callback: v => 'R$ ' + v.toFixed(2) } } }
+                        }
                     }
-                });
-            } catch (e) { console.error(e); }
+                },
+                scales: {
+                    y: { 
+                        ticks: { 
+                            callback: v => 'R$ ' + v.toFixed(2) 
+                        } 
+                    }
+                }
+            }
+        });
+    } catch (e) { 
+        console.error("Erro ao carregar gráfico:", e); 
+    }
+}
+
+        async function carregarSugestoes() {
+            try {
+                const response = await fetch('/api/VincularProdutos');
+                const produtos = await response.json();
+                const datalist = document.getElementById('sugestoes-produtos');
+                datalist.innerHTML = [...new Set(produtos.map(p => p.nome_comum))].map(nome => `<option value="${nome.toUpperCase()}">`).join('');
+            } catch (e) { }
         }
 
         carregarLista();

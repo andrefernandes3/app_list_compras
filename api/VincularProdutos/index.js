@@ -14,19 +14,21 @@ module.exports = async function (context, req) {
             const produtos = await colecao.find({}).sort({ categoria: 1, nome_comum: 1 }).toArray();
             context.res = { status: 200, body: produtos };
         } 
-        else if (metodo === 'POST') {
-            const { idPrincipal, nomePadrao, categoria } = req.body;
-            await colecao.updateOne(
-                { nome_comum: nomePadrao.toUpperCase() },
-                { 
-                    $addToSet: { ids_vinculados: idPrincipal },
-                    $set: { 
-                        categoria: (categoria || "OUTROS").toUpperCase(),
-                        ultima_atualizacao: new Date() 
-                    }
-                },
-                { upsert: true }
-            );
+        else if (metodo === 'POST') {            
+const { idPrincipal, nomePadrao, categoria, fotoUrl } = req.body; 
+
+await colecao.updateOne(
+    { nome_comum: nomePadrao.toUpperCase() },
+    { 
+        $addToSet: { ids_vinculados: idPrincipal },
+        $set: { 
+            categoria: (categoria || "OUTROS").toUpperCase(),
+            foto_url: fotoUrl || "", // Novo campo para a imagem
+            ultima_atualizacao: new Date() 
+        }
+    },
+    { upsert: true }
+);
             context.res = { status: 200, body: "Dicionário atualizado!" };
         }
     } catch (e) {
