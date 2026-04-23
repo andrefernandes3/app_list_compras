@@ -1,13 +1,24 @@
 let totaisPorMercado = {};
 let itensSelecionados = new Set();
 
-// Função para escapar caracteres HTML em uma string
+// === FUNÇÕES UTILITÁRIAS ===
 function escapeHTML(str) {
     if (!str) return "";
     return str.replace(/'/g, "\\'");
 }
 
-// Função para exibir um modal com imagem ampliada
+function obterCorMercado(nomeMercado) {
+    const cores = {
+        'CARREFOUR': '#2ecc71',
+        'WMS': '#f1c40f',
+        'PÃO': '#e67e22',
+        'EXTRA': '#e74c3c'
+    };
+    if (!nomeMercado) return '#3498db';
+    const chave = Object.keys(cores).find(k => nomeMercado.toUpperCase().includes(k));
+    return cores[chave] || '#3498db';
+}
+
 function ampliarImagem(url, nome) {
     if (!url || url.includes('placeholder')) return;
     const modalHtml = `
@@ -20,16 +31,23 @@ function ampliarImagem(url, nome) {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
-// Função para alternar entre abas (lista e dicionário)
 function alternarAba(aba) {
     const isLista = aba === 'lista';
     document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
     document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
-    document.getElementById('btn-aba-lista').className = isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
-    document.getElementById('btn-aba-dict').className = !isLista ? "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : "flex-1 py-3 text-sm font-bold text-gray-500";
+    
+    document.getElementById('btn-aba-lista').className = isLista ? 
+        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : 
+        "flex-1 py-3 text-sm font-bold text-gray-500";
+    
+    document.getElementById('btn-aba-dict').className = !isLista ? 
+        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : 
+        "flex-1 py-3 text-sm font-bold text-gray-500";
+    
     if (isLista) carregarLista(); else renderizarDicionario();
 }
 
+// === LÓGICA DA LISTA ATIVA ===
 async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
@@ -54,75 +72,133 @@ async function carregarLista() {
             const nomeSeguro = escapeHTML(item.item_nome);
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
+            const precoReal = item.preco_real || '';
 
             const itemElement = document.createElement('div');
-            // Aplica classe visual se estiver comprado
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado' : ''}`;
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
 
             itemElement.innerHTML = `
-                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
+                     onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
                     <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
                 </div>
                 <div class="flex-1 min-w-0">
                     <div class="flex justify-between items-start">
-                        <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words line-clamp-2 pr-1">
+                        <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words cursor-pointer hover:text-blue-600" onclick="abrirGrafico('${nomeSeguro}')">
                             ${item.item_nome}
                         </span>
                         <div class="flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
-                            <span class="text-[9px] font-black text-blue-700 w-4 text-center">${qtd}x</span>
-                            
-                            <input type="number" step="0.01" placeholder="R$ 0,00" 
-                                data-qtd="${qtd}" 
-                                oninput="calcularTotalReal()" 
+                            <input type="number" min="1" value="${qtd}" 
+                                class="input-qtd-real w-8 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
+                                oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
+                            <span class="text-[8px] text-blue-400">x</span>
+                            <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
+                                oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value)" 
                                 class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
-                            
-                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 shrink-0">
+                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
                                 ${isComprado ? '🔄' : '✅'}
                             </button>
                         </div>
                     </div>
                     <div id="preco-lista-${idFormatado}"></div>
-                </div>
-            `;
+                </div>`;
             listaDiv.appendChild(itemElement);
             buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
         });
-
-        // Inicializa o total real como zero ao carregar
         calcularTotalReal();
-
     } catch (err) { console.error(err); }
 }
 
-// Nova função para calcular a soma em tempo real
+// === PERSISTÊNCIA E CÁLCULOS ===
+let timeoutPreco, timeoutQtd;
+
 function calcularTotalReal() {
     let total = 0;
-    const inputs = document.querySelectorAll('.input-preco-real');
-    inputs.forEach(input => {
-        const valor = parseFloat(input.value) || 0;
-        const qtd = parseFloat(input.dataset.qtd) || 1;
-        total += (valor * qtd);
+    const cards = document.querySelectorAll('#lista-ativa > div');
+    cards.forEach(card => {
+        const inputPreco = card.querySelector('.input-preco-real');
+        const inputQtd = card.querySelector('.input-qtd-real');
+        if (inputPreco && inputQtd) {
+            total += (parseFloat(inputPreco.value) || 0) * (parseFloat(inputQtd.value) || 1);
+        }
     });
-
     const display = document.getElementById('total-real-dinamico');
-    if (display) {
-        display.innerText = `R$ ${total.toFixed(2)}`;
-    }
+    if (display) display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
 }
 
-// Função para mudar o status sem remover o item da tela
-async function alternarStatus(nome, novoStatus) {
+function salvarPrecoNoBanco(nome, valor) {
+    clearTimeout(timeoutPreco);
+    timeoutPreco = setTimeout(async () => {
+        try {
+            await fetch('/api/GerenciarLista', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome.toUpperCase(), preco_real: parseFloat(valor) || 0 })
+            });
+        } catch (e) { console.error(e); }
+    }, 800);
+}
+
+function agendarSalvarQtd(nome, qtd) {
+    clearTimeout(timeoutQtd);
+    timeoutQtd = setTimeout(async () => {
+        try {
+            await fetch('/api/GerenciarLista', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
+            });
+            // Recarrega a lista para atualizar os comparativos (subtotais por mercado)
+            carregarLista();
+        } catch (e) { console.error(e); }
+    }, 1000);
+}
+
+// === GRÁFICO E COMPARATIVOS ===
+async function abrirGrafico(nome) {
+    let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center"><div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl"><div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3><button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1">X</button></div><div class="relative h-64"><canvas id="meuGrafico"></canvas></div><p class="text-[9px] text-gray-400 mt-4 text-center italic">Cores indicam o mercado onde o item foi comprado</p></div></div>`;
+    document.body.insertAdjacentHTML('beforeend', canvasHtml);
+
     try {
-        await fetch('/api/GerenciarLista', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
+        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+        const dados = await response.json();
+        if (!dados.length) return;
+
+        const ctx = document.getElementById('meuGrafico').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
+                datasets: [{
+                    label: 'Preço R$',
+                    data: dados.map(d => d.preco),
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 8,
+                    pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => `R$ ${c.parsed.y.toFixed(2)}`,
+                            afterLabel: (c) => 'Mercado: ' + dados[c.dataIndex].mercado
+                        }
+                    }
+                }
+            }
         });
-        carregarLista();
     } catch (e) { console.error(e); }
 }
 
-// Função para buscar e exibir comparações de preços de um produto
 async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
     try {
         const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
@@ -135,9 +211,8 @@ async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
             if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
             totaisPorMercado[mercado] += subtotal;
 
-            // Criamos o badge com um atributo de dados para sincronizar a cor depois
             elementoDestino.innerHTML = `
-                <div data-mercado-badge="${mercado}" class="mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center italic transition-colors">
+                <div data-mercado-badge="${mercado}" class="mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center transition-colors">
                     <span>💡 ${mercado}</span>
                     <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${quantidade} = R$ ${subtotal.toFixed(2)}</span>
                 </div>`;
@@ -148,10 +223,12 @@ async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
     } catch (e) { }
 }
 
-// Função para atualizar a soma visual dos totais por mercado
 function atualizarSomaVisual() {
     const container = document.getElementById('mercados-soma');
-    document.getElementById('totalizador-estimado').classList.remove('hidden');
+    const totalDiv = document.getElementById('totalizador-estimado');
+    if (!container || !totalDiv) return;
+    
+    totalDiv.classList.remove('hidden');
     container.innerHTML = '';
 
     const entries = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
@@ -162,32 +239,20 @@ function atualizarSomaVisual() {
         container.innerHTML += `<div class="p-2 rounded-lg border ${cor} text-center shadow-sm"><p class="text-[8px] uppercase">${m}</p><p class="text-xs font-bold">R$ ${v.toFixed(2)}</p></div>`;
     });
 
-    // SINCRONIZAÇÃO: Atualiza todos os badges de produtos para a cor do vencedor
     document.querySelectorAll('[data-mercado-badge]').forEach(el => {
         const mercadoItem = el.getAttribute('data-mercado-badge');
         if (mercadoItem === mercadoVencedor) {
-            el.className = "mt-1 text-[9px] bg-green-100 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center italic transition-colors";
+            el.className = "mt-1 text-[9px] bg-green-100 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center transition-colors";
         } else {
-            el.className = "mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center italic transition-colors";
+            el.className = "mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center transition-colors";
         }
     });
 }
-async function ajustarQtdLista(nome, novaQtd) {
-    if (novaQtd < 1) return;
-    try {
-        await fetch('/api/GerenciarLista', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: novaQtd })
-        });
-        carregarLista();
-    } catch (e) { console.error(e); }
-}
 
-// Função para renderizar o dicionário de produtos
+// === LÓGICA DO DICIONÁRIO ===
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
-    container.innerHTML = '<p class="text-center text-gray-400">Carregando...</p>';
+    container.innerHTML = '<p class="text-center text-gray-400 p-4">Carregando catálogo...</p>';
     itensSelecionados.clear();
     document.getElementById('btn-adicionar-multiplos').classList.add('hidden');
     document.getElementById('select-all-dict').checked = false;
@@ -196,6 +261,7 @@ async function renderizarDicionario() {
         const response = await fetch('/api/VincularProdutos');
         const produtos = await response.json();
         const categorias = {};
+        
         produtos.forEach(p => {
             const cat = p.categoria || "OUTROS";
             if (!categorias[cat]) categorias[cat] = [];
@@ -207,25 +273,25 @@ async function renderizarDicionario() {
             const div = document.createElement('div');
             div.className = "mb-4";
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
+            
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
                 div.innerHTML += `
-                            <div class="bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3">
-                                <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                                <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50">
-                                    <img src="${fotoUrl}" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')" class="w-full h-full object-cover">
-                                </div>
-                                <div class="flex-1"><p class="text-[10px] font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
-                                <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
-                            </div>`;
+                    <div class="bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3">
+                        <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                        <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
+                            <img src="${fotoUrl}" class="w-full h-full object-cover">
+                        </div>
+                        <div class="flex-1"><p class="text-[10px] font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
+                        <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
+                    </div>`;
             });
             container.appendChild(div);
         }
-    } catch (e) { }
+    } catch (e) { console.error(e); }
 }
 
-// Função para selecionar ou deselecionar todos os itens no dicionário
 function selecionarTudoDicionario(checked) {
     const checkboxes = document.querySelectorAll('#lista-dicionario input[type="checkbox"]');
     checkboxes.forEach(cb => {
@@ -237,14 +303,12 @@ function selecionarTudoDicionario(checked) {
     atualizarBotaoMultiplos();
 }
 
-// Função para alternar a seleção de um item no dicionário
 function toggleSelecao(nome, checked) {
     if (checked) itensSelecionados.add(nome);
     else itensSelecionados.delete(nome);
     atualizarBotaoMultiplos();
 }
 
-// Função para atualizar o botão de adicionar múltiplos itens
 function atualizarBotaoMultiplos() {
     const btn = document.getElementById('btn-adicionar-multiplos');
     const contador = itensSelecionados.size;
@@ -256,9 +320,9 @@ function atualizarBotaoMultiplos() {
     }
 }
 
-// Função para enviar os itens selecionados para a lista de compras
 async function enviarSelecionadosParaLista() {
     const btn = document.getElementById('btn-adicionar-multiplos');
+    const total = itensSelecionados.size;
     btn.innerText = "ADICIONANDO...";
     btn.disabled = true;
 
@@ -269,85 +333,52 @@ async function enviarSelecionadosParaLista() {
             body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
         });
     }
-    alert(`${itensSelecionados.size} itens adicionados!`);
+    alert(`${total} itens adicionados com sucesso!`);
     alternarAba('lista');
 }
 
-// Função para buscar comparações de preços (duplicada)
-async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
-    try {
-        const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
-        if (!response.ok) return;
-        const dados = await response.json();
-        if (dados.length > 0) {
-            const melhor = dados[0];
-            const mercado = melhor._id.split(' ')[0];
-            const subtotal = melhor.menorPreco * quantidade;
-            if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
-            totaisPorMercado[mercado] += subtotal;
-            elementoDestino.innerHTML = `
-                        <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center italic">
-                            <span>💡 ${mercado}</span>
-                            <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${quantidade} = R$ ${subtotal.toFixed(2)}</span>
-                        </div>`;
-            atualizarSomaVisual();
-        } else {
-            elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico</div>`;
-        }
-    } catch (e) { }
-}
-
-// Função para atualizar a soma visual (duplicada)
-function atualizarSomaVisual() {
-    const container = document.getElementById('mercados-soma');
-    document.getElementById('totalizador-estimado').classList.remove('hidden');
-    container.innerHTML = '';
-    Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]).forEach(([m, v], i) => {
-        const cor = i === 0 ? 'bg-green-100 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500';
-        container.innerHTML += `<div class="p-2 rounded-lg border ${cor} text-center shadow-sm"><p class="text-[8px] uppercase">${m}</p><p class="text-xs font-bold">R$ ${v.toFixed(2)}</p></div>`;
-    });
-}
-
-// Função para marcar um item como comprado
-async function marcarComoComprado(nome) {
+// === STATUS E MANIPULAÇÃO MANUAL ===
+async function alternarStatus(nome, novoStatus) {
     try {
         await fetch('/api/GerenciarLista', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome.toUpperCase(), comprado: true })
+            body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
         });
         carregarLista();
-    } catch (e) { }
+    } catch (e) { console.error(e); }
 }
 
-// Função para adicionar um item manualmente à lista
 async function adicionarItemManual() {
     const inputNome = document.getElementById('novo-item-lista');
     const inputQtd = document.getElementById('qtd-item-lista');
     const nome = inputNome.value.trim().toUpperCase();
-    const quantidade = parseFloat(inputQtd.value) || 1;
     if (!nome) return;
-    await fetch('/api/GerenciarLista', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nome, quantidade: quantidade })
-    });
-    inputNome.value = ''; inputQtd.value = '1';
-    carregarLista();
+    try {
+        await fetch('/api/GerenciarLista', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: nome, quantidade: parseFloat(inputQtd.value) || 1 })
+        });
+        inputNome.value = '';
+        inputQtd.value = '1';
+        carregarLista();
+    } catch (e) { }
 }
 
-// Função para adicionar um item diretamente à lista
 async function adicionarDiretoALista(nome) {
-    await fetch('/api/GerenciarLista', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
-    });
-    alert("Adicionado!");
-    carregarLista();
+    try {
+        await fetch('/api/GerenciarLista', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
+        });
+        alert("Item adicionado à lista!");
+        carregarLista(); // Atualiza a lista ativa se estiver visível
+    } catch (e) { console.error(e); }
 }
 
-// Função para processar uma URL de nota fiscal manualmente
+// === NOTA FISCAL ===
 function processarUrlManual() {
     const url = document.getElementById('url-input').value.trim();
     if (!url) return;
@@ -366,7 +397,6 @@ function processarUrlManual() {
         }).catch(() => statusDiv.innerText = "❌ Erro.");
 }
 
-// Função para renderizar uma prévia dos dados da nota fiscal
 async function renderPreview(dados) {
     const previewContainer = document.getElementById('preview-container');
     const listaItens = document.getElementById('lista-itens');
@@ -379,14 +409,14 @@ async function renderPreview(dados) {
     const header = document.createElement('div');
     header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
     header.innerHTML = `
-                <div class="flex justify-between items-start mb-2">
-                    <div><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p><p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "DESCONHECIDO"}</p></div>
-                    <div class="text-right"><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total</p><p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p></div>
-                </div>
-                <div class="flex justify-between items-center pt-2 border-t border-blue-100">
-                    <p class="text-[10px] text-gray-500 font-medium">📦 ${dados.itens.length} itens encontrados</p>
-                    <p class="text-[10px] text-gray-500 font-medium">📅 ${new Date(dados.data_compra).toLocaleDateString('pt-BR')}</p>
-                </div>`;
+        <div class="flex justify-between items-start mb-2">
+            <div><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p><p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "DESCONHECIDO"}</p></div>
+            <div class="text-right"><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total</p><p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p></div>
+        </div>
+        <div class="flex justify-between items-center pt-2 border-t border-blue-100">
+            <p class="text-[10px] text-gray-500 font-medium">📦 ${dados.itens.length} itens encontrados</p>
+            <p class="text-[10px] text-gray-500 font-medium">📅 ${new Date(dados.data_compra).toLocaleDateString('pt-BR')}</p>
+        </div>`;
     listaItens.appendChild(header);
 
     dados.itens.forEach(item => {
@@ -401,20 +431,19 @@ async function renderPreview(dados) {
         const itemDiv = document.createElement('div');
         itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
         itemDiv.innerHTML = `
-                    <div class="flex-1 pr-2">
-                        <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-red-500'} uppercase leading-tight">${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}</p>
-                        <div class="flex flex-wrap gap-2 mt-1 items-center">
-                            <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}</span>
-                            <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">${temFoto ? 'Com Foto' : 'Sem Foto'}</span>
-                            <p class="text-[10px] font-black text-blue-600">${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span></p>
-                        </div>
-                    </div>
-                    <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" class="ml-2 p-3 ${temNomeAmigavel && temFoto ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white'} rounded-full shadow-sm active:scale-90 transition-transform">${temNomeAmigavel && temFoto ? '✔️' : '🔗'}</button>`;
+            <div class="flex-1 pr-2">
+                <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-red-500'} uppercase leading-tight">${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}</p>
+                <div class="flex flex-wrap gap-2 mt-1 items-center">
+                    <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}</span>
+                    <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">${temFoto ? 'Com Foto' : 'Sem Foto'}</span>
+                    <p class="text-[10px] font-black text-blue-600">${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span></p>
+                </div>
+            </div>
+            <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" class="ml-2 p-3 ${temNomeAmigavel && temFoto ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white'} rounded-full shadow-sm active:scale-90 transition-transform">${temNomeAmigavel && temFoto ? '✔️' : '🔗'}</button>`;
         listaItens.appendChild(itemDiv);
     });
 }
 
-// Função para vincular um ID de produto a um nome padrão
 function vincularID(id, desc) {
     const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
     if (!novoNome) return;
@@ -424,47 +453,25 @@ function vincularID(id, desc) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.toUpperCase(), categoria: cat.toUpperCase(), fotoUrl: foto })
-    }).then(() => carregarLista());
+    }).then(() => {
+        carregarLista();
+        renderizarDicionario(); // atualiza o dicionário se estiver visível
+    });
 }
 
-// Função para abrir um gráfico do histórico de preços do produto
-async function abrirGrafico(nome) {
-    let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center"><div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl"><div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3><button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1 hover:bg-red-50 rounded-lg transition-colors">X</button></div><div class="relative h-64"><canvas id="meuGrafico"></canvas></div><p class="text-[9px] text-gray-400 mt-4 text-center italic">Toque nos pontos para detalhes</p></div></div>`;
-    document.body.insertAdjacentHTML('beforeend', canvasHtml);
-    try {
-        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
-        const dados = await response.json();
-        if (!dados.length) return;
-        const ctx = document.getElementById('meuGrafico').getContext('2d');
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: dados.map(d => {
-                    const dt = new Date(d.data);
-                    return dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                }),
-                datasets: [{
-                    label: 'R$', data: dados.map(d => d.preco), borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: true, tension: 0.3,
-                    pointBackgroundColor: dados.map(d => d.mercado.includes('WMS') ? '#f59e0b' : '#ef4444'), pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 6
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { tooltip: { callbacks: { afterLabel: (c) => 'Mercado: ' + dados[c.dataIndex].mercado } } }
-            }
-        });
-    } catch (e) { }
-}
-
-// Função para carregar sugestões de produtos para o datalist
+// === SUGESTÕES E INICIALIZAÇÃO ===
 async function carregarSugestoes() {
     try {
         const response = await fetch('/api/VincularProdutos');
         const produtos = await response.json();
         const datalist = document.getElementById('sugestoes-produtos');
-        datalist.innerHTML = [...new Set(produtos.map(p => p.nome_comum))].map(nome => `<option value="${nome.toUpperCase()}">`).join('');
+        if (datalist) {
+            datalist.innerHTML = [...new Set(produtos.map(p => p.nome_comum))]
+                .map(nome => `<option value="${nome.toUpperCase()}">`).join('');
+        }
     } catch (e) { }
 }
 
+// Inicialização
 carregarLista();
 carregarSugestoes();
