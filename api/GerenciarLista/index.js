@@ -9,9 +9,10 @@ module.exports = async function (context, req) {
     const colecao = db.collection('lista_compras');
 
     try {
+        // No ficheiro api/GerenciarLista/index.js, altere a linha do GET:
         if (metodo === 'GET') {
-            // Busca apenas itens ativos (não comprados)
-            const lista = await colecao.find({}).sort({ comprado: 1, data_adicao: -1 }).toArray();
+            // Agora buscamos todos os itens da lista para manter o Caminho B
+            const lista = await colecao.find({}).toArray();
             context.res = { status: 200, body: lista };
         }
         else if (metodo === 'POST') {

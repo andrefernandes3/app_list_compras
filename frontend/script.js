@@ -30,7 +30,6 @@ function alternarAba(aba) {
     if (isLista) carregarLista(); else renderizarDicionario();
 }
 
-// Função para carregar e exibir a lista de compras
 async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
@@ -53,30 +52,32 @@ async function carregarLista() {
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             const idFormatado = item.item_nome.replace(/\s+/g, '-');
             const nomeSeguro = escapeHTML(item.item_nome);
-            const fotoUrl = infoDict.foto_url || 'https://via.placeholder.com/50';
+            const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
-            const statusComprado = item.comprado || false;
 
             const itemElement = document.createElement('div');
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${statusComprado ? 'item-comprado' : ''}`;
-            
+            // Aplica classe visual se estiver comprado
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado' : ''}`;
+
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
-                    <img src="${fotoUrl}" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')" 
-                         class="w-full h-full object-cover cursor-zoom-in" onerror="this.src='https://via.placeholder.com/50'">
+                    <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
                 </div>
                 <div class="flex-1 min-w-0">
                     <div class="flex justify-between items-start">
-                        <span onclick="abrirGrafico('${nomeSeguro}')" 
-                            class="font-bold text-gray-700 uppercase text-[10px] cursor-pointer underline decoration-blue-300 break-words line-clamp-2 pr-1 texto-item">
+                        <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words line-clamp-2 pr-1">
                             ${item.item_nome}
                         </span>
-                        <div class="flex items-center gap-1 bg-blue-50 p-1 rounded-lg">
-                            <button onclick="ajustarQtdLista('${nomeSeguro}', ${qtd - 1})" class="w-5 h-5 flex items-center justify-center bg-white rounded border border-blue-200 text-blue-600 font-bold">-</button>
-                            <span class="text-[10px] font-black text-blue-700 w-4 text-center">${qtd}</span>
-                            <button onclick="ajustarQtdLista('${nomeSeguro}', ${qtd + 1})" class="w-5 h-5 flex items-center justify-center bg-white rounded border border-blue-200 text-blue-600 font-bold">+</button>
-                            <button onclick="alternarStatus('${nomeSeguro}', ${!statusComprado})" class="text-lg ml-1 shrink-0">
-                                ${statusComprado ? '🔄' : '✅'}
+                        <div class="flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
+                            <span class="text-[9px] font-black text-blue-700 w-4 text-center">${qtd}x</span>
+                            
+                            <input type="number" step="0.01" placeholder="R$ 0,00" 
+                                data-qtd="${qtd}" 
+                                oninput="calcularTotalReal()" 
+                                class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
+                            
+                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 shrink-0">
+                                ${isComprado ? '🔄' : '✅'}
                             </button>
                         </div>
                     </div>
@@ -86,10 +87,30 @@ async function carregarLista() {
             listaDiv.appendChild(itemElement);
             buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
         });
+
+        // Inicializa o total real como zero ao carregar
+        calcularTotalReal();
+
     } catch (err) { console.error(err); }
 }
 
-// Função para alternar o status de compra de um item
+// Nova função para calcular a soma em tempo real
+function calcularTotalReal() {
+    let total = 0;
+    const inputs = document.querySelectorAll('.input-preco-real');
+    inputs.forEach(input => {
+        const valor = parseFloat(input.value) || 0;
+        const qtd = parseFloat(input.dataset.qtd) || 1;
+        total += (valor * qtd);
+    });
+
+    const display = document.getElementById('total-real-dinamico');
+    if (display) {
+        display.innerText = `R$ ${total.toFixed(2)}`;
+    }
+}
+
+// Função para mudar o status sem remover o item da tela
 async function alternarStatus(nome, novoStatus) {
     try {
         await fetch('/api/GerenciarLista', {
@@ -98,7 +119,7 @@ async function alternarStatus(nome, novoStatus) {
             body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
         });
         carregarLista();
-    } catch (e) { }
+    } catch (e) { console.error(e); }
 }
 
 // Função para buscar e exibir comparações de preços de um produto
@@ -132,7 +153,7 @@ function atualizarSomaVisual() {
     const container = document.getElementById('mercados-soma');
     document.getElementById('totalizador-estimado').classList.remove('hidden');
     container.innerHTML = '';
-    
+
     const entries = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
     const mercadoVencedor = entries.length > 0 ? entries[0][0] : null;
 
