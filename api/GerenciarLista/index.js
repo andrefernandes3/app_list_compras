@@ -29,15 +29,19 @@ module.exports = async function (context, req) {
                 { upsert: true }
             );
             context.res = { status: 201, body: "Item na lista!" };
-        }
+        }        
         else if (metodo === 'PATCH') {
-            const { nome, comprado } = req.body;
-            // Salva o status real no banco de dados
+            const { nome, comprado, preco_real } = req.body;
+            const updateData = {};
+
+            if (comprado !== undefined) updateData.comprado = comprado;
+            if (preco_real !== undefined) updateData.preco_real = parseFloat(preco_real);
+
             await colecao.updateOne(
                 { item_nome: nome.toUpperCase() },
-                { $set: { comprado: comprado } }
+                { $set: updateData }
             );
-            context.res = { status: 200, body: "Status atualizado!" };
+            context.res = { status: 200, body: "Atualizado!" };
         }
     } catch (e) {
         context.res = { status: 500, body: e.message };

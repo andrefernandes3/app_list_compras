@@ -110,21 +110,32 @@ async function carregarLista() {
 }
 
 // === PERSISTÊNCIA E CÁLCULOS ===
-let timeoutPreco, timeoutQtd;
+
 
 function calcularTotalReal() {
     let total = 0;
+    // Selecionamos todos os itens da lista, independente de estarem riscados ou não
     const cards = document.querySelectorAll('#lista-ativa > div');
+    
     cards.forEach(card => {
         const inputPreco = card.querySelector('.input-preco-real');
         const inputQtd = card.querySelector('.input-qtd-real');
+        
+        // Verificamos se os inputs existem e se o item NÃO está marcado como comprado 
+        // (ou se você deseja somar tudo, remova a verificação de classe)
         if (inputPreco && inputQtd) {
-            total += (parseFloat(inputPreco.value) || 0) * (parseFloat(inputQtd.value) || 1);
+            const preco = parseFloat(inputPreco.value) || 0;
+            const qtd = parseFloat(inputQtd.value) || 1;
+            total += (preco * qtd);
         }
     });
+
     const display = document.getElementById('total-real-dinamico');
-    if (display) display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
+    if (display) {
+        display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
+    }
 }
+let timeoutPreco, timeoutQtd;
 
 function salvarPrecoNoBanco(nome, valor) {
     clearTimeout(timeoutPreco);
@@ -322,19 +333,33 @@ function atualizarBotaoMultiplos() {
 
 async function enviarSelecionadosParaLista() {
     const btn = document.getElementById('btn-adicionar-multiplos');
+    if (itensSelecionados.size === 0) return;
+
     const total = itensSelecionados.size;
     btn.innerText = "ADICIONANDO...";
     btn.disabled = true;
 
-    for (let nome of itensSelecionados) {
-        await fetch('/api/GerenciarLista', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
-        });
+    try {
+        for (let nome of itensSelecionados) {
+            await fetch('/api/GerenciarLista', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
+            });
+        }
+        
+        // LIMPEZA CRUCIAL APÓS O SUCESSO:
+        itensSelecionados.clear(); 
+        btn.disabled = false;
+        btn.classList.add('hidden');
+        
+        alert(`${total} itens adicionados com sucesso!`);
+        alternarAba('lista'); // Isso já chamará o carregarLista()
+    } catch (e) {
+        console.error(e);
+        btn.disabled = false;
+        btn.innerText = `ADICIONAR ${itensSelecionados.size} ITENS`;
     }
-    alert(`${total} itens adicionados com sucesso!`);
-    alternarAba('lista');
 }
 
 // === STATUS E MANIPULAÇÃO MANUAL ===
