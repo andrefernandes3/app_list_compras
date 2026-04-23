@@ -251,21 +251,37 @@
             }
         }
 
-        async function enviarSelecionadosParaLista() {
-            const btn = document.getElementById('btn-adicionar-multiplos');
-            btn.innerText = "ADICIONANDO...";
-            btn.disabled = true;
+       async function enviarSelecionadosParaLista() {
+    const btn = document.getElementById('btn-adicionar-multiplos');
+    const textoOriginal = btn.innerText;
+    btn.innerText = "ADICIONANDO...";
+    btn.disabled = true;
 
-            for (let nome of itensSelecionados) {
-                await fetch('/api/GerenciarLista', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
-                });
-            }
-            alert(`${itensSelecionados.size} itens adicionados!`);
-            alternarAba('lista');
-        }
+    try {
+        // Cria um array de promessas para enviar todos os itens em paralelo
+        const promessas = Array.from(itensSelecionados).map(nome => 
+            fetch('/api/GerenciarLista', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
+            })
+        );
+
+        await Promise.all(promessas);
+        
+        alert(`${itensSelecionados.size} itens adicionados com sucesso!`);
+        
+        // Limpa a seleção e volta para a aba da lista
+        itensSelecionados.clear();
+        alternarAba('lista'); 
+    } catch (error) {
+        console.error("Erro ao adicionar itens:", error);
+        alert("Erro ao adicionar alguns itens. Tente novamente.");
+    } finally {
+        btn.innerText = textoOriginal;
+        btn.disabled = false;
+    }
+}
 
         async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
             try {
