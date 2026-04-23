@@ -45,40 +45,61 @@ async function carregarLista() {
         }
 
         listaDiv.innerHTML = '';
-        // Dentro do loop itens.forEach na função carregarLista:
         itens.forEach(item => {
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
+            const idFormatado = item.item_nome.replace(/\s+/g, '-');
             const nomeSeguro = escapeHTML(item.item_nome);
-
-            // Verifica se o item está marcado como comprado no banco de dados
-            const classeComprado = item.comprado ? 'item-comprado' : '';
-            const textoBotao = item.comprado ? '🔄' : '✅';
+            const fotoUrl = infoDict.foto_url || 'https://via.placeholder.com/50';
+            const qtd = item.quantidade || 1;
+            const statusComprado = item.comprado || false;
 
             const itemElement = document.createElement('div');
-            // Adicionamos a variável ${classeComprado} na lista de classes
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${classeComprado}`;
+            // Aplica a classe visual se estiver comprado
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${statusComprado ? 'item-comprado' : ''}`;
 
             itemElement.innerHTML = `
-        <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
-            <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" 
-                 class="w-full h-full object-cover">
-        </div>
-        <div class="flex-1 min-w-0">
-            <div class="flex justify-between items-start">
-                <span class="font-bold text-gray-700 uppercase text-[10px]">${item.item_nome}</span>
-                <div class="flex items-center gap-1">
-                    <button onclick="marcarComoComprado('${nomeSeguro}', ${!item.comprado})" class="text-lg">
-                        ${textoBotao}
-                    </button>
+                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+                    <img src="${fotoUrl}" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')" 
+                         class="w-full h-full object-cover cursor-zoom-in" onerror="this.src='https://via.placeholder.com/50'">
                 </div>
-            </div>
-        </div>
-    `;
-            listaDiv.appendChild(itemElement);        
-        buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
-    });
-} catch (err) { console.error(err); }
-        }
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-start">
+                        <span onclick="abrirGrafico('${nomeSeguro}')" 
+                            class="font-bold text-gray-700 uppercase text-[10px] cursor-pointer underline decoration-blue-300 break-words line-clamp-2 pr-1 texto-item">
+                            ${item.item_nome}
+                        </span>
+                        <div class="flex items-center gap-1 bg-blue-50 p-1 rounded-lg">
+                            <button onclick="ajustarQtdLista('${nomeSeguro}', ${qtd - 1})" class="w-5 h-5 flex items-center justify-center bg-white rounded border border-blue-200 text-blue-600 font-bold">-</button>
+                            <span class="text-[10px] font-black text-blue-700 w-4 text-center">${qtd}</span>
+                            <button onclick="ajustarQtdLista('${nomeSeguro}', ${qtd + 1})" class="w-5 h-5 flex items-center justify-center bg-white rounded border border-blue-200 text-blue-600 font-bold">+</button>
+                            
+                            <button onclick="alternarStatus('${nomeSeguro}', ${!statusComprado})" class="text-lg ml-1 shrink-0">
+                                ${statusComprado ? '🔄' : '✅'}
+                            </button>
+                        </div>
+                    </div>
+                    <div id="preco-lista-${idFormatado}"></div>
+                </div>
+            `;
+            listaDiv.appendChild(itemElement);
+
+            // Dispara a busca de preços para cada item (Valor unitário x Qtd)
+            buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
+        });
+    } catch (err) { console.error(err); }
+}
+
+// Nova função para lidar com o status reverso
+async function alternarStatus(nome, novoStatus) {
+    try {
+        await fetch('/api/GerenciarLista', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
+        });
+        carregarLista(); // Recarrega para aplicar o visual
+    } catch (e) { console.error(e); }
+}
 
 async function ajustarQtdLista(nome, novaQtd) {
     if (novaQtd < 1) return;
