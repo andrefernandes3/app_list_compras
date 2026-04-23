@@ -9,7 +9,6 @@ module.exports = async function (context, req) {
     const colecao = db.collection('lista_compras');
 
     try {
-        // No ficheiro api/GerenciarLista/index.js, altere a linha do GET:
         if (metodo === 'GET') {
             // Agora buscamos todos os itens da lista para manter o Caminho B
             const lista = await colecao.find({}).toArray();
@@ -29,7 +28,7 @@ module.exports = async function (context, req) {
                 { upsert: true }
             );
             context.res = { status: 201, body: "Item na lista!" };
-        }        
+        }
         else if (metodo === 'PATCH') {
             const { nome, comprado, preco_real } = req.body;
             const updateData = {};
@@ -42,6 +41,18 @@ module.exports = async function (context, req) {
                 { $set: updateData }
             );
             context.res = { status: 200, body: "Atualizado!" };
+        }
+        else if (metodo === 'DELETE') {
+            const nome = req.query.nome;
+            if (nome) {
+                // Deleta apenas um item
+                await colecao.deleteOne({ item_nome: nome.toUpperCase() });
+                context.res = { status: 200, body: "Item removido!" };
+            } else {
+                // Se não passar nome, limpa a lista toda
+                await colecao.deleteMany({});
+                context.res = { status: 200, body: "Lista limpa!" };
+            }
         }
     } catch (e) {
         context.res = { status: 500, body: e.message };

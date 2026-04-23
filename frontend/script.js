@@ -98,6 +98,7 @@ async function carregarLista() {
                             <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
                                 ${isComprado ? '🔄' : '✅'}
                             </button>
+                            <button onclick="deletarItem('${nomeSeguro}')" class="text-xs ml-1">🗑️</button>
                         </div>
                     </div>
                     <div id="preco-lista-${idFormatado}"></div>
@@ -495,6 +496,24 @@ async function carregarSugestoes() {
                 .map(nome => `<option value="${nome.toUpperCase()}">`).join('');
         }
     } catch (e) { }
+}
+
+// Deletar um único item
+async function deletarItem(nome) {
+    if (!confirm(`Remover ${nome} da lista?`)) return;
+    try {
+        await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
+        carregarLista();
+    } catch (e) { console.error(e); }
+}
+
+// Finalizar compra e limpar tudo
+async function finalizarCompra() {
+    if (!confirm("Deseja limpar toda a lista?")) return;
+    try {
+        await fetch('/api/GerenciarLista', { method: 'DELETE' });
+        carregarLista();
+    } catch (e) { console.error(e); }
 }
 
 // Inicialização
