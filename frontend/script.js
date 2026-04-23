@@ -1,23 +1,26 @@
 let totaisPorMercado = {};
 let itensSelecionados = new Set();
 
+// Função para escapar caracteres HTML em uma string
 function escapeHTML(str) {
     if (!str) return "";
     return str.replace(/'/g, "\\'");
 }
 
+// Função para exibir um modal com imagem ampliada
 function ampliarImagem(url, nome) {
     if (!url || url.includes('placeholder')) return;
     const modalHtml = `
-            <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
-                <div class="relative w-full max-w-sm"> 
-                    <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
-                    <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
-                </div>
-            </div>`;
+    <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
+        <div class="relative w-full max-w-sm"> 
+            <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
+            <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
+        </div>
+    </div>`;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
+// Função para alternar entre abas (lista e dicionário)
 function alternarAba(aba) {
     const isLista = aba === 'lista';
     document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
@@ -27,6 +30,7 @@ function alternarAba(aba) {
     if (isLista) carregarLista(); else renderizarDicionario();
 }
 
+// Função para carregar e exibir a lista de compras
 async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
@@ -54,9 +58,8 @@ async function carregarLista() {
             const statusComprado = item.comprado || false;
 
             const itemElement = document.createElement('div');
-            // Aplica a classe visual se estiver comprado
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${statusComprado ? 'item-comprado' : ''}`;
-
+            
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
                     <img src="${fotoUrl}" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')" 
@@ -72,7 +75,6 @@ async function carregarLista() {
                             <button onclick="ajustarQtdLista('${nomeSeguro}', ${qtd - 1})" class="w-5 h-5 flex items-center justify-center bg-white rounded border border-blue-200 text-blue-600 font-bold">-</button>
                             <span class="text-[10px] font-black text-blue-700 w-4 text-center">${qtd}</span>
                             <button onclick="ajustarQtdLista('${nomeSeguro}', ${qtd + 1})" class="w-5 h-5 flex items-center justify-center bg-white rounded border border-blue-200 text-blue-600 font-bold">+</button>
-                            
                             <button onclick="alternarStatus('${nomeSeguro}', ${!statusComprado})" class="text-lg ml-1 shrink-0">
                                 ${statusComprado ? '🔄' : '✅'}
                             </button>
@@ -82,14 +84,12 @@ async function carregarLista() {
                 </div>
             `;
             listaDiv.appendChild(itemElement);
-
-            // Dispara a busca de preços para cada item (Valor unitário x Qtd)
             buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
         });
     } catch (err) { console.error(err); }
 }
 
-// Nova função para lidar com o status reverso
+// Função para alternar o status de compra de um item
 async function alternarStatus(nome, novoStatus) {
     try {
         await fetch('/api/GerenciarLista', {
@@ -97,10 +97,60 @@ async function alternarStatus(nome, novoStatus) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
         });
-        carregarLista(); // Recarrega para aplicar o visual
-    } catch (e) { console.error(e); }
+        carregarLista();
+    } catch (e) { }
 }
 
+// Função para buscar e exibir comparações de preços de um produto
+async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
+    try {
+        const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+        if (!response.ok) return;
+        const dados = await response.json();
+        if (dados.length > 0) {
+            const melhor = dados[0];
+            const mercado = melhor._id.split(' ')[0];
+            const subtotal = melhor.menorPreco * quantidade;
+            if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
+            totaisPorMercado[mercado] += subtotal;
+
+            // Criamos o badge com um atributo de dados para sincronizar a cor depois
+            elementoDestino.innerHTML = `
+                <div data-mercado-badge="${mercado}" class="mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center italic transition-colors">
+                    <span>💡 ${mercado}</span>
+                    <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${quantidade} = R$ ${subtotal.toFixed(2)}</span>
+                </div>`;
+            atualizarSomaVisual();
+        } else {
+            elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico</div>`;
+        }
+    } catch (e) { }
+}
+
+// Função para atualizar a soma visual dos totais por mercado
+function atualizarSomaVisual() {
+    const container = document.getElementById('mercados-soma');
+    document.getElementById('totalizador-estimado').classList.remove('hidden');
+    container.innerHTML = '';
+    
+    const entries = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
+    const mercadoVencedor = entries.length > 0 ? entries[0][0] : null;
+
+    entries.forEach(([m, v], i) => {
+        const cor = i === 0 ? 'bg-green-100 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500';
+        container.innerHTML += `<div class="p-2 rounded-lg border ${cor} text-center shadow-sm"><p class="text-[8px] uppercase">${m}</p><p class="text-xs font-bold">R$ ${v.toFixed(2)}</p></div>`;
+    });
+
+    // SINCRONIZAÇÃO: Atualiza todos os badges de produtos para a cor do vencedor
+    document.querySelectorAll('[data-mercado-badge]').forEach(el => {
+        const mercadoItem = el.getAttribute('data-mercado-badge');
+        if (mercadoItem === mercadoVencedor) {
+            el.className = "mt-1 text-[9px] bg-green-100 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center italic transition-colors";
+        } else {
+            el.className = "mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center italic transition-colors";
+        }
+    });
+}
 async function ajustarQtdLista(nome, novaQtd) {
     if (novaQtd < 1) return;
     try {
@@ -113,6 +163,7 @@ async function ajustarQtdLista(nome, novaQtd) {
     } catch (e) { console.error(e); }
 }
 
+// Função para renderizar o dicionário de produtos
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
     container.innerHTML = '<p class="text-center text-gray-400">Carregando...</p>';
@@ -153,6 +204,7 @@ async function renderizarDicionario() {
     } catch (e) { }
 }
 
+// Função para selecionar ou deselecionar todos os itens no dicionário
 function selecionarTudoDicionario(checked) {
     const checkboxes = document.querySelectorAll('#lista-dicionario input[type="checkbox"]');
     checkboxes.forEach(cb => {
@@ -164,12 +216,14 @@ function selecionarTudoDicionario(checked) {
     atualizarBotaoMultiplos();
 }
 
+// Função para alternar a seleção de um item no dicionário
 function toggleSelecao(nome, checked) {
     if (checked) itensSelecionados.add(nome);
     else itensSelecionados.delete(nome);
     atualizarBotaoMultiplos();
 }
 
+// Função para atualizar o botão de adicionar múltiplos itens
 function atualizarBotaoMultiplos() {
     const btn = document.getElementById('btn-adicionar-multiplos');
     const contador = itensSelecionados.size;
@@ -181,6 +235,7 @@ function atualizarBotaoMultiplos() {
     }
 }
 
+// Função para enviar os itens selecionados para a lista de compras
 async function enviarSelecionadosParaLista() {
     const btn = document.getElementById('btn-adicionar-multiplos');
     btn.innerText = "ADICIONANDO...";
@@ -197,6 +252,7 @@ async function enviarSelecionadosParaLista() {
     alternarAba('lista');
 }
 
+// Função para buscar comparações de preços (duplicada)
 async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
     try {
         const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
@@ -220,6 +276,7 @@ async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
     } catch (e) { }
 }
 
+// Função para atualizar a soma visual (duplicada)
 function atualizarSomaVisual() {
     const container = document.getElementById('mercados-soma');
     document.getElementById('totalizador-estimado').classList.remove('hidden');
@@ -230,6 +287,7 @@ function atualizarSomaVisual() {
     });
 }
 
+// Função para marcar um item como comprado
 async function marcarComoComprado(nome) {
     try {
         await fetch('/api/GerenciarLista', {
@@ -241,6 +299,7 @@ async function marcarComoComprado(nome) {
     } catch (e) { }
 }
 
+// Função para adicionar um item manualmente à lista
 async function adicionarItemManual() {
     const inputNome = document.getElementById('novo-item-lista');
     const inputQtd = document.getElementById('qtd-item-lista');
@@ -256,6 +315,7 @@ async function adicionarItemManual() {
     carregarLista();
 }
 
+// Função para adicionar um item diretamente à lista
 async function adicionarDiretoALista(nome) {
     await fetch('/api/GerenciarLista', {
         method: 'POST',
@@ -266,6 +326,7 @@ async function adicionarDiretoALista(nome) {
     carregarLista();
 }
 
+// Função para processar uma URL de nota fiscal manualmente
 function processarUrlManual() {
     const url = document.getElementById('url-input').value.trim();
     if (!url) return;
@@ -284,6 +345,7 @@ function processarUrlManual() {
         }).catch(() => statusDiv.innerText = "❌ Erro.");
 }
 
+// Função para renderizar uma prévia dos dados da nota fiscal
 async function renderPreview(dados) {
     const previewContainer = document.getElementById('preview-container');
     const listaItens = document.getElementById('lista-itens');
@@ -331,6 +393,7 @@ async function renderPreview(dados) {
     });
 }
 
+// Função para vincular um ID de produto a um nome padrão
 function vincularID(id, desc) {
     const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
     if (!novoNome) return;
@@ -343,6 +406,7 @@ function vincularID(id, desc) {
     }).then(() => carregarLista());
 }
 
+// Função para abrir um gráfico do histórico de preços do produto
 async function abrirGrafico(nome) {
     let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center"><div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl"><div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3><button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1 hover:bg-red-50 rounded-lg transition-colors">X</button></div><div class="relative h-64"><canvas id="meuGrafico"></canvas></div><p class="text-[9px] text-gray-400 mt-4 text-center italic">Toque nos pontos para detalhes</p></div></div>`;
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
@@ -371,6 +435,7 @@ async function abrirGrafico(nome) {
     } catch (e) { }
 }
 
+// Função para carregar sugestões de produtos para o datalist
 async function carregarSugestoes() {
     try {
         const response = await fetch('/api/VincularProdutos');

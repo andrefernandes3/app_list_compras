@@ -1,13 +1,13 @@
-    .item-comprado {
-        opacity: 0.5 !important;
-        background-color: #f9fafb !important;
-    }
+.item-comprado {
+    opacity: 0.5 !important;
+    background-color: #f9fafb !important;
+}
 
-    .item-comprado .texto-item {
-        text-decoration: line-through;
-        color: #9ca3af;
-    }
+.item-comprado .texto-item {
+    text-decoration: line-through;
+    color: #9ca3af;
+}
 
-    .item-comprado img {
-        filter: grayscale(100%);
-    }
+.item-comprado img {
+    filter: grayscale(100%);
+}
