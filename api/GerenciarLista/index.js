@@ -11,7 +11,7 @@ module.exports = async function (context, req) {
     try {
         if (metodo === 'GET') {
             // Busca apenas itens ativos (não comprados)
-            const lista = await colecao.find({ comprado: false }).toArray();
+            const lista = await colecao.find({}).sort({ comprado: 1, data_adicao: -1 }).toArray();
             context.res = { status: 200, body: lista };
         }
         else if (metodo === 'POST') {
