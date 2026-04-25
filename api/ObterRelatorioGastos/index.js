@@ -7,12 +7,28 @@ module.exports = async function (context, req) {
         await client.connect();
         const db = client.db('app_compras');
         
-        // Agregação poderosa: Soma os gastos totais agrupando por categoria
         const relatorio = await db.collection('historico_precos').aggregate([
             { $unwind: "$itens" },
+            // Cruzamento inteligente: busca a categoria no dicionário pelo ID
+            {
+                $lookup: {
+                    from: "dicionario_produtos",
+                    localField: "itens.id_interno",
+                    foreignField: "ids_vinculados",
+                    as: "vinculo"
+                }
+            },
+            // Define a categoria: se achou no dicionário usa ela, senão usa "OUTROS"
+            {
+                $addFields: {
+                    categoria_final: { 
+                        $ifNull: [ { $arrayElemAt: ["$vinculo.categoria", 0] }, "OUTROS" ]
+                    }
+                }
+            },
             { 
                 $group: {
-                    _id: "$itens.categoria", 
+                    _id: "$categoria_final", 
                     totalGasto: { $sum: "$itens.preco_total" }
                 }
             },
