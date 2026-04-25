@@ -550,8 +550,8 @@ function sugerirCategoria(nome) {
     const palavras = nome.toUpperCase();
 
     // Regras de palavras-chave para categorias
-    if (palavras.match(/LEITE|QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
-    if (palavras.includes("PÃO") || palavras.includes("BOLO") || palavras.includes("BISNAGUINHA")) return "PADARIA";
+    if (palavras.match(/QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
+    if (palavras.match(/PÃO|ATUM|BISCOITO|GELEIA|LEITE|AVEIA|TORRADA/)) return "PADARIA E MATINAIS";
     if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
     if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
     if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|/)) return "DESCARTÁVEIS E EMBALAGENS";
