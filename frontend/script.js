@@ -357,7 +357,9 @@ function atualizarBotaoMultiplos() {
     const contador = itensSelecionados.size;
     if (contador > 0) {
         btn.classList.remove('hidden');
-        btn.innerText = `ADICIONAR ${contador} ITENS`;
+        // Adicionamos classes para ele flutuar no canto inferior
+        btn.className = "fixed bottom-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-full text-xs font-black shadow-2xl animate-bounce border-2 border-white";
+        btn.innerText = `🛒 ADICIONAR ${contador} ITENS`;
     } else {
         btn.classList.add('hidden');
     }
