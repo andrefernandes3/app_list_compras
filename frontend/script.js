@@ -78,32 +78,39 @@ async function carregarLista() {
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
 
             itemElement.innerHTML = `
-                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
-                     onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
-                    <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex justify-between items-start">
-                        <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words cursor-pointer hover:text-blue-600" onclick="abrirGrafico('${nomeSeguro}')">
-                            ${item.item_nome}
-                        </span>
-                        <div class="flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
-                            <input type="number" min="1" value="${qtd}" 
-                                class="input-qtd-real w-8 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
-                                oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
-                            <span class="text-[8px] text-blue-400">x</span>
-                            <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
-                                oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value)" 
-                                class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
-                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
-                                ${isComprado ? '🔄' : '✅'}
-                            </button>
-                            <button onclick="deletarItem('${nomeSeguro}')" class="text-xs ml-1">🗑️</button>
-                        </div>
-                    </div>
-                    <div id="preco-lista-${idFormatado}"></div>
-                </div>`;
-            listaDiv.appendChild(itemElement);
+    <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
+         onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
+        <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
+    </div>
+    <div class="flex-1 min-w-0">
+        <div class="flex justify-between items-start">
+            <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words cursor-pointer hover:text-blue-600" onclick="abrirGrafico('${nomeSeguro}')">
+                ${item.item_nome}
+            </span>
+            <div class="relative flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
+                <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
+
+                <input type="number" min="1" value="${qtd}" 
+                    class="input-qtd-real w-8 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
+                    oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
+                <span class="text-[8px] text-blue-400">x</span>
+                
+                <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
+                    oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
+                    class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
+                
+                <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
+                    ${isComprado ? '🔄' : '✅'}
+                </button>
+                <button onclick="deletarItem('${nomeSeguro}')" class="text-xs ml-1 hover:bg-red-100 rounded p-1">🗑️</button>
+            </div>
+        </div>
+        <div id="preco-lista-${idFormatado}"></div>
+    </div>`;
+            listaDiv.appendChild(itemElement);            
+            if (precoReal) {
+                verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
+            }
             buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
         });
         calcularTotalReal();
@@ -554,7 +561,7 @@ function sugerirCategoria(nome) {
     if (palavras.match(/PÃO|ATUM|BISCOITO|GELEIA|LEITE|AVEIA|TORRADA/)) return "PADARIA E MATINAIS";
     if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
     if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
-    if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|/)) return "DESCARTÁVEIS E EMBALAGENS";
+    if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA/)) return "DESCARTÁVEIS E EMBALAGENS";
     if (palavras.match(/CARNE|FRANGO|LINGUICA|SALSICHA|COXA|PICANHA/)) return "AÇOUGUE";
     if (palavras.match(/CAFÉ|ARROZ|FEIJAO|MACARRAO|OLEO|ACUCAR|SAL|FARINHA/)) return "MERCEARIA";
     if (palavras.match(/SHAMPOO|CONDICIONADOR|SABONETE|CREME|PASTA/)) return "HIGIENE";
@@ -562,6 +569,36 @@ function sugerirCategoria(nome) {
     if (palavras.match(/SACO|VASSOURA|RODO/)) return "UTILIDADES DOMÉSTICAS";
 
     return "OUTROS";
+}
+
+// Alerta de Preço: Compara o preço digitado com a média histórica
+async function verificarAlertaPreco(nome, precoAtual, elementoDestino) {
+    if (!precoAtual || precoAtual <= 0) {
+        elementoDestino.innerHTML = '';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+        const historico = await response.json();
+
+        if (!historico || historico.length === 0) return;
+
+        const soma = historico.reduce((acc, h) => acc + h.preco, 0);
+        const media = soma / historico.length;
+        const diff = ((precoAtual - media) / media) * 100;
+
+        let badge = "";
+        if (diff < -5) {
+            badge = `<span class="bg-green-500 text-white text-[8px] px-1 rounded animate-bounce">🔥 BOM PREÇO</span>`;
+        } else if (diff > 5) {
+            badge = `<span class="bg-red-500 text-white text-[8px] px-1 rounded">⚠️ CARO (Média: R$ ${media.toFixed(2)})</span>`;
+        } else {
+            badge = `<span class="bg-blue-400 text-white text-[8px] px-1 rounded">⚖️ NA MÉDIA</span>`;
+        }
+
+        elementoDestino.innerHTML = badge;
+    } catch (e) { console.error("Erro no alerta de preço", e); }
 }
 
 // Inicialização
