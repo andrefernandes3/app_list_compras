@@ -47,7 +47,6 @@ function alternarAba(aba) {
     if (isLista) carregarLista(); else renderizarDicionario();
 }
 
-// === LÓGICA DA LISTA ATIVA ===
 async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
@@ -65,8 +64,30 @@ async function carregarLista() {
             return;
         }
 
+        // --- INÍCIO DO AJUSTE: ORDENAÇÃO POR CATEGORIA ---
+        // Cruzamos os itens da lista com o dicionário para obter a categoria
+        const itensOrdenados = itens.map(item => {
+            const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
+            return { ...item, categoria: info.categoria || "OUTROS" };
+        });
+
+        // Ordenamos alfabeticamente pela categoria
+        itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
+        // --- FIM DO AJUSTE ---
+
         listaDiv.innerHTML = '';
-        itens.forEach(item => {
+        let categoriaAtual = "";
+
+        itensOrdenados.forEach(item => {
+            // Adiciona o separador visual de "Corredor" se a categoria mudar
+            if (item.categoria !== categoriaAtual) {
+                categoriaAtual = item.categoria;
+                const separador = document.createElement('div');
+                separador.className = "text-[9px] font-black text-blue-400 mt-4 mb-1 uppercase tracking-tighter border-b border-blue-100";
+                separador.innerText = `📍 Corredor: ${categoriaAtual}`;
+                listaDiv.appendChild(separador);
+            }
+
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             const idFormatado = item.item_nome.replace(/\s+/g, '-');
             const nomeSeguro = escapeHTML(item.item_nome);
@@ -107,14 +128,20 @@ async function carregarLista() {
         </div>
         <div id="preco-lista-${idFormatado}"></div>
     </div>`;
-            listaDiv.appendChild(itemElement);            
+
+            listaDiv.appendChild(itemElement);
+
+            // Mantém os gatilhos de inteligência que você já configurou
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
             buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
         });
+
         calcularTotalReal();
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+        console.error("Erro ao carregar lista:", err); 
+    }
 }
 
 // === PERSISTÊNCIA E CÁLCULOS ===
