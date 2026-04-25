@@ -22,12 +22,18 @@
         <p id="total-real-dinamico" class="text-3xl font-black text-white text-center">R$ 0,00</p>
     </div>
 
-    <div class="flex border-b border-gray-200 bg-white sticky top-0 z-10">
-        <button onclick="alternarAba('lista')" id="btn-aba-lista"
-            class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
-        <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
-            class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
+    <div class="flex border-b border-gray-200 bg-white sticky top-[110px] z-10">
+    <button onclick="alternarAba('lista')" id="btn-aba-lista" class="...">Lista</button>
+    <button onclick="alternarAba('dicionario')" id="btn-aba-dict" class="...">Dicionário</button>
+    <button onclick="alternarAba('relatorios')" id="btn-aba-rel" class="flex-1 py-3 text-sm font-bold text-gray-500">Relatórios</button>
+</div>
+
+<div id="secao-relatorios" class="hidden p-4">
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 mb-4">
+        <h3 class="text-blue-600 font-black text-[10px] uppercase mb-4">Distribuição por Categoria</h3>
+        <canvas id="chartCategorias"></canvas>
     </div>
+</div>
 
     <button onclick="finalizarCompra()"
         class="w-full mb-2 bg-red-100 text-red-600 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest">

@@ -18,7 +18,10 @@
     background-color: #f9fafb !important;
 }
 
-/* Margem extra no fim da página para o botão flutuante não tapar o último item */
 main {
-    padding-bottom: 80px;
+    padding-top: 10px; /* Ajuste conforme a altura do seu header fixo */
+}
+
+#total-real-dinamico {
+    text-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Deixa o valor mais legível */
 }

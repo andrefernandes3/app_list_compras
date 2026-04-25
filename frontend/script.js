@@ -31,20 +31,76 @@ function ampliarImagem(url, nome) {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
+let meuGraficoRelatorio = null;
+
+async function carregarRelatorios() {
+    const ctx = document.getElementById('chartCategorias');
+    if (!ctx) return;
+
+    try {
+        const response = await fetch('/api/ObterRelatorioGastos');
+        const dados = await response.json();
+
+        if (dados.length === 0) {
+            document.getElementById('secao-relatorios').innerHTML = '<p class="text-center text-gray-400 p-8">Ainda não há dados suficientes para gerar relatórios. Processe algumas notas primeiro! 📊</p>';
+            return;
+        }
+
+        // Se o gráfico já existir, destrói-o para criar um novo (evita sobreposição)
+        if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+
+        meuGraficoRelatorio = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: dados.map(d => d._id || "OUTROS"),
+                datasets: [{
+                    data: dados.map(d => d.totalGasto),
+                    backgroundColor: [
+                        '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 12, font: { size: 10 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => ` R$ ${c.parsed.toFixed(2)}`
+                        }
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error("Erro ao carregar gráfico de relatórios:", e);
+    }
+}
+
+// Atualize a sua função alternarAba
 function alternarAba(aba) {
-    const isLista = aba === 'lista';
-    document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
-    document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
+    const abas = ['lista', 'dicionario', 'relatorios'];
+    abas.forEach(a => {
+        const div = document.getElementById(`secao-${a}`);
+        const btn = document.getElementById(`btn-aba-${a === 'relatorios' ? 'rel' : a === 'dicionario' ? 'dict' : 'lista'}`);
+        
+        if (a === aba) {
+            div.classList.remove('hidden');
+            btn.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600";
+        } else {
+            div.classList.add('hidden');
+            btn.className = "flex-1 py-3 text-sm font-bold text-gray-500";
+        }
+    });
 
-    document.getElementById('btn-aba-lista').className = isLista ?
-        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" :
-        "flex-1 py-3 text-sm font-bold text-gray-500";
-
-    document.getElementById('btn-aba-dict').className = !isLista ?
-        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" :
-        "flex-1 py-3 text-sm font-bold text-gray-500";
-
-    if (isLista) carregarLista(); else renderizarDicionario();
+    if (aba === 'lista') carregarLista();
+    if (aba === 'dicionario') renderizarDicionario();
+    if (aba === 'relatorios') carregarRelatorios();
 }
 
 async function carregarLista() {
