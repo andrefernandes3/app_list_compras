@@ -35,15 +35,15 @@ function alternarAba(aba) {
     const isLista = aba === 'lista';
     document.getElementById('secao-lista').classList.toggle('hidden', !isLista);
     document.getElementById('secao-dicionario').classList.toggle('hidden', isLista);
-    
-    document.getElementById('btn-aba-lista').className = isLista ? 
-        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : 
+
+    document.getElementById('btn-aba-lista').className = isLista ?
+        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" :
         "flex-1 py-3 text-sm font-bold text-gray-500";
-    
-    document.getElementById('btn-aba-dict').className = !isLista ? 
-        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" : 
+
+    document.getElementById('btn-aba-dict').className = !isLista ?
+        "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600" :
         "flex-1 py-3 text-sm font-bold text-gray-500";
-    
+
     if (isLista) carregarLista(); else renderizarDicionario();
 }
 
@@ -117,11 +117,11 @@ function calcularTotalReal() {
     let total = 0;
     // Selecionamos todos os itens da lista, independente de estarem riscados ou não
     const cards = document.querySelectorAll('#lista-ativa > div');
-    
+
     cards.forEach(card => {
         const inputPreco = card.querySelector('.input-preco-real');
         const inputQtd = card.querySelector('.input-qtd-real');
-        
+
         // Verificamos se os inputs existem e se o item NÃO está marcado como comprado 
         // (ou se você deseja somar tudo, remova a verificação de classe)
         if (inputPreco && inputQtd) {
@@ -239,7 +239,7 @@ function atualizarSomaVisual() {
     const container = document.getElementById('mercados-soma');
     const totalDiv = document.getElementById('totalizador-estimado');
     if (!container || !totalDiv) return;
-    
+
     totalDiv.classList.remove('hidden');
     container.innerHTML = '';
 
@@ -273,7 +273,7 @@ async function renderizarDicionario() {
         const response = await fetch('/api/VincularProdutos');
         const produtos = await response.json();
         const categorias = {};
-        
+
         produtos.forEach(p => {
             const cat = p.categoria || "OUTROS";
             if (!categorias[cat]) categorias[cat] = [];
@@ -285,7 +285,7 @@ async function renderizarDicionario() {
             const div = document.createElement('div');
             div.className = "mb-4";
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
-            
+
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
@@ -348,12 +348,12 @@ async function enviarSelecionadosParaLista() {
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
             });
         }
-        
+
         // LIMPEZA CRUCIAL APÓS O SUCESSO:
-        itensSelecionados.clear(); 
+        itensSelecionados.clear();
         btn.disabled = false;
         btn.classList.add('hidden');
-        
+
         alert(`${total} itens adicionados com sucesso!`);
         alternarAba('lista'); // Isso já chamará o carregarLista()
     } catch (e) {
@@ -446,42 +446,72 @@ async function renderPreview(dados) {
     listaItens.appendChild(header);
 
     dados.itens.forEach(item => {
+        // Busca se o produto já existe no seu dicionário
         const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
+
+        // Verifica se o vínculo está completo (tem nome amigável e tem uma foto válida)
         const temNomeAmigavel = !!produtoVinculado;
         const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
+        const vinculoCompleto = temNomeAmigavel && temFoto;
 
+        // Mantém sua lógica de cálculos de preço
         const precoUnitario = item.preco_unitario || 0;
         const qtd = item.quantidade || 0;
         const precoTotalItem = item.preco_total || (precoUnitario * qtd);
 
         const itemDiv = document.createElement('div');
         itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
+
         itemDiv.innerHTML = `
-            <div class="flex-1 pr-2">
-                <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-red-500'} uppercase leading-tight">${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}</p>
-                <div class="flex flex-wrap gap-2 mt-1 items-center">
-                    <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}</span>
-                    <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">${temFoto ? 'Com Foto' : 'Sem Foto'}</span>
-                    <p class="text-[10px] font-black text-blue-600">${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span></p>
-                </div>
+        <div class="flex-1 pr-2">
+            <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-orange-500'} uppercase leading-tight">
+                ${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
+            </p>
+            <div class="flex flex-wrap gap-2 mt-1 items-center">
+                <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">
+                    ${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}
+                </span>
+                <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">
+                    ${temFoto ? 'Com Foto' : 'Sem Foto'}
+                </span>
+                <p class="text-[10px] font-black text-blue-600">${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span></p>
             </div>
-            <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" class="ml-2 p-3 ${temNomeAmigavel && temFoto ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white'} rounded-full shadow-sm active:scale-90 transition-transform">${temNomeAmigavel && temFoto ? '✔️' : '🔗'}</button>`;
+        </div>
+        <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
+            class="ml-2 p-3 ${vinculoCompleto ? 'bg-gray-100 text-gray-400' : 'bg-orange-500 text-white animate-pulse'} rounded-full shadow-sm active:scale-90 transition-transform">
+            ${vinculoCompleto ? '✔️' : '✏️'}
+        </button>`;
+
         listaItens.appendChild(itemDiv);
     });
 }
 
 function vincularID(id, desc) {
-    const novoNome = prompt(`Nome padrão para "${desc}":`, desc);
+    const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
+    const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
     if (!novoNome) return;
-    const cat = prompt(`Categoria:`, "OUTROS");
+
+    // --- NOVO: SUGESTÃO AUTOMÁTICA ---
+    const categoriaSugerida = sugerirCategoria(novoNome);
+    const cat = prompt(`Categoria:`, categoriaSugerida);
+    if (!cat) return;
+    // ---------------------------------
+
     const foto = prompt(`URL da Foto:`, "");
+
     fetch('/api/VincularProdutos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idPrincipal: id, nomePadrao: novoNome.toUpperCase(), categoria: cat.toUpperCase(), fotoUrl: foto })
+        body: JSON.stringify({
+            idPrincipal: id,
+            nomePadrao: novoNome.toUpperCase(),
+            categoria: cat.toUpperCase(),
+            fotoUrl: foto
+        })
     }).then(() => {
-        carregarLista();
-        renderizarDicionario(); // atualiza o dicionário se estiver visível
+        // Recarrega os dados para atualizar os ícones de check/lápis
+        processarUrlManual();
+        renderizarDicionario();
     });
 }
 
@@ -514,6 +544,24 @@ async function finalizarCompra() {
         await fetch('/api/GerenciarLista', { method: 'DELETE' });
         carregarLista();
     } catch (e) { console.error(e); }
+}
+
+function sugerirCategoria(nome) {
+    const palavras = nome.toUpperCase();
+
+    // Regras de palavras-chave para categorias
+    if (palavras.match(/LEITE|QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
+    if (palavras.includes("PÃO") || palavras.includes("BOLO") || palavras.includes("BISNAGUINHA")) return "PADARIA";
+    if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
+    if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
+    if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|/)) return "DESCARTÁVEIS E EMBALAGENS";
+    if (palavras.match(/CARNE|FRANGO|LINGUICA|SALSICHA|COXA|PICANHA/)) return "AÇOUGUE";
+    if (palavras.match(/CAFÉ|ARROZ|FEIJAO|MACARRAO|OLEO|ACUCAR|SAL|FARINHA/)) return "MERCEARIA";
+    if (palavras.match(/SHAMPOO|CONDICIONADOR|SABONETE|CREME|PASTA/)) return "HIGIENE";
+    if (palavras.match(/BANANA|MACA|LARANJA|CEBOLA|BATATA|ALHO/)) return "HORTIFRUTI";
+    if (palavras.match(/SACO|VASSOURA|RODO/)) return "UTILIDADES DOMÉSTICAS";
+
+    return "OUTROS";
 }
 
 // Inicialização
