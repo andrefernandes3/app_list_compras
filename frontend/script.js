@@ -99,6 +99,11 @@ function exibirDetalhesCategoria(categoria) {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
 
+    // ORDENAÇÃO ALFABÉTICA: Criamos uma cópia dos detalhes e ordenamos pelo nome
+    const detalhesOrdenados = [...categoria.detalhes].sort((a, b) => 
+        a.nome.localeCompare(b.nome)
+    );
+
     let html = `
         <div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100">
             <h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest text-center">
@@ -106,16 +111,18 @@ function exibirDetalhesCategoria(categoria) {
             </h4>
             <div class="space-y-2">`;
 
-    categoria.detalhes.forEach(item => {
+    detalhesOrdenados.forEach(item => {
         html += `
             <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
-                <span class="text-gray-600 font-bold uppercase">${item.nome}</span>
-                <span class="text-blue-700 font-black">R$ ${item.valor.toFixed(2)}</span>
+                <span class="text-gray-600 font-bold uppercase truncate pr-2">${item.nome}</span>
+                <span class="text-blue-700 font-black whitespace-nowrap">R$ ${item.valor.toFixed(2)}</span>
             </div>`;
     });
 
     html += `</div></div>`;
     container.innerHTML = html;
+    
+    // Suaviza a rolagem para os detalhes
     container.scrollIntoView({ behavior: 'smooth' });
 }
 
