@@ -33,61 +33,14 @@ function ampliarImagem(url, nome) {
 
 let meuGraficoRelatorio = null;
 
-async function carregarRelatorios() {
-    const ctx = document.getElementById('chartCategorias');
-    if (!ctx) return;
-
-    try {
-        const response = await fetch('/api/ObterRelatorioGastos');
-        const dados = await response.json();
-
-        if (dados.length === 0) {
-            document.getElementById('secao-relatorios').innerHTML = '<p class="text-center text-gray-400 p-8">Ainda não há dados suficientes para gerar relatórios. Processe algumas notas primeiro! 📊</p>';
-            return;
-        }
-
-        // Se o gráfico já existir, destrói-o para criar um novo (evita sobreposição)
-        if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
-
-        meuGraficoRelatorio = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: dados.map(d => d._id || "OUTROS"),
-                datasets: [{
-                    data: dados.map(d => d.totalGasto),
-                    backgroundColor: [
-                        '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe'
-                    ],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { boxWidth: 12, font: { size: 10 } }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (c) => ` R$ ${c.parsed.toFixed(2)}`
-                        }
-                    }
-                }
-            }
-        });
-    } catch (e) {
-        console.error("Erro ao carregar gráfico de relatórios:", e);
-    }
-}
-
-// Atualize a sua função alternarAba
+// Atualização da função de alternar abas para suportar relatórios
 function alternarAba(aba) {
     const abas = ['lista', 'dicionario', 'relatorios'];
     abas.forEach(a => {
         const div = document.getElementById(`secao-${a}`);
-        const btn = document.getElementById(`btn-aba-${a === 'relatorios' ? 'rel' : a === 'dicionario' ? 'dict' : 'lista'}`);
+        // Mapeamento de botões (lista -> btn-aba-lista, dicionario -> btn-aba-dict, relatorios -> btn-aba-rel)
+        const btnId = a === 'relatorios' ? 'btn-aba-rel' : (a === 'dicionario' ? 'btn-aba-dict' : 'btn-aba-lista');
+        const btn = document.getElementById(btnId);
         
         if (a === aba) {
             div.classList.remove('hidden');
@@ -101,6 +54,45 @@ function alternarAba(aba) {
     if (aba === 'lista') carregarLista();
     if (aba === 'dicionario') renderizarDicionario();
     if (aba === 'relatorios') carregarRelatorios();
+}
+
+async function carregarRelatorios() {
+    const ctx = document.getElementById('chartCategorias');
+    if (!ctx) return;
+
+    try {
+        const response = await fetch('/api/ObterRelatorioGastos');
+        const dados = await response.json();
+
+        if (dados.length === 0) return;
+
+        if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+
+        meuGraficoRelatorio = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: dados.map(d => d._id),
+                datasets: [{
+                    data: dados.map(d => d.totalGasto),
+                    // CORES VIBRANTES PARA NÃO FICAR TUDO AZUL
+                    backgroundColor: [
+                        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC926', '#1982C4', '#6A4C93'
+                    ],
+                    hoverOffset: 20,
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } },
+                    tooltip: { callbacks: { label: (c) => ` R$ ${c.parsed.toFixed(2)}` } }
+                },
+                cutout: '70%' // Deixa o gráfico no estilo "rosca" (doughnut)
+            }
+        });
+    } catch (e) { console.error(e); }
 }
 
 async function carregarLista() {
