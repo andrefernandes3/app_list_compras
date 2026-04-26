@@ -10,7 +10,7 @@ function limparTexto(texto) {
     return texto
         .toUpperCase()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "") 
+        .replace(/[\u0300-\u036f]/g, "")
         .trim();
 }
 
@@ -37,7 +37,7 @@ module.exports = async function (context, req) {
         // --- BLOCO CORRIGIDO: TRATAMENTO DE DATA ---
         const infoGeral = $('.txtCenter').text();
         const dataMatch = infoGeral.match(/(\d{2})\/(\d{2})\/(\d{4})/); // Pega DD, MM e AAAA
-        
+
         let dataCompra;
         if (dataMatch) {
             // Monta no formato AAAA-MM-DD que o JavaScript entende perfeitamente
@@ -97,17 +97,24 @@ module.exports = async function (context, req) {
             valor_total: parseFloat(valorTotalNota.toFixed(2)),
             itens: itens,
             url_original: urlNota,
-            criado_em: new Date()
+            atualizado_em: new Date()
         };
 
-        const resultado = await colecao.insertOne(documento);
+        const resultado = await colecao.updateOne(
+            { url_original: urlNota }, // Busca por esta URL
+            {
+                $set: documento,
+                $setOnInsert: { criado_em: new Date() } // Só cria a data de criação se for novo
+            },
+            { upsert: true } // Se não existir, cria; se existir, atualiza
+        );
 
         context.res = {
             status: 200,
             headers: { "Content-Type": "application/json" },
             body: {
-                message: "Nota processada!",
-                id: resultado.insertedId,
+                message: "Nota processada e sincronizada!",
+                upsertedId: resultado.upsertedId,
                 dados: documento
             }
         };
