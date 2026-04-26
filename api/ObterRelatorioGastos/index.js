@@ -28,7 +28,6 @@ module.exports = async function (context, req) {
             },
             {
                // ... dentro do aggregate
-{
                 $group: {
                     _id: "$categoria_final",
                     totalGasto: { $sum: "$itens.preco_total" },
