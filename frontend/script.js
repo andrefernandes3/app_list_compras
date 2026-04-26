@@ -41,7 +41,7 @@ function alternarAba(aba) {
         // Mapeamento de botões (lista -> btn-aba-lista, dicionario -> btn-aba-dict, relatorios -> btn-aba-rel)
         const btnId = a === 'relatorios' ? 'btn-aba-rel' : (a === 'dicionario' ? 'btn-aba-dict' : 'btn-aba-lista');
         const btn = document.getElementById(btnId);
-        
+
         if (a === aba) {
             div.classList.remove('hidden');
             btn.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600";
@@ -58,6 +58,7 @@ function alternarAba(aba) {
 
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
+    const containerDetalhes = document.getElementById('lista-gastos-detalhada'); // Crie essa div no HTML
     if (!ctx) return;
 
     try {
@@ -74,25 +75,55 @@ async function carregarRelatorios() {
                 labels: dados.map(d => d._id),
                 datasets: [{
                     data: dados.map(d => d.totalGasto),
-                    // CORES VIBRANTES PARA NÃO FICAR TUDO AZUL
-                    backgroundColor: [
-                        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC926', '#1982C4', '#6A4C93'
-                    ],
-                    hoverOffset: 20,
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC926', '#1982C4', '#6A4C93'],
                     borderWidth: 0
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } },
-                    tooltip: { callbacks: { label: (c) => ` R$ ${c.parsed.toFixed(2)}` } }
+                onClick: (evt, activeElements) => {
+                    if (activeElements.length > 0) {
+                        const index = activeElements[0].index;
+                        const categoriaClicada = dados[index];
+                        exibirDetalhesCategoria(categoriaClicada);
+                    }
                 },
-                cutout: '70%' // Deixa o gráfico no estilo "rosca" (doughnut)
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } }
+                }
             }
         });
     } catch (e) { console.error(e); }
+}
+
+function exibirDetalhesCategoria(categoria) {
+    const container = document.getElementById('lista-gastos-detalhada');
+    if (!container) return;
+
+    // Criar o HTML dos detalhes
+    let html = `
+        <div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100 animate-fade-in">
+            <h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest">
+                📦 Itens em ${categoria._id}
+            </h4>
+            <div class="space-y-2">
+    `;
+
+    categoria.detalhes.forEach(item => {
+        html += `
+            <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
+                <span class="text-gray-600 font-bold uppercase">${item.nome}</span>
+                <span class="text-blue-700 font-black">R$ ${item.valor.toFixed(2)}</span>
+            </div>
+        `;
+    });
+
+    html += `</div></div>`;
+    container.innerHTML = html;
+
+    // Scroll suave para os detalhes
+    container.scrollIntoView({ behavior: 'smooth' });
 }
 
 async function carregarLista() {
@@ -184,8 +215,8 @@ async function carregarLista() {
         });
 
         calcularTotalReal();
-    } catch (err) { 
-        console.error("Erro ao carregar lista:", err); 
+    } catch (err) {
+        console.error("Erro ao carregar lista:", err);
     }
 }
 

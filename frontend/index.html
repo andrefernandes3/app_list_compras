@@ -14,25 +14,31 @@
 <body class="bg-gray-50 font-sans">
     <nav class="bg-blue-600 p-4 text-white shadow-lg">
         <h1 class="text-xl font-bold">🛒 Minha Lista Inteligente</h1>
-    </nav>   
+    </nav>
 
     <div class="sticky top-0 z-30 bg-blue-600 p-4 shadow-lg border-b border-blue-700 transition-all">
-        <p class="text-[10px] font-black text-blue-200 uppercase text-center tracking-widest">💰 Carrinho / Total Planejado</p>
+        <p class="text-[10px] font-black text-blue-200 uppercase text-center tracking-widest">💰 Carrinho / Total
+            Planejado</p>
         <p id="total-real-dinamico" class="text-3xl font-black text-white text-center">R$ 0,00</p>
     </div>
 
     <div class="flex border-b border-gray-200 bg-white sticky top-[94px] z-20 shadow-sm">
-        <button onclick="alternarAba('lista')" id="btn-aba-lista" class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
-        <button onclick="alternarAba('dicionario')" id="btn-aba-dict" class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
-        <button onclick="alternarAba('relatorios')" id="btn-aba-rel" class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
+        <button onclick="alternarAba('lista')" id="btn-aba-lista"
+            class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
+        <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
+            class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
+        <button onclick="alternarAba('relatorios')" id="btn-aba-rel"
+            class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
     </div>
 
-    <div id="secao-relatorios" class="hidden animate-fade-in p-4">
+    <div id="secao-relatorios" class="hidden p-4">
         <div class="bg-white p-6 rounded-3xl shadow-xl border border-gray-100">
-            <h3 class="text-center text-gray-400 font-black text-[10px] uppercase tracking-widest mb-6">Onde está o seu dinheiro?</h3>
+            <h3 class="text-center text-gray-400 font-black text-[10px] uppercase tracking-widest mb-6">Onde está o seu
+                dinheiro?</h3>
             <div class="relative h-[300px]">
                 <canvas id="chartCategorias"></canvas>
             </div>
+            <div id="lista-gastos-detalhada"></div>
         </div>
     </div>
 
