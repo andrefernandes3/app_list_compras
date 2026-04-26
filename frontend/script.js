@@ -111,10 +111,19 @@ function exibirDetalhesCategoria(categoria) {
             </h4>
             <div class="space-y-2">`;
 
+    // Aqui é o loop que você mencionou (forEach) ajustado para mostrar o unitário
     detalhesOrdenados.forEach(item => {
+        // Calculamos o unitário (Valor Total / Quantidade)
+        const unitario = item.valor / (item.qtd || 1);
+        
         html += `
             <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
-                <span class="text-gray-600 font-bold uppercase truncate pr-2">${item.nome}</span>
+                <div class="flex flex-col">
+                    <span class="text-gray-600 font-bold uppercase truncate pr-2">${item.nome}</span>
+                    <span class="text-[9px] text-gray-400 font-medium">
+                        ${item.qtd}x de R$ ${unitario.toFixed(2)}
+                    </span>
+                </div>
                 <span class="text-blue-700 font-black whitespace-nowrap">R$ ${item.valor.toFixed(2)}</span>
             </div>`;
     });
