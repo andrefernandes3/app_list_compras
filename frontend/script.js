@@ -33,12 +33,10 @@ function ampliarImagem(url, nome) {
 
 let meuGraficoRelatorio = null;
 
-// Atualização da função de alternar abas para suportar relatórios
 function alternarAba(aba) {
     const abas = ['lista', 'dicionario', 'relatorios'];
     abas.forEach(a => {
         const div = document.getElementById(`secao-${a}`);
-        // Mapeamento de botões (lista -> btn-aba-lista, dicionario -> btn-aba-dict, relatorios -> btn-aba-rel)
         const btnId = a === 'relatorios' ? 'btn-aba-rel' : (a === 'dicionario' ? 'btn-aba-dict' : 'btn-aba-lista');
         const btn = document.getElementById(btnId);
 
@@ -58,11 +56,11 @@ function alternarAba(aba) {
 
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
-    const containerDetalhes = document.getElementById('lista-gastos-detalhada'); // Crie essa div no HTML
     if (!ctx) return;
 
     try {
-        const response = await fetch('/api/ObterRelatorioGastos');
+        // Certifique-se que o nome da rota na Azure coincide com o nome da pasta da função
+        const response = await fetch('/api/ObterRelatorioGastos'); 
         const dados = await response.json();
 
         if (dados.length === 0) return;
@@ -82,11 +80,11 @@ async function carregarRelatorios() {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                cutout: '70%',
                 onClick: (evt, activeElements) => {
                     if (activeElements.length > 0) {
                         const index = activeElements[0].index;
-                        const categoriaClicada = dados[index];
-                        exibirDetalhesCategoria(categoriaClicada);
+                        exibirDetalhesCategoria(dados[index]);
                     }
                 },
                 plugins: {
@@ -94,35 +92,30 @@ async function carregarRelatorios() {
                 }
             }
         });
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Erro ao carregar gráfico:", e); }
 }
 
 function exibirDetalhesCategoria(categoria) {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
 
-    // Criar o HTML dos detalhes
     let html = `
-        <div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100 animate-fade-in">
-            <h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest">
-                📦 Itens em ${categoria._id}
+        <div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+            <h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest text-center">
+                📦 Detalhes: ${categoria._id}
             </h4>
-            <div class="space-y-2">
-    `;
+            <div class="space-y-2">`;
 
     categoria.detalhes.forEach(item => {
         html += `
             <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
                 <span class="text-gray-600 font-bold uppercase">${item.nome}</span>
                 <span class="text-blue-700 font-black">R$ ${item.valor.toFixed(2)}</span>
-            </div>
-        `;
+            </div>`;
     });
 
     html += `</div></div>`;
     container.innerHTML = html;
-
-    // Scroll suave para os detalhes
     container.scrollIntoView({ behavior: 'smooth' });
 }
 
