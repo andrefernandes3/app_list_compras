@@ -60,20 +60,23 @@ async function carregarRelatorios() {
     const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
 
     try {
-        // Passo 1: Buscar os dados filtrados (ou não)
-        const url = lojaSelecionada 
+        // CORREÇÃO DA URL: Se for vazio, chama a rota limpa, senão passa o parâmetro
+        const url = (lojaSelecionada && lojaSelecionada !== "") 
             ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}` 
             : '/api/ObterRelatorioGastos';
         
         const response = await fetch(url);
         const dados = await response.json();
 
-        // Passo 2: Se for a primeira carga, vamos preencher o seletor de lojas
-        if (!lojaSelecionada) {
-            atualizarSeletorLojas();
+        // Se for a primeira vez que entra na aba, popula o seletor
+        if (seletorLoja && seletorLoja.options.length <= 1) {
+            carregarFiltroLojas();
         }
 
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+
+        // Se não houver dados, não tenta desenhar para não dar erro no Chart.js
+        if (!dados || dados.length === 0) return;
 
         meuGraficoRelatorio = new Chart(ctx, {
             type: 'doughnut',
@@ -105,13 +108,20 @@ async function carregarRelatorios() {
 
 async function atualizarSeletorLojas() {
     const seletor = document.getElementById('filtro-loja-relatorio');
-    if (!seletor || seletor.options.length > 1) return; // Evita duplicar se já estiver preenchido
+    // Só preenche se o seletor estiver vazio (apenas com a opção padrão)
+    if (!seletor || seletor.options.length > 1) return;
 
     try {
-        const response = await fetch('/api/GerenciarLista'); // Ou criar uma API de "Lojas Conhecidas"
-        // Como o histórico é grande, podemos extrair as lojas dos dados da própria nota
-        // Mas o ideal é ter uma lista única de estabelecimentos.
-    } catch (e) {}
+        const response = await fetch('/api/ListarLojas');
+        const lojas = await response.json();
+        
+        lojas.forEach(loja => {
+            const option = document.createElement('option');
+            option.value = loja;
+            option.innerText = `🏪 ${loja}`;
+            seletor.appendChild(option);
+        });
+    } catch (e) { console.error("Erro ao listar lojas:", e); }
 }
 
 async function carregarFiltroLojas() {

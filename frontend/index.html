@@ -97,18 +97,25 @@
             <div id="lista-dicionario" class="space-y-4"></div>
         </div>
 
-        <div id="secao-relatorios" class="hidden animate-fade-in p-4">
+      <div id="secao-relatorios" class="hidden animate-fade-in p-4">
     <div class="mb-4">
         <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Filtrar por Unidade:</label>
         <select id="filtro-loja-relatorio" onchange="carregarRelatorios()" 
             class="w-full mt-1 p-3 bg-white border border-gray-200 rounded-2xl text-xs font-bold text-blue-600 outline-none shadow-sm focus:ring-2 focus:ring-blue-400">
             <option value="">📊 TODAS AS UNIDADES</option>
-            </select>
+        </select>
     </div>
 
-    <div class="bg-white p-6 rounded-3xl shadow-xl border border-gray-100">
+    <div class="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 mb-4">
+        <h3 class="text-center text-gray-400 font-black text-[10px] uppercase tracking-widest mb-6">
+            Onde está o seu dinheiro?
+        </h3>
+        <div class="relative h-[300px]">
+            <canvas id="chartCategorias"></canvas>
         </div>
-</div>
+        <div id="lista-gastos-detalhada"></div>
+    </div>
+</div>    
 
     </main>
 
