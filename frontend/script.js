@@ -526,22 +526,41 @@ async function adicionarDiretoALista(nome) {
 }
 
 // === NOTA FISCAL ===
-function processarUrlManual() {
+async function processarUrlManual() {
     const url = document.getElementById('url-input').value.trim();
     if (!url) return;
+
     const statusDiv = document.getElementById('status');
     statusDiv.classList.remove('hidden');
-    statusDiv.innerText = "📡 Lendo nota...";
-    fetch('/api/ProcessarNota', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url })
-    })
-        .then(r => r.json())
-        .then(data => {
-            statusDiv.innerText = "✅ Nota lida!";
-            renderPreview(data.dados);
-        }).catch(() => statusDiv.innerText = "❌ Erro.");
+    statusDiv.innerText = "📡 Analisando nota...";
+
+    try {
+        // Passo 1: O sistema lê a nota e verifica o CNPJ
+        const response = await fetch('/api/AnalisarNota', { 
+            method: 'POST', 
+            body: JSON.stringify({ url: url }) 
+        });
+        const resultado = await response.json();
+
+        let apelidoFinal = resultado.sugestaoApelido;
+
+        // Passo 2: Se for um CNPJ novo, ele pede o nome. Se já conhecer, ele segue direto.
+        if (!resultado.jaConhecido) {
+            apelidoFinal = prompt(`Unidade nova detectada (CNPJ: ${resultado.cnpj}). Como quer chamar esta loja?`, resultado.nomeSefaz);
+            if (!apelidoFinal) return;
+        }
+
+        // Passo 3: Salva definitivamente com o apelido (novo ou antigo)
+        await fetch('/api/SalvarNotaFinal', {
+            method: 'POST',
+            body: JSON.stringify({ url: url, apelido: apelidoFinal.toUpperCase() })
+        });
+
+        statusDiv.innerText = `✅ Processado em: ${apelidoFinal}`;
+        carregarLista();
+    } catch (err) {
+        statusDiv.innerText = "❌ Erro ao processar.";
+    }
 }
 
 async function renderPreview(dados) {
