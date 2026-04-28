@@ -533,32 +533,43 @@ async function processarUrlManual() {
 
     const statusDiv = document.getElementById('status');
     statusDiv.classList.remove('hidden');
-    statusDiv.innerText = "📡 Analisando nota...";
+    statusDiv.innerText = "📡 Analisando CNPJ da nota...";
 
     try {
-        // Primeira tentativa: Tenta processar. A API dirá se o CNPJ é novo.
+        // Passo 1: Enviamos a URL apenas para identificar o CNPJ e ver se já temos apelido
+        // Adicionamos um parâmetro 'apenasConsulta' para a API não salvar nada ainda
         let response = await fetch('/api/ProcessarNota', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url })
+            body: JSON.stringify({ url: url, consulta: true }) 
         });
         
         let resData = await response.json();
+        let apelidoFinal = resData.estabelecimento;
 
-        // Se o estabelecimento for genérico ou a API indicar que é novo, pedimos o apelido
-        if (!resData.jaConhecido || resData.estabelecimento.includes("LTDA") || resData.estabelecimento.includes("00.000.000")) {
-            const apelido = prompt(`Loja nova detectada (CNPJ: ${resData.cnpj}). Dê um apelido (Ex: Carrefour Centro):`, resData.estabelecimento);
-            
-            if (apelido) {
-                // Segunda tentativa: Envia novamente agora com o apelido definido
-                response = await fetch('/api/ProcessarNota', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url, apelido: apelido })
-                });
-                resData = await response.json();
+        // Passo 2: Se o nome for jurídico (LTDA) ou a API indicar que não conhece o apelido
+        const ehNomeJuridico = /LTDA|S\.A|S\/A|DISTRIBUIDORA/i.test(apelidoFinal);
+        
+        if (!resData.jaConhecido || ehNomeJuridico) {
+            const novoApelido = prompt(`Nova unidade (CNPJ: ${resData.cnpj}). Como quer chamar esta loja?`, apelidoFinal);
+            if (novoApelido) {
+                apelidoFinal = novoApelido.toUpperCase();
+            } else if (ehNomeJuridico) {
+                // Se o usuário cancelar e o nome for sujo, interrompemos para não salvar errado
+                statusDiv.innerText = "⚠️ Processamento cancelado: Defina um apelido.";
+                return;
             }
         }
+
+        // Passo 3: Agora sim, enviamos para salvar de verdade com o apelido definido
+        statusDiv.innerText = "💾 Salvando dados...";
+        response = await fetch('/api/ProcessarNota', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, apelido: apelidoFinal })
+        });
+        
+        resData = await response.json();
 
         statusDiv.innerText = `✅ Processado: ${resData.estabelecimento}`;
         urlInput.value = '';
