@@ -527,7 +527,8 @@ async function adicionarDiretoALista(nome) {
 
 // === NOTA FISCAL ===
 async function processarUrlManual() {
-    const url = document.getElementById('url-input').value.trim();
+    const urlInput = document.getElementById('url-input');
+    const url = urlInput.value.trim();
     if (!url) return;
 
     const statusDiv = document.getElementById('status');
@@ -535,31 +536,38 @@ async function processarUrlManual() {
     statusDiv.innerText = "📡 Analisando nota...";
 
     try {
-        // Passo 1: O sistema lê a nota e verifica o CNPJ
-        const response = await fetch('/api/AnalisarNota', { 
-            method: 'POST', 
-            body: JSON.stringify({ url: url }) 
+        // Primeira tentativa: Tenta processar. A API dirá se o CNPJ é novo.
+        let response = await fetch('/api/ProcessarNota', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
         });
-        const resultado = await response.json();
+        
+        let resData = await response.json();
 
-        let apelidoFinal = resultado.sugestaoApelido;
-
-        // Passo 2: Se for um CNPJ novo, ele pede o nome. Se já conhecer, ele segue direto.
-        if (!resultado.jaConhecido) {
-            apelidoFinal = prompt(`Unidade nova detectada (CNPJ: ${resultado.cnpj}). Como quer chamar esta loja?`, resultado.nomeSefaz);
-            if (!apelidoFinal) return;
+        // Se o estabelecimento for genérico ou a API indicar que é novo, pedimos o apelido
+        if (!resData.jaConhecido || resData.estabelecimento.includes("LTDA") || resData.estabelecimento.includes("00.000.000")) {
+            const apelido = prompt(`Loja nova detectada (CNPJ: ${resData.cnpj}). Dê um apelido (Ex: Carrefour Centro):`, resData.estabelecimento);
+            
+            if (apelido) {
+                // Segunda tentativa: Envia novamente agora com o apelido definido
+                response = await fetch('/api/ProcessarNota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url, apelido: apelido })
+                });
+                resData = await response.json();
+            }
         }
 
-        // Passo 3: Salva definitivamente com o apelido (novo ou antigo)
-        await fetch('/api/SalvarNotaFinal', {
-            method: 'POST',
-            body: JSON.stringify({ url: url, apelido: apelidoFinal.toUpperCase() })
-        });
-
-        statusDiv.innerText = `✅ Processado em: ${apelidoFinal}`;
+        statusDiv.innerText = `✅ Processado: ${resData.estabelecimento}`;
+        urlInput.value = '';
+        renderPreview(resData.dados);
         carregarLista();
+
     } catch (err) {
-        statusDiv.innerText = "❌ Erro ao processar.";
+        statusDiv.innerText = "❌ Erro ao processar nota.";
+        console.error(err);
     }
 }
 
