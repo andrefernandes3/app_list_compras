@@ -112,13 +112,20 @@ async function carregarRelatorios() {
 
 async function atualizarSeletorLojas() {
     const seletor = document.getElementById('filtro-loja-relatorio');
-    if (!seletor || seletor.options.length > 1) return; // Evita duplicar se já estiver preenchido
+    // Só preenche se o seletor estiver vazio (apenas com a opção padrão)
+    if (!seletor || seletor.options.length > 1) return;
 
     try {
-        const response = await fetch('/api/GerenciarLista'); // Ou criar uma API de "Lojas Conhecidas"
-        // Como o histórico é grande, podemos extrair as lojas dos dados da própria nota
-        // Mas o ideal é ter uma lista única de estabelecimentos.
-    } catch (e) {}
+        const response = await fetch('/api/ListarLojas');
+        const lojas = await response.json();
+        
+        lojas.forEach(loja => {
+            const option = document.createElement('option');
+            option.value = loja;
+            option.innerText = `🏪 ${loja}`;
+            seletor.appendChild(option);
+        });
+    } catch (e) { console.error("Erro ao listar lojas:", e); }
 }
 
 async function carregarFiltroLojas() {
