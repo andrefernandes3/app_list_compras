@@ -56,14 +56,22 @@ function alternarAba(aba) {
 
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
-    if (!ctx) return;
+    const seletorLoja = document.getElementById('filtro-loja-relatorio');
+    const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
 
     try {
-        // Certifique-se que o nome da rota na Azure coincide com o nome da pasta da função
-        const response = await fetch('/api/ObterRelatorioGastos'); 
+        // Passo 1: Buscar os dados filtrados (ou não)
+        const url = lojaSelecionada 
+            ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}` 
+            : '/api/ObterRelatorioGastos';
+        
+        const response = await fetch(url);
         const dados = await response.json();
 
-        if (dados.length === 0) return;
+        // Passo 2: Se for a primeira carga, vamos preencher o seletor de lojas
+        if (!lojaSelecionada) {
+            atualizarSeletorLojas();
+        }
 
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
 
@@ -95,6 +103,16 @@ async function carregarRelatorios() {
     } catch (e) { console.error("Erro ao carregar gráfico:", e); }
 }
 
+async function atualizarSeletorLojas() {
+    const seletor = document.getElementById('filtro-loja-relatorio');
+    if (!seletor || seletor.options.length > 1) return; // Evita duplicar se já estiver preenchido
+
+    try {
+        const response = await fetch('/api/GerenciarLista'); // Ou criar uma API de "Lojas Conhecidas"
+        // Como o histórico é grande, podemos extrair as lojas dos dados da própria nota
+        // Mas o ideal é ter uma lista única de estabelecimentos.
+    } catch (e) {}
+}
 function exibirDetalhesCategoria(categoria) {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
