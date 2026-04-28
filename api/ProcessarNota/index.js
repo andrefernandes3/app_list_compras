@@ -16,6 +16,7 @@ function limparTexto(texto) {
 
 module.exports = async function (context, req) {
     const urlNota = req.body && req.body.url;
+    const apelidoManual = req.body && req.body.apelido; // Recebe o apelido do frontend
 
     if (!urlNota) {
         context.res = { status: 400, body: "URL da nota não fornecida." };
@@ -30,44 +31,43 @@ module.exports = async function (context, req) {
         const { data } = await axios.get(urlNota, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const $ = cheerio.load(data);
 
-        const nomeEstabelecimento = $('.txtTopo').first().text().trim() || "Estabelecimento Desconhecido";
+        // --- IDENTIFICAÇÃO DO CNPJ ---
         const cnpjBruto = $('.text').text().match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
         const cnpj = cnpjBruto ? cnpjBruto[0] : "00.000.000/0000-00";
 
-        // --- BLOCO CORRIGIDO: TRATAMENTO DE DATA ---
-        const infoGeral = $('.txtCenter').text();
-        const dataMatch = infoGeral.match(/(\d{2})\/(\d{2})\/(\d{4})/); // Pega DD, MM e AAAA
-
-        let dataCompra;
-        if (dataMatch) {
-            // Monta no formato AAAA-MM-DD que o JavaScript entende perfeitamente
-            const [_, dia, mes, ano] = dataMatch;
-            dataCompra = new Date(`${ano}-${mes}-${dia}T12:00:00Z`);
+        // --- LÓGICA DE APELIDO INTELIGENTE ---
+        let nomeFinal;
+        if (apelidoManual) {
+            nomeFinal = apelidoManual.toUpperCase();
         } else {
-            dataCompra = new Date(); // Se falhar, usa a data de hoje para não ficar 1970
+            // Busca se já existe um apelido para este CNPJ no histórico
+            const notaExistente = await colecao.findOne({ cnpj: cnpj });
+            if (notaExistente) {
+                nomeFinal = notaExistente.estabelecimento; // Usa o apelido já conhecido
+            } else {
+                // Se for novo, usa o nome da nota (o frontend tratará de pedir o apelido)
+                nomeFinal = $('.txtTopo').first().text().trim() || "Estabelecimento Desconhecido";
+            }
         }
 
-        // Caso a data ainda resulte em algo inválido ou 1970, força a data atual
-        if (isNaN(dataCompra.getTime()) || dataCompra.getFullYear() === 1970) {
-            dataCompra = new Date();
-        }
-        // -------------------------------------------
+        // --- TRATAMENTO DE DATA ---
+        const infoGeral = $('.txtCenter').text();
+        const dataMatch = infoGeral.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        let dataCompra = dataMatch ? new Date(`${dataMatch[3]}-${dataMatch[2]}-${dataMatch[1]}T12:00:00Z`) : new Date();
+        if (isNaN(dataCompra.getTime()) || dataCompra.getFullYear() === 1970) dataCompra = new Date();
 
+        // --- PROCESSAMENTO DE ITENS ---
         const itens = [];
         const linhasItens = $('tr[id^="Item"]').get();
 
         for (const el of linhasItens) {
             const linha = $(el);
             const texto = linha.text().replace(/\s+/g, ' ');
-
             const descricaoBruta = linha.find('.txtTit').text().split('\n')[0].trim();
             const idInterno = (texto.match(/Código:\s*([A-Z0-9]+)/i) || [])[1] || "N/A";
 
             if (descricaoBruta) {
-                const vinculo = await db.collection('dicionario_produtos').findOne({
-                    ids_vinculados: idInterno
-                });
-
+                const vinculo = await db.collection('dicionario_produtos').findOne({ ids_vinculados: idInterno });
                 const descricaoFinal = vinculo ? vinculo.nome_comum : limparTexto(descricaoBruta);
                 const vTotalItem = parseFloat(linha.find('.valor').text().replace(',', '.')) || 0;
 
@@ -83,15 +83,12 @@ module.exports = async function (context, req) {
             }
         }
 
-        let valorTotalNota = parseFloat($('.totalNFe').text().replace(',', '.')) ||
-            parseFloat($('.txtMax').text().replace(',', '.')) || 0;
-
-        if (valorTotalNota === 0 && itens.length > 0) {
-            valorTotalNota = itens.reduce((acc, item) => acc + item.preco_total, 0);
-        }
+        let valorTotalNota = parseFloat($('.totalNFe').text().replace(',', '.')) || 
+                             parseFloat($('.txtMax').text().replace(',', '.')) || 0;
+        if (valorTotalNota === 0) valorTotalNota = itens.reduce((acc, item) => acc + item.preco_total, 0);
 
         const documento = {
-            estabelecimento: nomeEstabelecimento,
+            estabelecimento: nomeFinal,
             cnpj: cnpj,
             data_compra: dataCompra,
             valor_total: parseFloat(valorTotalNota.toFixed(2)),
@@ -101,26 +98,23 @@ module.exports = async function (context, req) {
         };
 
         const resultado = await colecao.updateOne(
-            { url_original: urlNota }, // Busca por esta URL
-            {
-                $set: documento,
-                $setOnInsert: { criado_em: new Date() } // Só cria a data de criação se for novo
-            },
-            { upsert: true } // Se não existir, cria; se existir, atualiza
+            { url_original: urlNota },
+            { $set: documento, $setOnInsert: { criado_em: new Date() } },
+            { upsert: true }
         );
 
         context.res = {
             status: 200,
-            headers: { "Content-Type": "application/json" },
             body: {
-                message: "Nota processada e sincronizada!",
-                upsertedId: resultado.upsertedId,
+                message: "Nota processada!",
+                jaConhecido: !!apelidoManual || (await colecao.countDocuments({ cnpj: cnpj })) > 0,
+                estabelecimento: nomeFinal,
+                cnpj: cnpj,
                 dados: documento
             }
         };
 
     } catch (error) {
-        context.log("Erro:", error.message);
         context.res = { status: 500, body: "Erro interno: " + error.message };
     }
 };
