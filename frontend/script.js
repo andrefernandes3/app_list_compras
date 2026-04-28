@@ -57,30 +57,26 @@ function alternarAba(aba) {
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
     const seletorLoja = document.getElementById('filtro-loja-relatorio');
-    const containerDetalhes = document.getElementById('lista-gastos-detalhada'); // Importante para feedback
     const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
 
     try {
-        const url = lojaSelecionada 
+        // CORREÇÃO DA URL: Se for vazio, chama a rota limpa, senão passa o parâmetro
+        const url = (lojaSelecionada && lojaSelecionada !== "") 
             ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}` 
             : '/api/ObterRelatorioGastos';
         
         const response = await fetch(url);
         const dados = await response.json();
 
-        // AJUSTE: Se não houver dados, limpa o gráfico e avisa o usuário
-        if (!dados || dados.length === 0) {
-            if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
-            if (containerDetalhes) {
-                containerDetalhes.innerHTML = '<p class="text-center text-gray-400 text-xs py-10">Nenhuma compra encontrada para esta seleção.</p>';
-            }
-            return;
+        // Se for a primeira vez que entra na aba, popula o seletor
+        if (seletorLoja && seletorLoja.options.length <= 1) {
+            carregarFiltroLojas();
         }
 
-        // Se houver dados, limpa a mensagem de erro anterior
-        if (containerDetalhes) containerDetalhes.innerHTML = '';
-        
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+
+        // Se não houver dados, não tenta desenhar para não dar erro no Chart.js
+        if (!dados || dados.length === 0) return;
 
         meuGraficoRelatorio = new Chart(ctx, {
             type: 'doughnut',
