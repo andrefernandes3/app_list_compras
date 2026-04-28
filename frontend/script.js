@@ -113,6 +113,20 @@ async function atualizarSeletorLojas() {
         // Mas o ideal é ter uma lista única de estabelecimentos.
     } catch (e) {}
 }
+
+async function carregarFiltroLojas() {
+    const seletor = document.getElementById('filtro-loja-relatorio');
+    const response = await fetch('/api/ListarLojas');
+    const lojas = await response.json();
+    
+    lojas.forEach(loja => {
+        const option = document.createElement('option');
+        option.value = loja;
+        option.innerText = `🏪 ${loja}`;
+        seletor.appendChild(option);
+    });
+}
+
 function exibirDetalhesCategoria(categoria) {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
