@@ -13,8 +13,8 @@ module.exports = async function (context, req) {
         const matchStage = filtroLoja ? { "estabelecimento": filtroLoja } : {};
 
         const relatorio = await db.collection('historico_precos').aggregate([
-            { $match: matchStage }, // NOVO: Filtra pela loja antes de processar
-            { $unwind: "$itens" },
+            { $match: filtroLoja ? { "estabelecimento": filtroLoja } : {} }, 
+    { $unwind: "$itens" },
             {
                 $lookup: {
                     from: "dicionario_produtos",
