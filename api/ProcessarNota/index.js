@@ -35,17 +35,28 @@ module.exports = async function (context, req) {
         const cnpjBruto = $('.text').text().match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
         const cnpj = cnpjBruto ? cnpjBruto[0] : "00.000.000/0000-00";
 
-        // --- LÓGICA DE APELIDO INTELIGENTE ---
+       // --- LÓGICA DE APELIDO INTELIGENTE ---
         let nomeFinal;
+        
+        // 1. Prioridade máxima: Apelido enviado agora pelo usuário
         if (apelidoManual) {
             nomeFinal = apelidoManual.toUpperCase();
         } else {
-            // Busca se já existe um apelido para este CNPJ no histórico
-            const notaExistente = await colecao.findOne({ cnpj: cnpj });
-            if (notaExistente) {
-                nomeFinal = notaExistente.estabelecimento; // Usa o apelido já conhecido
+            // 2. Busca no banco o apelido usado anteriormente para este CNPJ
+            // Procuramos a nota mais recente que NÃO tenha "LTDA" ou "S/A" no nome
+            const ultimaNotaComApelido = await colecao.findOne(
+                { 
+                    cnpj: cnpj, 
+                    estabelecimento: { $not: /LTDA|S\.A|S\/A|DISTRIBUIDORA/i } 
+                },
+                { sort: { criado_em: -1 } } // Pega a mais recente
+            );
+
+            if (ultimaNotaComApelido) {
+                nomeFinal = ultimaNotaComApelido.estabelecimento;
+                context.log(`Apelido encontrado para CNPJ ${cnpj}: ${nomeFinal}`);
             } else {
-                // Se for novo, usa o nome da nota (o frontend tratará de pedir o apelido)
+                // 3. Se não achar nada, usa o nome bruto da SEFAZ
                 nomeFinal = $('.txtTopo').first().text().trim() || "Estabelecimento Desconhecido";
             }
         }
