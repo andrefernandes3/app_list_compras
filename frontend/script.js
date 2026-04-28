@@ -57,10 +57,10 @@ function alternarAba(aba) {
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
     const seletorLoja = document.getElementById('filtro-loja-relatorio');
+    const containerDetalhes = document.getElementById('lista-gastos-detalhada'); // Importante para feedback
     const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
 
     try {
-        // Passo 1: Buscar os dados filtrados (ou não)
         const url = lojaSelecionada 
             ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}` 
             : '/api/ObterRelatorioGastos';
@@ -68,11 +68,18 @@ async function carregarRelatorios() {
         const response = await fetch(url);
         const dados = await response.json();
 
-        // Passo 2: Se for a primeira carga, vamos preencher o seletor de lojas
-        if (!lojaSelecionada) {
-            atualizarSeletorLojas();
+        // AJUSTE: Se não houver dados, limpa o gráfico e avisa o usuário
+        if (!dados || dados.length === 0) {
+            if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+            if (containerDetalhes) {
+                containerDetalhes.innerHTML = '<p class="text-center text-gray-400 text-xs py-10">Nenhuma compra encontrada para esta seleção.</p>';
+            }
+            return;
         }
 
+        // Se houver dados, limpa a mensagem de erro anterior
+        if (containerDetalhes) containerDetalhes.innerHTML = '';
+        
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
 
         meuGraficoRelatorio = new Chart(ctx, {
