@@ -56,14 +56,22 @@ function alternarAba(aba) {
 
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
-    if (!ctx) return;
+    const seletorLoja = document.getElementById('filtro-loja-relatorio');
+    const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
 
     try {
-        // Certifique-se que o nome da rota na Azure coincide com o nome da pasta da função
-        const response = await fetch('/api/ObterRelatorioGastos'); 
+        // Passo 1: Buscar os dados filtrados (ou não)
+        const url = lojaSelecionada 
+            ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}` 
+            : '/api/ObterRelatorioGastos';
+        
+        const response = await fetch(url);
         const dados = await response.json();
 
-        if (dados.length === 0) return;
+        // Passo 2: Se for a primeira carga, vamos preencher o seletor de lojas
+        if (!lojaSelecionada) {
+            atualizarSeletorLojas();
+        }
 
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
 
@@ -93,6 +101,30 @@ async function carregarRelatorios() {
             }
         });
     } catch (e) { console.error("Erro ao carregar gráfico:", e); }
+}
+
+async function atualizarSeletorLojas() {
+    const seletor = document.getElementById('filtro-loja-relatorio');
+    if (!seletor || seletor.options.length > 1) return; // Evita duplicar se já estiver preenchido
+
+    try {
+        const response = await fetch('/api/GerenciarLista'); // Ou criar uma API de "Lojas Conhecidas"
+        // Como o histórico é grande, podemos extrair as lojas dos dados da própria nota
+        // Mas o ideal é ter uma lista única de estabelecimentos.
+    } catch (e) {}
+}
+
+async function carregarFiltroLojas() {
+    const seletor = document.getElementById('filtro-loja-relatorio');
+    const response = await fetch('/api/ListarLojas');
+    const lojas = await response.json();
+    
+    lojas.forEach(loja => {
+        const option = document.createElement('option');
+        option.value = loja;
+        option.innerText = `🏪 ${loja}`;
+        seletor.appendChild(option);
+    });
 }
 
 function exibirDetalhesCategoria(categoria) {
@@ -526,22 +558,60 @@ async function adicionarDiretoALista(nome) {
 }
 
 // === NOTA FISCAL ===
-function processarUrlManual() {
-    const url = document.getElementById('url-input').value.trim();
+async function processarUrlManual() {
+    const urlInput = document.getElementById('url-input');
+    const url = urlInput.value.trim();
     if (!url) return;
+
     const statusDiv = document.getElementById('status');
     statusDiv.classList.remove('hidden');
-    statusDiv.innerText = "📡 Lendo nota...";
-    fetch('/api/ProcessarNota', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url })
-    })
-        .then(r => r.json())
-        .then(data => {
-            statusDiv.innerText = "✅ Nota lida!";
-            renderPreview(data.dados);
-        }).catch(() => statusDiv.innerText = "❌ Erro.");
+    statusDiv.innerText = "📡 Analisando CNPJ da nota...";
+
+    try {
+        // Passo 1: Enviamos a URL apenas para identificar o CNPJ e ver se já temos apelido
+        // Adicionamos um parâmetro 'apenasConsulta' para a API não salvar nada ainda
+        let response = await fetch('/api/ProcessarNota', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, consulta: true }) 
+        });
+        
+        let resData = await response.json();
+        let apelidoFinal = resData.estabelecimento;
+
+        // Passo 2: Se o nome for jurídico (LTDA) ou a API indicar que não conhece o apelido
+        const ehNomeJuridico = /LTDA|S\.A|S\/A|DISTRIBUIDORA/i.test(apelidoFinal);
+        
+        if (!resData.jaConhecido || ehNomeJuridico) {
+            const novoApelido = prompt(`Nova unidade (CNPJ: ${resData.cnpj}). Como quer chamar esta loja?`, apelidoFinal);
+            if (novoApelido) {
+                apelidoFinal = novoApelido.toUpperCase();
+            } else if (ehNomeJuridico) {
+                // Se o usuário cancelar e o nome for sujo, interrompemos para não salvar errado
+                statusDiv.innerText = "⚠️ Processamento cancelado: Defina um apelido.";
+                return;
+            }
+        }
+
+        // Passo 3: Agora sim, enviamos para salvar de verdade com o apelido definido
+        statusDiv.innerText = "💾 Salvando dados...";
+        response = await fetch('/api/ProcessarNota', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, apelido: apelidoFinal })
+        });
+        
+        resData = await response.json();
+
+        statusDiv.innerText = `✅ Processado: ${resData.estabelecimento}`;
+        urlInput.value = '';
+        renderPreview(resData.dados);
+        carregarLista();
+
+    } catch (err) {
+        statusDiv.innerText = "❌ Erro ao processar nota.";
+        console.error(err);
+    }
 }
 
 async function renderPreview(dados) {
