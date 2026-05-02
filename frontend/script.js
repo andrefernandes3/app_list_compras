@@ -386,25 +386,20 @@ async function abrirGrafico(nome) {
 async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
     try {
         const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
-        if (!response.ok) return;
         const dados = await response.json();
-        if (dados.length > 0) {
-            const melhor = dados[0];
-            const mercado = melhor._id.split(' ')[0];
+
+        if (dados && dados.length > 0) {
+            const melhor = dados[0]; 
+            const mercado = melhor._id; // Nome da loja
             const subtotal = melhor.menorPreco * quantidade;
-            if (!totaisPorMercado[mercado]) totaisPorMercado[mercado] = 0;
-            totaisPorMercado[mercado] += subtotal;
 
             elementoDestino.innerHTML = `
-                <div data-mercado-badge="${mercado}" class="mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center transition-colors">
-                    <span>💡 ${mercado}</span>
-                    <span class="font-bold">R$ ${melhor.menorPreco.toFixed(2)} x ${quantidade} = R$ ${subtotal.toFixed(2)}</span>
+                <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center">
+                    <span>💡 Sugestão: ${mercado}</span>
+                    <span class="font-black text-blue-600">R$ ${melhor.menorPreco.toFixed(2)}</span>
                 </div>`;
-            atualizarSomaVisual();
-        } else {
-            elementoDestino.innerHTML = `<div class="text-[9px] text-gray-400 italic">🔍 Sem histórico</div>`;
         }
-    } catch (e) { }
+    } catch (e) { console.error(e); }
 }
 
 async function atualizarSomaVisual() {
