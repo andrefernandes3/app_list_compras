@@ -276,6 +276,8 @@ async function carregarLista() {
             buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
         });
 
+        atualizarSomaVisual();
+
         calcularTotalReal();
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
@@ -408,6 +410,7 @@ async function atualizarSomaVisual() {
     if (!container || !totalDiv) return;
 
     try {
+        // Chamada SEM o parâmetro ?nome para pegar o ranking do carrinho todo
         const response = await fetch('/api/CompararPrecos');
         const ranking = await response.json();
 
@@ -420,19 +423,17 @@ async function atualizarSomaVisual() {
         container.innerHTML = '';
 
         ranking.forEach((loja, index) => {
-            const cor = obterCorMercado(loja.nome); // Usa as cores que você configurou
+            const cor = obterCorMercado(loja.nome); 
             const isVencedor = index === 0;
 
             container.innerHTML += `
-                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-100 bg-white'} text-center">
+                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center animate-fade-in">
                     <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
                     <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
-                    <p class="text-[7px] text-gray-400">${loja.itensEncontrados}/${loja.totalItensLista} ITENS</p>
+                    <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
                 </div>`;
         });
-    } catch (e) {
-        console.error("Erro ao carregar comparativo:", e);
-    }
+    } catch (e) { console.error("Erro no ranking:", e); }
 }
 
 // === LÓGICA DO DICIONÁRIO ===
