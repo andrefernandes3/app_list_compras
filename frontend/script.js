@@ -9,13 +9,12 @@ function escapeHTML(str) {
 
 function obterCorMercado(nomeMercado) {
     const cores = {
-        'CARREFOUR': '#2ecc71', // Verde
-        'WMS': '#f1c40f',       // Amarelo (Walmart/Big)
+        'CARREFOUR': '#2ecc71', // Verde        
         'PÃO': '#e67e22',       // Laranja
         'EXTRA': '#e74c3c',     // Vermelho
-        'ASSAI': '#ff7a00',      // Laranja Assaí
-        'ATACADAO': '#003399',   // Azul Atacadão
-        'VILA YARA': '#6A4C93'  // Roxo (Para diferenciar a unidade específica)
+        'ASSAI': '#024127',      // Laranja Assaí
+        'ATACADAO': '#003399',
+        'SAMS CLUB': '#1982C4'   // Azul Sams Club
     };
 
     if (!nomeMercado) return '#3498db'; // Azul padrão
