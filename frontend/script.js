@@ -407,30 +407,37 @@ async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
     } catch (e) { }
 }
 
-function atualizarSomaVisual() {
+async function atualizarSomaVisual() {
     const container = document.getElementById('mercados-soma');
     const totalDiv = document.getElementById('totalizador-estimado');
     if (!container || !totalDiv) return;
 
-    totalDiv.classList.remove('hidden');
-    container.innerHTML = '';
+    try {
+        const response = await fetch('/api/CompararPrecos');
+        const ranking = await response.json();
 
-    const entries = Object.entries(totaisPorMercado).sort((a, b) => a[1] - b[1]);
-    const mercadoVencedor = entries.length > 0 ? entries[0][0] : null;
-
-    entries.forEach(([m, v], i) => {
-        const cor = i === 0 ? 'bg-green-100 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500';
-        container.innerHTML += `<div class="p-2 rounded-lg border ${cor} text-center shadow-sm"><p class="text-[8px] uppercase">${m}</p><p class="text-xs font-bold">R$ ${v.toFixed(2)}</p></div>`;
-    });
-
-    document.querySelectorAll('[data-mercado-badge]').forEach(el => {
-        const mercadoItem = el.getAttribute('data-mercado-badge');
-        if (mercadoItem === mercadoVencedor) {
-            el.className = "mt-1 text-[9px] bg-green-100 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center transition-colors";
-        } else {
-            el.className = "mt-1 text-[9px] bg-gray-50 text-gray-500 p-1 px-2 rounded-lg border border-gray-200 flex justify-between items-center transition-colors";
+        if (!ranking || ranking.length === 0) {
+            totalDiv.classList.add('hidden');
+            return;
         }
-    });
+
+        totalDiv.classList.remove('hidden');
+        container.innerHTML = '';
+
+        ranking.forEach((loja, index) => {
+            const cor = obterCorMercado(loja.nome); // Usa as cores que você configurou
+            const isVencedor = index === 0;
+
+            container.innerHTML += `
+                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-100 bg-white'} text-center">
+                    <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
+                    <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
+                    <p class="text-[7px] text-gray-400">${loja.itensEncontrados}/${loja.totalItensLista} ITENS</p>
+                </div>`;
+        });
+    } catch (e) {
+        console.error("Erro ao carregar comparativo:", e);
+    }
 }
 
 // === LÓGICA DO DICIONÁRIO ===
@@ -804,6 +811,35 @@ async function verificarAlertaPreco(nome, precoAtual, elementoDestino) {
 
         elementoDestino.innerHTML = badge;
     } catch (e) { console.error("Erro no alerta de preço", e); }
+}
+
+async function atualizarComparativoMercados() {
+    const container = document.getElementById('mercados-soma');
+    if (!container) return;
+
+    try {
+        // Buscamos a comparação baseada nos itens que estão na lista agora
+        const response = await fetch('/api/CompararPrecos');
+        const ranking = await response.json();
+
+        container.innerHTML = '';
+
+        ranking.forEach((loja, index) => {
+            // Usamos a função de cores que você já tem para colorir o card!
+            const cor = obterCorMercado(loja.nome);
+            const isVencedor = index === 0; // O primeiro da lista é o mais barato
+
+            container.innerHTML += `
+                <div class="p-3 rounded-2xl border-2 ${isVencedor ? 'border-green-500 shadow-md' : 'border-gray-100'} bg-white flex flex-col items-center">
+                    <p class="text-[8px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
+                    <p class="text-lg font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
+                    <p class="text-[8px] text-gray-400">${loja.itensEncontrados}/${loja.totalItensLista} itens</p>
+                </div>
+            `;
+        });
+    } catch (e) {
+        console.error("Erro ao comparar mercados:", e);
+    }
 }
 
 // Inicialização

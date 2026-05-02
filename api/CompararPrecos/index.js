@@ -3,46 +3,63 @@ const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
 module.exports = async function (context, req) {
-    const nomeComum = req.query.nome; // Ex: PAO FORMA INTEGRAL PANCO 500G
-
-    if (!nomeComum) {
-        context.res = { status: 400, body: "Nome do produto não fornecido." };
-        return;
-    }
-
     try {
         await client.connect();
         const db = client.db('app_compras');
-        
-        // 1. Busca os IDs vinculados a esse nome no seu dicionário
-        const vinculo = await db.collection('dicionario_produtos').findOne({ 
-            nome_comum: nomeComum.toUpperCase() 
-        });
-        
-        if (!vinculo) {
-            context.res = { status: 404, body: "Produto ainda não catalogado no dicionário." };
+
+        // 1. Pega os itens da sua lista de compras (os que ainda não foram riscados)
+        const listaAtiva = await db.collection('lista_compras').find({}).toArray();
+        if (listaAtiva.length === 0) {
+            context.res = { status: 200, body: [] };
             return;
         }
 
-        // 2. Busca o histórico e agrupa pelo menor preço de cada mercado
-        const comparativo = await db.collection('historico_precos').aggregate([
-            { $unwind: "$itens" },
-            { $match: { "itens.id_interno": { $in: vinculo.ids_vinculados } } },
-            { $group: {
-                _id: "$estabelecimento",
-                menorPreco: { $min: "$itens.preco_unitario" },
-                ultimaCompra: { $max: "$data_compra" }
-            }},
-            { $sort: { menorPreco: 1 } } // O mais barato primeiro
-        ]).toArray();
+        // 2. Identifica todas as unidades (apelidos) no seu histórico
+        const lojas = await db.collection('historico_precos').distinct("estabelecimento");
+        const ranking = [];
 
-        context.res = { 
-            status: 200, 
+        for (const loja of lojas) {
+            let totalLoja = 0;
+            let itensEncontrados = 0;
+
+            for (const item of listaAtiva) {
+                // Busca o preço mais recente deste item nesta loja específica através do dicionário
+                const vinculo = await db.collection('dicionario_produtos').findOne({ 
+                    nome_comum: item.item_nome.toUpperCase() 
+                });
+
+                if (vinculo) {
+                    const historico = await db.collection('historico_precos').aggregate([
+                        { $match: { estabelecimento: loja } },
+                        { $unwind: "$itens" },
+                        { $match: { "itens.id_interno": { $in: vinculo.ids_vinculados } } },
+                        { $sort: { data_compra: -1 } },
+                        { $limit: 1 }
+                    ]).toArray();
+
+                    if (historico.length > 0) {
+                        totalLoja += historico[0].itens.preco_unitario * (item.quantidade || 1);
+                        itensEncontrados++;
+                    }
+                }
+            }
+
+            if (itensEncontrados > 0) {
+                ranking.push({
+                    nome: loja,
+                    total: totalLoja,
+                    itensEncontrados: itensEncontrados,
+                    totalItensLista: listaAtiva.length
+                });
+            }
+        }
+
+        context.res = {
+            status: 200,
             headers: { "Content-Type": "application/json" },
-            body: comparativo 
+            body: ranking.sort((a, b) => a.total - b.total) // Mais barato no topo
         };
     } catch (error) {
-        context.log("Erro na comparação:", error.message);
         context.res = { status: 500, body: error.message };
     }
 };
