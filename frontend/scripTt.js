@@ -1,61 +1,56 @@
-// ================== ESTADO GLOBAL ==================
 let totaisPorMercado = {};
-let itensSelecionados = new Set();      // Controle de seleção no dicionário
-let meuGraficoRelatorio = null;         // Instância do gráfico de relatórios
-let timeoutPreco, timeoutQtd;           // Debouncers para salvar preço e quantidade
+let itensSelecionados = new Set();
 
-// ================== FUNÇÕES UTILITÁRIAS ==================
-/**
- * Escapa caracteres especiais para uso em atributos HTML.
- */
+// === FUNÇÕES UTILITÁRIAS ===
 function escapeHTML(str) {
     if (!str) return "";
     return str.replace(/'/g, "\\'");
 }
 
-/**
- * Retorna a cor associada ao mercado (usada nos cards de ranking e gráfico).
- */
 function obterCorMercado(nomeMercado) {
     const cores = {
-        'CARREFOUR': '#2ecc71',
-        'PÃO': '#e67e22',
-        'EXTRA': '#e74c3c',
-        'ASSAI': '#e7e304',
+        'CARREFOUR': '#2ecc71', // Verde        
+        'PÃO': '#e67e22',       // Laranja
+        'EXTRA': '#e74c3c',     // Vermelho
+        'ASSAI': '#e7e304',      // Laranja Assaí
         'ATACADAO': '#09ebfc',
-        'SAMS CLUB': '#3906f1'
+        'SAMS CLUB': '#3906f1'   // Azul Sams Club
     };
-    if (!nomeMercado) return '#3498db';
+
+    if (!nomeMercado) return '#3498db'; // Azul padrão
+    
     const nomeUpper = nomeMercado.toUpperCase();
-    const chave = Object.keys(cores).find(k => nomeUpper.includes(k));
-    return cores[chave] || '#3498db';
+
+    // Primeiro tenta achar pela unidade específica (ex: Vila Yara)
+    const unidadeEspecifica = Object.keys(cores).find(k => nomeUpper.includes(k) && k !== 'ASSAI' && k !== 'ATACADAO');
+    if (unidadeEspecifica && nomeUpper.includes('VILA YARA')) return cores['VILA YARA'];
+
+    // Se não for unidade específica, busca pelo nome da rede
+    const chaveRede = Object.keys(cores).find(k => nomeUpper.includes(k));
+    return cores[chaveRede] || '#3498db';
 }
 
-/**
- * Exibe modal com imagem ampliada do produto.
- */
 function ampliarImagem(url, nome) {
     if (!url || url.includes('placeholder')) return;
     const modalHtml = `
-        <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
-            <div class="relative w-full max-w-sm"> 
-                <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
-                <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
-            </div>
-        </div>`;
+    <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
+        <div class="relative w-full max-w-sm"> 
+            <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
+            <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
+        </div>
+    </div>`;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
-// ================== ABAS PRINCIPAIS ==================
-/**
- * Alterna entre as abas: Lista, Dicionário, Relatórios.
- */
+let meuGraficoRelatorio = null;
+
 function alternarAba(aba) {
     const abas = ['lista', 'dicionario', 'relatorios'];
     abas.forEach(a => {
         const div = document.getElementById(`secao-${a}`);
         const btnId = a === 'relatorios' ? 'btn-aba-rel' : (a === 'dicionario' ? 'btn-aba-dict' : 'btn-aba-lista');
         const btn = document.getElementById(btnId);
+
         if (a === aba) {
             div.classList.remove('hidden');
             btn.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600";
@@ -64,31 +59,36 @@ function alternarAba(aba) {
             btn.className = "flex-1 py-3 text-sm font-bold text-gray-500";
         }
     });
+
     if (aba === 'lista') carregarLista();
     if (aba === 'dicionario') renderizarDicionario();
     if (aba === 'relatorios') carregarRelatorios();
 }
 
-/**
- * Carrega os relatórios (gráfico de gastos por categoria).
- * Filtro por loja opcional.
- */
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
     const seletorLoja = document.getElementById('filtro-loja-relatorio');
     const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
+
     try {
-        const url = (lojaSelecionada && lojaSelecionada !== "")
-            ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}`
+        // CORREÇÃO DA URL: Se for vazio, chama a rota limpa, senão passa o parâmetro
+        const url = (lojaSelecionada && lojaSelecionada !== "") 
+            ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}` 
             : '/api/ObterRelatorioGastos';
+        
         const response = await fetch(url);
         const dados = await response.json();
-        // Preenche o seletor de lojas apenas na primeira vez
+
+        // Se for a primeira vez que entra na aba, popula o seletor
         if (seletorLoja && seletorLoja.options.length <= 1) {
             carregarFiltroLojas();
         }
+
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+
+        // Se não houver dados, não tenta desenhar para não dar erro no Chart.js
         if (!dados || dados.length === 0) return;
+
         meuGraficoRelatorio = new Chart(ctx, {
             type: 'doughnut',
             data: {
@@ -117,13 +117,29 @@ async function carregarRelatorios() {
     } catch (e) { console.error("Erro ao carregar gráfico:", e); }
 }
 
-/**
- * Popula o seletor de lojas (filtro dos relatórios).
- */
+async function atualizarSeletorLojas() {
+    const seletor = document.getElementById('filtro-loja-relatorio');
+    // Só preenche se o seletor estiver vazio (apenas com a opção padrão)
+    if (!seletor || seletor.options.length > 1) return;
+
+    try {
+        const response = await fetch('/api/ListarLojas');
+        const lojas = await response.json();
+        
+        lojas.forEach(loja => {
+            const option = document.createElement('option');
+            option.value = loja;
+            option.innerText = `🏪 ${loja}`;
+            seletor.appendChild(option);
+        });
+    } catch (e) { console.error("Erro ao listar lojas:", e); }
+}
+
 async function carregarFiltroLojas() {
     const seletor = document.getElementById('filtro-loja-relatorio');
     const response = await fetch('/api/ListarLojas');
     const lojas = await response.json();
+    
     lojas.forEach(loja => {
         const option = document.createElement('option');
         option.value = loja;
@@ -132,21 +148,27 @@ async function carregarFiltroLojas() {
     });
 }
 
-/**
- * Exibe a lista detalhada de itens de uma categoria (ao clicar no gráfico).
- */
 function exibirDetalhesCategoria(categoria) {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
-    const detalhesOrdenados = [...categoria.detalhes].sort((a, b) => a.nome.localeCompare(b.nome));
+
+    // ORDENAÇÃO ALFABÉTICA: Criamos uma cópia dos detalhes e ordenamos pelo nome
+    const detalhesOrdenados = [...categoria.detalhes].sort((a, b) => 
+        a.nome.localeCompare(b.nome)
+    );
+
     let html = `
         <div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100">
             <h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest text-center">
                 📦 Detalhes: ${categoria._id}
             </h4>
             <div class="space-y-2">`;
+
+    // Aqui é o loop que você mencionou (forEach) ajustado para mostrar o unitário
     detalhesOrdenados.forEach(item => {
+        // Calculamos o unitário (Valor Total / Quantidade)
         const unitario = item.valor / (item.qtd || 1);
+        
         html += `
             <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
                 <div class="flex flex-col">
@@ -158,39 +180,43 @@ function exibirDetalhesCategoria(categoria) {
                 <span class="text-blue-700 font-black whitespace-nowrap">R$ ${item.valor.toFixed(2)}</span>
             </div>`;
     });
+
     html += `</div></div>`;
     container.innerHTML = html;
+    
+    // Suaviza a rolagem para os detalhes
     container.scrollIntoView({ behavior: 'smooth' });
 }
 
-// ================== LISTA DE COMPRAS (ABA) ==================
-/**
- * Carrega a lista ativa a partir do backend e renderiza na tela.
- * Ordena por categoria e adiciona os elementos visuais.
- * Ao final, chama a atualização em lote dos preços (ranking + pílulas).
- */
 async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
+
     try {
+        // 1. Busca os dados base (Lista e Dicionário)
         const response = await fetch('/api/GerenciarLista');
         const itens = await response.json();
         const respDict = await fetch('/api/VincularProdutos');
         const dicionario = await respDict.json();
+
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             document.getElementById('totalizador-estimado').classList.add('hidden');
             return;
         }
-        // Ordena por categoria
+
+        // 2. Ordenação por Categoria
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
+
+        // 3. Renderização Visual da Lista (Sem disparar fetchs individuais)
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
+
         itensOrdenados.forEach(item => {
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
@@ -199,14 +225,17 @@ async function carregarLista() {
                 separador.innerHTML = `📍 Corredor: ${categoriaAtual}`;
                 listaDiv.appendChild(separador);
             }
+
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             const idFormatado = item.item_nome.replace(/\s+/g, '-');
             const nomeSeguro = escapeHTML(item.item_nome);
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
+
             const itemElement = document.createElement('div');
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
                      onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
@@ -234,36 +263,45 @@ async function carregarLista() {
                     </div>
                     <div id="preco-lista-${idFormatado}"></div>
                 </div>`;
+
             listaDiv.appendChild(itemElement);
+
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
+            // Importante: Não chamamos buscarComparativo aqui dentro para não travar com 100 itens
         });
-        // Chamada única para buscar sugestões de preço e ranking
+
+        // 4. CHAMADA ÚNICA PARA O RANKING E PREÇOS (Otimização de Lote)
+        // Isso vai preencher todos os campos "id=preco-lista-..." de uma vez só
         await atualizarRankingEPilulasOtimizado();
+
         calcularTotalReal();
+
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
     }
 }
 
-/**
- * Busca em lote o ranking geral dos mercados e as pílulas de sugestão
- * para cada item. Substitui chamadas individuais.
- */
 async function atualizarRankingEPilulasOtimizado() {
     const container = document.getElementById('mercados-soma');
     const totalDiv = document.getElementById('totalizador-estimado');
     if (!container || !totalDiv) return;
+
     try {
+        // Uma única chamada que traz o ranking das lojas e o melhor preço de cada item da lista
         const response = await fetch('/api/CompararPrecos');
-        const data = await response.json();
+        const data = await response.json(); // Espera { ranking: [], precosIndividuais: {} }
+
         if (!data.ranking || data.ranking.length === 0) {
             totalDiv.classList.add('hidden');
             return;
         }
+
         totalDiv.classList.remove('hidden');
         container.innerHTML = '';
+
+        // Renderiza os Cards de Ranking (Carrefour Shopping vs Vila Yara)
         data.ranking.forEach((loja, index) => {
             const cor = obterCorMercado(loja.nome);
             const isVencedor = index === 0;
@@ -274,6 +312,8 @@ async function atualizarRankingEPilulasOtimizado() {
                     <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
                 </div>`;
         });
+
+        // Preenche as pílulas individuais nos 100 itens usando o "cache" da API
         if (data.precosIndividuais) {
             Object.keys(data.precosIndividuais).forEach(nomeItem => {
                 const idFormatado = nomeItem.replace(/\s+/g, '-');
@@ -293,28 +333,34 @@ async function atualizarRankingEPilulasOtimizado() {
     }
 }
 
-/**
- * Soma os preços reais (inputs) da lista e atualiza o total na tela.
- */
+// === PERSISTÊNCIA E CÁLCULOS ===
+
+
 function calcularTotalReal() {
     let total = 0;
+    // Selecionamos todos os itens da lista, independente de estarem riscados ou não
     const cards = document.querySelectorAll('#lista-ativa > div');
+
     cards.forEach(card => {
         const inputPreco = card.querySelector('.input-preco-real');
         const inputQtd = card.querySelector('.input-qtd-real');
+
+        // Verificamos se os inputs existem e se o item NÃO está marcado como comprado 
+        // (ou se você deseja somar tudo, remova a verificação de classe)
         if (inputPreco && inputQtd) {
             const preco = parseFloat(inputPreco.value) || 0;
             const qtd = parseFloat(inputQtd.value) || 1;
             total += (preco * qtd);
         }
     });
-    const display = document.getElementById('total-real-dinamico');
-    if (display) display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
-}
 
-/**
- * Salva o preço informado no banco (debounced).
- */
+    const display = document.getElementById('total-real-dinamico');
+    if (display) {
+        display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
+    }
+}
+let timeoutPreco, timeoutQtd;
+
 function salvarPrecoNoBanco(nome, valor) {
     clearTimeout(timeoutPreco);
     timeoutPreco = setTimeout(async () => {
@@ -328,9 +374,6 @@ function salvarPrecoNoBanco(nome, valor) {
     }, 800);
 }
 
-/**
- * Salva a quantidade informada no banco (debounced) e recarrega a lista.
- */
 function agendarSalvarQtd(nome, qtd) {
     clearTimeout(timeoutQtd);
     timeoutQtd = setTimeout(async () => {
@@ -340,22 +383,22 @@ function agendarSalvarQtd(nome, qtd) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
             });
+            // Recarrega a lista para atualizar os comparativos (subtotais por mercado)
             carregarLista();
         } catch (e) { console.error(e); }
     }, 1000);
 }
 
-// ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
-/**
- * Abre modal com gráfico de evolução de preços de um produto.
- */
+// === GRÁFICO E COMPARATIVOS ===
 async function abrirGrafico(nome) {
     let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center"><div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl"><div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3><button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1">X</button></div><div class="relative h-64"><canvas id="meuGrafico"></canvas></div><p class="text-[9px] text-gray-400 mt-4 text-center italic">Cores indicam o mercado onde o item foi comprado</p></div></div>`;
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
+
     try {
         const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
         const dados = await response.json();
         if (!dados.length) return;
+
         const ctx = document.getElementById('meuGrafico').getContext('2d');
         new Chart(ctx, {
             type: 'line',
@@ -391,31 +434,82 @@ async function abrirGrafico(nome) {
     } catch (e) { console.error(e); }
 }
 
-// ================== DICIONÁRIO (CATÁLOGO) ==================
-/**
- * Renderiza o dicionário de produtos, agrupado por categoria,
- * com checkboxes e botão de adicionar individual.
- */
+async function buscarComparativo(nomeProduto, quantidade, elementoDestino) {
+    try {
+        const response = await fetch(`/api/CompararPrecos?nome=${encodeURIComponent(nomeProduto)}`);
+        const dados = await response.json();
+
+        if (dados && dados.length > 0) {
+            const melhor = dados[0]; 
+            const mercado = melhor._id; // Nome da loja
+            const subtotal = melhor.menorPreco * quantidade;
+
+            elementoDestino.innerHTML = `
+                <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-100 flex justify-between items-center">
+                    <span>💡 Sugestão: ${mercado}</span>
+                    <span class="font-black text-blue-600">R$ ${melhor.menorPreco.toFixed(2)}</span>
+                </div>`;
+        }
+    } catch (e) { console.error(e); }
+}
+
+async function atualizarSomaVisual() {
+    const container = document.getElementById('mercados-soma');
+    const totalDiv = document.getElementById('totalizador-estimado');
+    if (!container || !totalDiv) return;
+
+    try {
+        // Chamada SEM o parâmetro ?nome para pegar o ranking do carrinho todo
+        const response = await fetch('/api/CompararPrecos');
+        const ranking = await response.json();
+
+        if (!ranking || ranking.length === 0) {
+            totalDiv.classList.add('hidden');
+            return;
+        }
+
+        totalDiv.classList.remove('hidden');
+        container.innerHTML = '';
+
+        ranking.forEach((loja, index) => {
+            const cor = obterCorMercado(loja.nome); 
+            const isVencedor = index === 0;
+
+            container.innerHTML += `
+                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center animate-fade-in">
+                    <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
+                    <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
+                    <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
+                </div>`;
+        });
+    } catch (e) { console.error("Erro no ranking:", e); }
+}
+
+// === LÓGICA DO DICIONÁRIO ===
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
     container.innerHTML = '<p class="text-center text-gray-400 p-4">Carregando catálogo...</p>';
     itensSelecionados.clear();
     document.getElementById('btn-adicionar-multiplos').classList.add('hidden');
     document.getElementById('select-all-dict').checked = false;
+
     try {
         const response = await fetch('/api/VincularProdutos');
         const produtos = await response.json();
         const categorias = {};
+
         produtos.forEach(p => {
             const cat = p.categoria || "OUTROS";
             if (!categorias[cat]) categorias[cat] = [];
             categorias[cat].push(p);
         });
+
         container.innerHTML = '';
         for (const [cat, itens] of Object.entries(categorias)) {
             const div = document.createElement('div');
             div.className = "mb-4";
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
+
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
@@ -456,6 +550,7 @@ function atualizarBotaoMultiplos() {
     const contador = itensSelecionados.size;
     if (contador > 0) {
         btn.classList.remove('hidden');
+        // Adicionamos classes para ele flutuar no canto inferior
         btn.className = "fixed bottom-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-full text-xs font-black shadow-2xl animate-bounce border-2 border-white";
         btn.innerText = `🛒 ADICIONAR ${contador} ITENS`;
     } else {
@@ -466,9 +561,11 @@ function atualizarBotaoMultiplos() {
 async function enviarSelecionadosParaLista() {
     const btn = document.getElementById('btn-adicionar-multiplos');
     if (itensSelecionados.size === 0) return;
+
     const total = itensSelecionados.size;
     btn.innerText = "ADICIONANDO...";
     btn.disabled = true;
+
     try {
         for (let nome of itensSelecionados) {
             await fetch('/api/GerenciarLista', {
@@ -477,11 +574,14 @@ async function enviarSelecionadosParaLista() {
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
             });
         }
+
+        // LIMPEZA CRUCIAL APÓS O SUCESSO:
         itensSelecionados.clear();
         btn.disabled = false;
         btn.classList.add('hidden');
+
         alert(`${total} itens adicionados com sucesso!`);
-        alternarAba('lista');
+        alternarAba('lista'); // Isso já chamará o carregarLista()
     } catch (e) {
         console.error(e);
         btn.disabled = false;
@@ -489,7 +589,7 @@ async function enviarSelecionadosParaLista() {
     }
 }
 
-// ================== MANIPULAÇÃO MANUAL DA LISTA ==================
+// === STATUS E MANIPULAÇÃO MANUAL ===
 async function alternarStatus(nome, novoStatus) {
     try {
         await fetch('/api/GerenciarLista', {
@@ -526,48 +626,61 @@ async function adicionarDiretoALista(nome) {
             body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
         });
         alert("Item adicionado à lista!");
-        carregarLista();
+        carregarLista(); // Atualiza a lista ativa se estiver visível
     } catch (e) { console.error(e); }
 }
 
-// ================== NOTA FISCAL ==================
+// === NOTA FISCAL ===
 async function processarUrlManual() {
     const urlInput = document.getElementById('url-input');
     const url = urlInput.value.trim();
     if (!url) return;
+
     const statusDiv = document.getElementById('status');
     statusDiv.classList.remove('hidden');
     statusDiv.innerText = "📡 Analisando CNPJ da nota...";
+
     try {
-        // Consulta apenas para saber se o estabelecimento já é conhecido
+        // Passo 1: Enviamos a URL apenas para identificar o CNPJ e ver se já temos apelido
+        // Adicionamos um parâmetro 'apenasConsulta' para a API não salvar nada ainda
         let response = await fetch('/api/ProcessarNota', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url, consulta: true })
+            body: JSON.stringify({ url: url, consulta: true }) 
         });
+        
         let resData = await response.json();
         let apelidoFinal = resData.estabelecimento;
+
+        // Passo 2: Se o nome for jurídico (LTDA) ou a API indicar que não conhece o apelido
         const ehNomeJuridico = /LTDA|S\.A|S\/A|DISTRIBUIDORA/i.test(apelidoFinal);
+        
         if (!resData.jaConhecido || ehNomeJuridico) {
             const novoApelido = prompt(`Nova unidade (CNPJ: ${resData.cnpj}). Como quer chamar esta loja?`, apelidoFinal);
             if (novoApelido) {
                 apelidoFinal = novoApelido.toUpperCase();
             } else if (ehNomeJuridico) {
+                // Se o usuário cancelar e o nome for sujo, interrompemos para não salvar errado
                 statusDiv.innerText = "⚠️ Processamento cancelado: Defina um apelido.";
                 return;
             }
         }
+
+        // Passo 3: Agora sim, enviamos para salvar de verdade com o apelido definido
         statusDiv.innerText = "💾 Salvando dados...";
         response = await fetch('/api/ProcessarNota', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: url, apelido: apelidoFinal })
         });
+        
         resData = await response.json();
+
         statusDiv.innerText = `✅ Processado: ${resData.estabelecimento}`;
         urlInput.value = '';
         renderPreview(resData.dados);
         carregarLista();
+
     } catch (err) {
         statusDiv.innerText = "❌ Erro ao processar nota.";
         console.error(err);
@@ -579,8 +692,10 @@ async function renderPreview(dados) {
     const listaItens = document.getElementById('lista-itens');
     listaItens.innerHTML = '';
     previewContainer.classList.remove('hidden');
+
     const respDict = await fetch('/api/VincularProdutos');
     const dicionario = await respDict.json();
+
     const header = document.createElement('div');
     header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
     header.innerHTML = `
@@ -593,15 +708,24 @@ async function renderPreview(dados) {
             <p class="text-[10px] text-gray-500 font-medium">📅 ${new Date(dados.data_compra).toLocaleDateString('pt-BR')}</p>
         </div>`;
     listaItens.appendChild(header);
+
     dados.itens.forEach(item => {
+        // Busca se o produto já existe no seu dicionário
         const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
+
+        // Verifica se o vínculo está completo (tem nome amigável e tem uma foto válida)
         const temNomeAmigavel = !!produtoVinculado;
         const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
+        const vinculoCompleto = temNomeAmigavel && temFoto;
+
+        // Mantém sua lógica de cálculos de preço
         const precoUnitario = item.preco_unitario || 0;
         const qtd = item.quantidade || 0;
         const precoTotalItem = item.preco_total || (precoUnitario * qtd);
+
         const itemDiv = document.createElement('div');
         itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
+
         itemDiv.innerHTML = `
         <div class="flex-1 pr-2">
             <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-orange-500'} uppercase leading-tight">
@@ -618,9 +742,10 @@ async function renderPreview(dados) {
             </div>
         </div>
         <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
-            class="ml-2 p-3 ${(temNomeAmigavel && temFoto) ? 'bg-gray-100 text-gray-400' : 'bg-orange-500 text-white animate-pulse'} rounded-full shadow-sm active:scale-90 transition-transform">
-            ${(temNomeAmigavel && temFoto) ? '✔️' : '✏️'}
+            class="ml-2 p-3 ${vinculoCompleto ? 'bg-gray-100 text-gray-400' : 'bg-orange-500 text-white animate-pulse'} rounded-full shadow-sm active:scale-90 transition-transform">
+            ${vinculoCompleto ? '✔️' : '✏️'}
         </button>`;
+
         listaItens.appendChild(itemDiv);
     });
 }
@@ -629,10 +754,15 @@ function vincularID(id, desc) {
     const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
     const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
     if (!novoNome) return;
+
+    // --- NOVO: SUGESTÃO AUTOMÁTICA ---
     const categoriaSugerida = sugerirCategoria(novoNome);
     const cat = prompt(`Categoria:`, categoriaSugerida);
     if (!cat) return;
+    // ---------------------------------
+
     const foto = prompt(`URL da Foto:`, "");
+
     fetch('/api/VincularProdutos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -643,57 +773,13 @@ function vincularID(id, desc) {
             fotoUrl: foto
         })
     }).then(() => {
+        // Recarrega os dados para atualizar os ícones de check/lápis
         processarUrlManual();
         renderizarDicionario();
     });
 }
 
-// ================== ALERTA DE PREÇO E SUGESTÕES ==================
-/**
- * Compara o preço digitado com a média histórica do produto e exibe um badge.
- */
-async function verificarAlertaPreco(nome, precoAtual, elementoDestino) {
-    if (!precoAtual || precoAtual <= 0) {
-        elementoDestino.innerHTML = '';
-        return;
-    }
-    try {
-        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
-        const historico = await response.json();
-        if (!historico || historico.length === 0) return;
-        const soma = historico.reduce((acc, h) => acc + h.preco, 0);
-        const media = soma / historico.length;
-        const diff = ((precoAtual - media) / media) * 100;
-        let badge = "";
-        if (diff < -5) {
-            badge = `<span class="bg-green-500 text-white text-[8px] px-1 rounded animate-bounce">🔥 BOM PREÇO</span>`;
-        } else if (diff > 5) {
-            badge = `<span class="bg-red-500 text-white text-[8px] px-1 rounded">⚠️ CARO (Média: R$ ${media.toFixed(2)})</span>`;
-        } else {
-            badge = `<span class="bg-blue-400 text-white text-[8px] px-1 rounded">⚖️ NA MÉDIA</span>`;
-        }
-        elementoDestino.innerHTML = badge;
-    } catch (e) { console.error("Erro no alerta de preço", e); }
-}
-
-/**
- * Sugere uma categoria com base no nome do produto (palavras-chave).
- */
-function sugerirCategoria(nome) {
-    const palavras = nome.toUpperCase();
-    if (palavras.match(/QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
-    if (palavras.match(/PÃO|ATUM|BISCOITO|GELEIA|LEITE|AVEIA|TORRADA/)) return "PADARIA E MATINAIS";
-    if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
-    if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
-    if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|SACOLA/)) return "DESCARTÁVEIS E EMBALAGENS";
-    if (palavras.match(/CARNE|FRANGO|LINGUICA|SALSICHA|COXA|PICANHA/)) return "AÇOUGUE";
-    if (palavras.match(/CAFÉ|ARROZ|FEIJAO|MACARRAO|OLEO|ACUCAR|SAL|FARINHA/)) return "MERCEARIA";
-    if (palavras.match(/SHAMPOO|CONDICIONADOR|SABONETE|CREME|PASTA/)) return "HIGIENE";
-    if (palavras.match(/BANANA|MACA|LARANJA|CEBOLA|BATATA|ALHO/)) return "HORTIFRUTI";
-    if (palavras.match(/SACO|VASSOURA|RODO/)) return "UTILIDADES DOMÉSTICAS";
-    return "OUTROS";
-}
-
+// === SUGESTÕES E INICIALIZAÇÃO ===
 async function carregarSugestoes() {
     try {
         const response = await fetch('/api/VincularProdutos');
@@ -706,7 +792,7 @@ async function carregarSugestoes() {
     } catch (e) { }
 }
 
-// ================== EXCLUSÃO E FINALIZAÇÃO ==================
+// Deletar um único item
 async function deletarItem(nome) {
     if (!confirm(`Remover ${nome} da lista?`)) return;
     try {
@@ -715,6 +801,7 @@ async function deletarItem(nome) {
     } catch (e) { console.error(e); }
 }
 
+// Finalizar compra e limpar tudo
 async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
@@ -723,6 +810,83 @@ async function finalizarCompra() {
     } catch (e) { console.error(e); }
 }
 
-// ================== INICIALIZAÇÃO ==================
+function sugerirCategoria(nome) {
+    const palavras = nome.toUpperCase();
+
+    // Regras de palavras-chave para categorias
+    if (palavras.match(/QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
+    if (palavras.match(/PÃO|ATUM|BISCOITO|GELEIA|LEITE|AVEIA|TORRADA/)) return "PADARIA E MATINAIS";
+    if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
+    if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
+    if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|SACOLA/)) return "DESCARTÁVEIS E EMBALAGENS";
+    if (palavras.match(/CARNE|FRANGO|LINGUICA|SALSICHA|COXA|PICANHA/)) return "AÇOUGUE";
+    if (palavras.match(/CAFÉ|ARROZ|FEIJAO|MACARRAO|OLEO|ACUCAR|SAL|FARINHA/)) return "MERCEARIA";
+    if (palavras.match(/SHAMPOO|CONDICIONADOR|SABONETE|CREME|PASTA/)) return "HIGIENE";
+    if (palavras.match(/BANANA|MACA|LARANJA|CEBOLA|BATATA|ALHO/)) return "HORTIFRUTI";
+    if (palavras.match(/SACO|VASSOURA|RODO/)) return "UTILIDADES DOMÉSTICAS";
+
+    return "OUTROS";
+}
+
+// Alerta de Preço: Compara o preço digitado com a média histórica
+async function verificarAlertaPreco(nome, precoAtual, elementoDestino) {
+    if (!precoAtual || precoAtual <= 0) {
+        elementoDestino.innerHTML = '';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+        const historico = await response.json();
+
+        if (!historico || historico.length === 0) return;
+
+        const soma = historico.reduce((acc, h) => acc + h.preco, 0);
+        const media = soma / historico.length;
+        const diff = ((precoAtual - media) / media) * 100;
+
+        let badge = "";
+        if (diff < -5) {
+            badge = `<span class="bg-green-500 text-white text-[8px] px-1 rounded animate-bounce">🔥 BOM PREÇO</span>`;
+        } else if (diff > 5) {
+            badge = `<span class="bg-red-500 text-white text-[8px] px-1 rounded">⚠️ CARO (Média: R$ ${media.toFixed(2)})</span>`;
+        } else {
+            badge = `<span class="bg-blue-400 text-white text-[8px] px-1 rounded">⚖️ NA MÉDIA</span>`;
+        }
+
+        elementoDestino.innerHTML = badge;
+    } catch (e) { console.error("Erro no alerta de preço", e); }
+}
+
+async function atualizarComparativoMercados() {
+    const container = document.getElementById('mercados-soma');
+    if (!container) return;
+
+    try {
+        // Buscamos a comparação baseada nos itens que estão na lista agora
+        const response = await fetch('/api/CompararPrecos');
+        const ranking = await response.json();
+
+        container.innerHTML = '';
+
+        ranking.forEach((loja, index) => {
+            // Usamos a função de cores que você já tem para colorir o card!
+            const cor = obterCorMercado(loja.nome);
+            const isVencedor = index === 0; // O primeiro da lista é o mais barato
+
+            container.innerHTML += `
+                <div class="p-3 rounded-2xl border-2 ${isVencedor ? 'border-green-500 shadow-md' : 'border-gray-100'} bg-white flex flex-col items-center">
+                    <p class="text-[8px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
+                    <p class="text-lg font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
+                    <p class="text-[8px] text-gray-400">${loja.itensEncontrados}/${loja.totalItensLista} itens</p>
+                </div>
+            `;
+        });
+    } catch (e) {
+        console.error("Erro ao comparar mercados:", e);
+    }
+}
+
+// Inicialização
 carregarLista();
 carregarSugestoes();
