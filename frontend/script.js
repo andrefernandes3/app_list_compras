@@ -194,6 +194,7 @@ async function carregarLista() {
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
+        // 1. Busca os dados base (Lista e Dicionário)
         const response = await fetch('/api/GerenciarLista');
         const itens = await response.json();
         const respDict = await fetch('/api/VincularProdutos');
@@ -205,23 +206,21 @@ async function carregarLista() {
             return;
         }
 
-        // --- ORDENAÇÃO POR CATEGORIA ---
+        // 2. Ordenação por Categoria
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
-
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
 
+        // 3. Renderização Visual da Lista (Sem disparar fetchs individuais)
         listaDiv.innerHTML = '';
-        let categoriaAtual = ""; // Variável para controlar a mudança de corredor
+        let categoriaAtual = "";
 
         itensOrdenados.forEach(item => {
-            // --- INSERÇÃO VISUAL DO CORREDOR ---
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
                 const separador = document.createElement('div');
-                // Estilo para o título do corredor
                 separador.className = "text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
                 separador.innerHTML = `📍 Corredor: ${categoriaAtual}`;
                 listaDiv.appendChild(separador);
@@ -249,16 +248,13 @@ async function carregarLista() {
                         </span>
                         <div class="relative flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
                             <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
-
                             <input type="number" min="1" value="${qtd}" 
                                 class="input-qtd-real w-8 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
                                 oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
                             <span class="text-[8px] text-blue-400">x</span>
-                            
                             <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
                                 oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
                                 class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
-                            
                             <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
                                 ${isComprado ? '🔄' : '✅'}
                             </button>
@@ -273,14 +269,67 @@ async function carregarLista() {
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
-            buscarComparativo(item.item_nome, qtd, document.getElementById(`preco-lista-${idFormatado}`));
+            // Importante: Não chamamos buscarComparativo aqui dentro para não travar com 100 itens
         });
 
-        atualizarSomaVisual();
+        // 4. CHAMADA ÚNICA PARA O RANKING E PREÇOS (Otimização de Lote)
+        // Isso vai preencher todos os campos "id=preco-lista-..." de uma vez só
+        await atualizarRankingEPilulasOtimizado();
 
         calcularTotalReal();
+
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
+    }
+}
+
+async function atualizarRankingEPilulasOtimizado() {
+    const container = document.getElementById('mercados-soma');
+    const totalDiv = document.getElementById('totalizador-estimado');
+    if (!container || !totalDiv) return;
+
+    try {
+        // Uma única chamada que traz o ranking das lojas e o melhor preço de cada item da lista
+        const response = await fetch('/api/CompararPrecos');
+        const data = await response.json(); // Espera { ranking: [], precosIndividuais: {} }
+
+        if (!data.ranking || data.ranking.length === 0) {
+            totalDiv.classList.add('hidden');
+            return;
+        }
+
+        totalDiv.classList.remove('hidden');
+        container.innerHTML = '';
+
+        // Renderiza os Cards de Ranking (Carrefour Shopping vs Vila Yara)
+        data.ranking.forEach((loja, index) => {
+            const cor = obterCorMercado(loja.nome);
+            const isVencedor = index === 0;
+            container.innerHTML += `
+                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50' : 'border-gray-100 bg-white'} text-center shadow-sm">
+                    <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
+                    <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
+                    <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
+                </div>`;
+        });
+
+        // Preenche as pílulas individuais nos 100 itens usando o "cache" da API
+        if (data.precosIndividuais) {
+            Object.keys(data.precosIndividuais).forEach(nomeItem => {
+                const idFormatado = nomeItem.replace(/\s+/g, '-');
+                const el = document.getElementById(`preco-lista-${idFormatado}`);
+                if (el) {
+                    const info = data.precosIndividuais[nomeItem];
+                    el.innerHTML = `
+                        <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
+                            <span>💡 Sugestão: ${info.loja}</span>
+                            <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
+                        </div>`;
+                }
+            });
+        }
+    } catch (e) {
+        console.error("Erro na atualização em lote:", e);
     }
 }
 
