@@ -12,9 +12,9 @@ function obterCorMercado(nomeMercado) {
         'CARREFOUR': '#2ecc71', // Verde        
         'PÃO': '#e67e22',       // Laranja
         'EXTRA': '#e74c3c',     // Vermelho
-        'ASSAI': '#024127',      // Laranja Assaí
-        'ATACADAO': '#003399',
-        'SAMS CLUB': '#1982C4'   // Azul Sams Club
+        'ASSAI': '#e7e304',      // Laranja Assaí
+        'ATACADAO': '#09ebfc',
+        'SAMS CLUB': '#3906f1'   // Azul Sams Club
     };
 
     if (!nomeMercado) return '#3498db'; // Azul padrão
