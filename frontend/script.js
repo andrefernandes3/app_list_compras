@@ -9,14 +9,26 @@ function escapeHTML(str) {
 
 function obterCorMercado(nomeMercado) {
     const cores = {
-        'CARREFOUR': '#2ecc71',
-        'WMS': '#f1c40f',
-        'PÃO': '#e67e22',
-        'EXTRA': '#e74c3c'
+        'CARREFOUR': '#2ecc71', // Verde
+        'WMS': '#f1c40f',       // Amarelo (Walmart/Big)
+        'PÃO': '#e67e22',       // Laranja
+        'EXTRA': '#e74c3c',     // Vermelho
+        'ASSAI': '#ff7a00',      // Laranja Assaí
+        'ATACADAO': '#003399',   // Azul Atacadão
+        'VILA YARA': '#6A4C93'  // Roxo (Para diferenciar a unidade específica)
     };
-    if (!nomeMercado) return '#3498db';
-    const chave = Object.keys(cores).find(k => nomeMercado.toUpperCase().includes(k));
-    return cores[chave] || '#3498db';
+
+    if (!nomeMercado) return '#3498db'; // Azul padrão
+    
+    const nomeUpper = nomeMercado.toUpperCase();
+
+    // Primeiro tenta achar pela unidade específica (ex: Vila Yara)
+    const unidadeEspecifica = Object.keys(cores).find(k => nomeUpper.includes(k) && k !== 'ASSAI' && k !== 'ATACADAO');
+    if (unidadeEspecifica && nomeUpper.includes('VILA YARA')) return cores['VILA YARA'];
+
+    // Se não for unidade específica, busca pelo nome da rede
+    const chaveRede = Object.keys(cores).find(k => nomeUpper.includes(k));
+    return cores[chaveRede] || '#3498db';
 }
 
 function ampliarImagem(url, nome) {
