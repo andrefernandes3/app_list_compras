@@ -249,64 +249,56 @@ async function carregarLista() {
 }
 
 /**
- * Busca em lote o ranking geral dos mercados e as pílulas de sugestão
- * para cada item. Substitui chamadas individuais.
+ * Busca em lote o melhor preço histórico de cada item (pílula individual).
+ * Não depende mais de elementos de ranking (mercados-soma / totalizador-estimado).
  */
 async function atualizarRankingEPilulasOtimizado() {
-    const container = document.getElementById('mercados-soma');
-    const totalDiv = document.getElementById('totalizador-estimado');
-    if (!container || !totalDiv) return;
-
     try {
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
 
-        if (!data.ranking || data.ranking.length === 0) {
-            totalDiv.classList.add('hidden');
+        // Se não houver dados de melhor preço, sai sem erro
+        if (!data.precosIndividuais || Object.keys(data.precosIndividuais).length === 0) {
+            // Opcional: mostrar mensagem inofensiva nos itens sem histórico
+            exibirSemHistorico();
             return;
         }
 
-        totalDiv.classList.remove('hidden');
-
-        // Cabeçalho do Ranking Justo
-        container.innerHTML = `
-            <div class="col-span-2 mb-2">
-                <p class="text-[8px] text-blue-600 font-bold text-center bg-blue-50 py-1 rounded-lg border border-blue-100">
-                    ⚖️ COMPARANDO ${data.itensEmComum.length} ITENS EM COMUM
-                </p>
-            </div>
-        `;
-
-        data.ranking.forEach((loja, index) => {
-            const cor = obterCorMercado(loja.nome);
-            const isVencedor = index === 0;
-            const listaTooltip = loja.itensNomes.join('\n• ');
-
-            container.innerHTML += `
-                <div title="Produtos nesta soma:\n• ${listaTooltip}" 
-                     class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center cursor-help transition-all hover:scale-105">
-                    <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
-                    <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
-                    <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} COMUNS</p>
-                </div>`;
+        // Percorre todos os produtos que têm melhor preço e insere a pílula
+        Object.keys(data.precosIndividuais).forEach(nomeItem => {
+            const idFormatado = nomeItem.replace(/\s+/g, '-');
+            const el = document.getElementById(`preco-lista-${idFormatado}`);
+            if (el) {
+                const info = data.precosIndividuais[nomeItem];
+                el.innerHTML = `
+                    <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
+                        <span>💡 Melhor: ${info.loja}</span>
+                        <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
+                    </div>`;
+            }
         });
+    } catch (e) {
+        console.error("Erro ao buscar melhor preço:", e);
+        // Fallback silencioso – não quebra a lista
+    }
+}
 
-        // Atualiza as pílulas de sugestão individual (sempre o melhor preço histórico)
-        if (data.precosIndividuais) {
-            Object.keys(data.precosIndividuais).forEach(nomeItem => {
-                const idFormatado = nomeItem.replace(/\s+/g, '-');
-                const el = document.getElementById(`preco-lista-${idFormatado}`);
-                if (el) {
-                    const info = data.precosIndividuais[nomeItem];
-                    el.innerHTML = `
-                        <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
-                            <span>💡 Melhor: ${info.loja}</span>
-                            <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
-                        </div>`;
-                }
-            });
+/**
+ * Função auxiliar para exibir "Sem histórico" nos itens que ainda não têm preço.
+ * (opcional, melhora a experiência)
+ */
+function exibirSemHistorico() {
+    // Percorre todos os cards da lista que não receberam pílula
+    const cards = document.querySelectorAll('#lista-ativa > div');
+    cards.forEach(card => {
+        const precoDiv = card.querySelector('[id^="preco-lista-"]');
+        if (precoDiv && precoDiv.innerHTML.trim() === '') {
+            precoDiv.innerHTML = `
+                <div class="mt-1 text-[9px] bg-gray-100 text-gray-500 p-1 px-2 rounded-lg">
+                    📭 Sem histórico de preços
+                </div>`;
         }
-    } catch (e) { console.error("Erro no ranking justo:", e); }
+    });
 }
 /**
  * Soma os preços reais (inputs) da lista e atualiza o total na tela.
