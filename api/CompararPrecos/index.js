@@ -13,9 +13,9 @@ module.exports = async function (context, req) {
         }
 
         const lojas = await db.collection('historico_precos').distinct("estabelecimento");
-        
+
         // Mapa para identificar quais itens existem em quais lojas
-        let precosPorLoja = {}; 
+        let precosPorLoja = {};
         let mapaOcorrencias = {};
         const precosIndividuais = {};
 
@@ -38,7 +38,7 @@ module.exports = async function (context, req) {
                     if (h.length > 0) {
                         const preco = h[0].itens.preco_unitario;
                         precosPorLoja[loja][item.item_nome] = preco;
-                        
+
                         // Conta em quantas lojas este item aparece
                         mapaOcorrencias[item.item_nome] = (mapaOcorrencias[item.item_nome] || 0) + 1;
 
@@ -58,6 +58,7 @@ module.exports = async function (context, req) {
             let totalJusto = 0;
             let encontradosNomes = [];
 
+            // O Ranking continua exigindo itens em comum para ser comparativo
             itensEmComum.forEach(nomeItem => {
                 if (precosPorLoja[loja][nomeItem]) {
                     const qtd = listaAtiva.find(i => i.item_nome === nomeItem).quantidade || 1;
@@ -75,10 +76,16 @@ module.exports = async function (context, req) {
             };
         }).filter(l => l.encontrados > 0).sort((a, b) => a.total - b.total);
 
+        // 🔥 A MUDANÇA ESTÁ AQUI: 
+        // O retorno de precosIndividuais (pílulas) agora ignora se o item é comum ou não
         context.res = {
             status: 200,
             headers: { "Content-Type": "application/json" },
-            body: { ranking, precosIndividuais, itensEmComum }
+            body: {
+                ranking,
+                precosIndividuais, // Aqui ele vai trazer o R$ 4,00 do Ninho, mesmo sem intersecção
+                itensEmComum
+            }
         };
     } catch (error) {
         context.res = { status: 500, body: error.message };
