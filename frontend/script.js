@@ -256,23 +256,40 @@ async function atualizarRankingEPilulasOtimizado() {
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
 
-        if (!data.precosIndividuais) return;
-
-        Object.keys(data.precosIndividuais).forEach(nomeItem => {
-            const idFormatado = nomeItem.replace(/\s+/g, '-');
-            const el = document.getElementById(`preco-lista-${idFormatado}`);
-            if (el) {
-                const info = data.precosIndividuais[nomeItem];
-                el.innerHTML = `
-                    <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center animate-fade-in">
-                        <span>💡 Melhor Oportunidade: ${info.loja}</span>
-                        <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
+        // 1. Renderiza o Ranking de Economia no topo
+        const containerRanking = document.getElementById('totalizador-estimado');
+        if (containerRanking && data.ranking && data.ranking.length > 0) {
+            containerRanking.classList.remove('hidden');
+            let rankingHtml = `<p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3 text-center">🏆 Ranking de Economia (Itens Comuns)</p><div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
+            
+            data.ranking.forEach(loja => {
+                rankingHtml += `
+                    <div class="min-w-[140px] bg-white p-2 rounded-xl border-l-4 border-blue-500 shadow-sm">
+                        <p class="text-[8px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
+                        <p class="text-sm font-black text-blue-600">R$ ${loja.total.toFixed(2)}</p>
+                        <p class="text-[7px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} itens</p>
                     </div>`;
-            }
-        });
-    } catch (e) {
-        console.error("Erro ao buscar melhor preço:", e);
-    }
+            });
+            rankingHtml += `</div>`;
+            containerRanking.innerHTML = rankingHtml;
+        }
+
+        // 2. Renderiza as Pílulas de Melhor Preço Individual nos itens[cite: 3]
+        if (data.precosIndividuais) {
+            Object.keys(data.precosIndividuais).forEach(nomeItem => {
+                const idFormatado = nomeItem.replace(/\s+/g, '-');
+                const el = document.getElementById(`preco-lista-${idFormatado}`);
+                if (el) {
+                    const info = data.precosIndividuais[nomeItem];
+                    el.innerHTML = `
+                        <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
+                            <span>💡 Melhor: ${info.loja}</span>
+                            <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
+                        </div>`;
+                }
+            });
+        }
+    } catch (e) { console.error("Erro ao processar ranking/pílulas:", e); }
 }
 
 /**
