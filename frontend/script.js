@@ -241,7 +241,7 @@ async function carregarLista() {
         setTimeout(async () => {
             await atualizarRankingEPilulasOtimizado();
             calcularTotalReal();
-        }, 300); 
+        }, 400); 
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
     }

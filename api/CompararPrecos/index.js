@@ -9,73 +9,42 @@ module.exports = async function (context, req) {
 
         const listaAtiva = await db.collection('lista_compras').find({}).toArray();
         if (listaAtiva.length === 0) {
-            return context.res = { status: 200, body: { ranking: [], precosIndividuais: {}, itensEmComum: [] } };
+            return context.res = { status: 200, body: { precosIndividuais: {} } };
         }
 
-        const lojas = await db.collection('historico_precos').distinct("estabelecimento");
-        let precosPorLoja = {};
-        let mapaOcorrencias = {};
+        // 1. Mapeia todos os nomes da lista para busca em lote
+        const nomesLista = listaAtiva.map(i => i.item_nome.toUpperCase());
+        const dicionario = await db.collection('dicionario_produtos')
+            .find({ nome_comum: { $in: nomesLista } }).toArray();
+
+        // Cria mapa de IDs vinculados para consulta rápida
+        const todosIds = dicionario.flatMap(d => d.ids_vinculados);
+        const mapaIdParaNome = {};
+        dicionario.forEach(d => {
+            d.ids_vinculados.forEach(id => mapaIdParaNome[id] = d.nome_comum);
+        });
+
+        // 2. Busca o MENOR preço de todos esses IDs em uma ÚNICA consulta
         const precosIndividuais = {};
+        const historico = await db.collection('historico_precos').aggregate([
+            { $unwind: "$itens" },
+            { $match: { "itens.id_interno": { $in: todosIds } } },
+            { $group: {
+                _id: "$itens.id_interno",
+                precoMin: { $min: "$itens.preco_unitario" },
+                loja: { $first: "$estabelecimento" } // Simplificado para performance[cite: 4]
+            }}
+        ]).toArray();
 
-        for (const loja of lojas) {
-            precosPorLoja[loja] = {};
-            for (const item of listaAtiva) {
-                // Normaliza o nome para busca no dicionário
-                const nomeBusca = item.item_nome.trim().toUpperCase();
-
-                const vinculo = await db.collection('dicionario_produtos').findOne({
-                    nome_comum: nomeBusca
-                });
-
-                if (vinculo && vinculo.ids_vinculados) {
-                    const h = await db.collection('historico_precos').aggregate([
-                        { $match: { estabelecimento: loja } },
-                        { $unwind: "$itens" },
-                        { $match: { "itens.id_interno": { $in: vinculo.ids_vinculados } } },
-                        { $group: { 
-                            _id: null, 
-                            menorPreco: { $min: "$itens.preco_unitario" },
-                            ultimoPreco: { $last: "$itens.preco_unitario" }
-                        }}
-                    ]).toArray();
-
-                    if (h && h.length > 0) {
-                        const precoMinimo = h[0].menorPreco;
-                        const precoUltimo = h[0].ultimoPreco;
-
-                        precosPorLoja[loja][item.item_nome] = precoUltimo;
-                        mapaOcorrencias[item.item_nome] = (mapaOcorrencias[item.item_nome] || 0) + 1;
-
-                        // Pílula: Registra o menor preço absoluto da série histórica
-                        if (!precosIndividuais[item.item_nome] || precoMinimo < precosIndividuais[item.item_nome].valor) {
-                            precosIndividuais[item.item_nome] = { loja: loja, valor: precoMinimo };
-                        }
-                    }
-                }
+        // 3. Monta o objeto de resposta mapeando IDs de volta para nomes
+        historico.forEach(h => {
+            const nomeAmigavel = mapaIdParaNome[h._id];
+            if (!precosIndividuais[nomeAmigavel] || h.precoMin < precosIndividuais[nomeAmigavel].valor) {
+                precosIndividuais[nomeAmigavel] = { valor: h.precoMin, loja: h.loja };
             }
-        }
+        });
 
-        const itensEmComum = Object.keys(mapaOcorrencias).filter(nome => mapaOcorrencias[nome] > 1);
-
-        const ranking = lojas.map(loja => {
-            let totalJusto = 0;
-            let encontradosNomes = [];
-            itensEmComum.forEach(nomeItem => {
-                if (precosPorLoja[loja][nomeItem]) {
-                    // Busca a quantidade normalizando o nome para evitar erros de undefined[cite: 4]
-                    const itemRef = listaAtiva.find(i => i.item_nome.toUpperCase() === nomeItem.toUpperCase());
-                    totalJusto += precosPorLoja[loja][nomeItem] * (itemRef.quantidade || 1);
-                    encontradosNomes.push(nomeItem);
-                }
-            });
-            return { nome: loja, total: totalJusto, encontrados: encontradosNomes.length, totalItens: itensEmComum.length, itensNomes: encontradosNomes };
-        }).filter(l => l.encontrados > 0).sort((a, b) => a.total - b.total);
-
-        context.res = {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-            body: { ranking, precosIndividuais, itensEmComum }
-        };
+        context.res = { status: 200, body: { precosIndividuais } };
     } catch (error) {
         context.res = { status: 500, body: error.message };
     }
