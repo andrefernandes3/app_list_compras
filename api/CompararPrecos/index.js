@@ -20,7 +20,7 @@ module.exports = async function (context, req) {
         for (const loja of lojas) {
             precosPorLoja[loja] = {};
             for (const item of listaAtiva) {
-                // Normaliza o nome para evitar erros de digitação
+                // Normaliza o nome para busca no dicionário
                 const nomeBusca = item.item_nome.trim().toUpperCase();
 
                 const vinculo = await db.collection('dicionario_produtos').findOne({
@@ -46,7 +46,7 @@ module.exports = async function (context, req) {
                         precosPorLoja[loja][item.item_nome] = precoUltimo;
                         mapaOcorrencias[item.item_nome] = (mapaOcorrencias[item.item_nome] || 0) + 1;
 
-                        // PÍLULA: Registra o menor preço unitário encontrado (Mínimo Histórico)
+                        // Pílula: Registra o menor preço absoluto da série histórica
                         if (!precosIndividuais[item.item_nome] || precoMinimo < precosIndividuais[item.item_nome].valor) {
                             precosIndividuais[item.item_nome] = { loja: loja, valor: precoMinimo };
                         }
@@ -55,7 +55,6 @@ module.exports = async function (context, req) {
             }
         }
 
-        // Itens que aparecem em mais de uma loja para o RANKING
         const itensEmComum = Object.keys(mapaOcorrencias).filter(nome => mapaOcorrencias[nome] > 1);
 
         const ranking = lojas.map(loja => {
@@ -63,7 +62,8 @@ module.exports = async function (context, req) {
             let encontradosNomes = [];
             itensEmComum.forEach(nomeItem => {
                 if (precosPorLoja[loja][nomeItem]) {
-                    const itemRef = listaAtiva.find(i => i.item_nome === nomeItem);
+                    // Busca a quantidade normalizando o nome para evitar erros de undefined[cite: 4]
+                    const itemRef = listaAtiva.find(i => i.item_nome.toUpperCase() === nomeItem.toUpperCase());
                     totalJusto += precosPorLoja[loja][nomeItem] * (itemRef.quantidade || 1);
                     encontradosNomes.push(nomeItem);
                 }

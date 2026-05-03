@@ -179,8 +179,7 @@ async function carregarLista() {
         const respDict = await fetch('/api/VincularProdutos');
         const dicionario = await respDict.json();
         if (itens.length === 0) {
-            listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
-            document.getElementById('totalizador-estimado').classList.add('hidden');
+            listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';           
             return;
         }
         // Ordena por categoria
@@ -257,29 +256,22 @@ async function atualizarRankingEPilulasOtimizado() {
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
 
-        // Se não houver dados de melhor preço, sai sem erro
-        if (!data.precosIndividuais || Object.keys(data.precosIndividuais).length === 0) {
-            // Opcional: mostrar mensagem inofensiva nos itens sem histórico
-            exibirSemHistorico();
-            return;
-        }
+        if (!data.precosIndividuais) return;
 
-        // Percorre todos os produtos que têm melhor preço e insere a pílula
         Object.keys(data.precosIndividuais).forEach(nomeItem => {
             const idFormatado = nomeItem.replace(/\s+/g, '-');
             const el = document.getElementById(`preco-lista-${idFormatado}`);
             if (el) {
                 const info = data.precosIndividuais[nomeItem];
                 el.innerHTML = `
-                    <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
-                        <span>💡 Melhor: ${info.loja}</span>
+                    <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center animate-fade-in">
+                        <span>💡 Melhor Oportunidade: ${info.loja}</span>
                         <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
                     </div>`;
             }
         });
     } catch (e) {
         console.error("Erro ao buscar melhor preço:", e);
-        // Fallback silencioso – não quebra a lista
     }
 }
 
