@@ -239,9 +239,10 @@ async function carregarLista() {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
-        // Chamada única para buscar sugestões de preço e ranking
-        await atualizarRankingEPilulasOtimizado();
-        calcularTotalReal();
+        setTimeout(async () => {
+            await atualizarRankingEPilulasOtimizado();
+            calcularTotalReal();
+        }, 200); 
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
     }
