@@ -255,42 +255,42 @@ async function atualizarRankingEPilulasOtimizado() {
     const container = document.getElementById('mercados-soma');
     const totalDiv = document.getElementById('totalizador-estimado');
     if (!container || !totalDiv) return;
+
     try {
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
-        
+
         if (!data.ranking || data.ranking.length === 0) {
             totalDiv.classList.add('hidden');
             return;
         }
 
         totalDiv.classList.remove('hidden');
-        container.innerHTML = '';
+        
+        // Cabeçalho do Ranking Justo
+        container.innerHTML = `
+            <div class="col-span-2 mb-2">
+                <p class="text-[8px] text-blue-600 font-bold text-center bg-blue-50 py-1 rounded-lg border border-blue-100">
+                    ⚖️ COMPARANDO ${data.itensEmComum.length} ITENS EM COMUM
+                </p>
+            </div>
+        `;
 
-        // --- LÓGICA DE BLINDAGEM: FILTRO DE COBERTURA ---
-        // Só mostra lojas com mais de 50% dos itens ou a loja que tiver mais itens encontrados
-        const maxEncontrados = Math.max(...data.ranking.map(l => l.encontrados));
-        const rankingFiltrado = data.ranking.filter(loja => 
-            (loja.encontrados / loja.totalItens * 100) >= 50 || loja.encontrados === maxEncontrados
-        );
-
-        rankingFiltrado.forEach((loja, index) => {
+        data.ranking.forEach((loja, index) => {
             const cor = obterCorMercado(loja.nome);
             const isVencedor = index === 0;
-            
-            // --- TOOLTIP: Lista os itens ao passar o mouse ---
-            const listaItens = loja.itensNomes ? loja.itensNomes.join(', ') : 'Itens variados';
-            
+            const listaTooltip = loja.itensNomes.join('\n• ');
+
             container.innerHTML += `
-                <div title="Itens considerados: ${listaItens}" 
-                     class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center shadow-sm cursor-help transition-transform hover:scale-105">
+                <div title="Produtos nesta soma:\n• ${listaTooltip}" 
+                     class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center cursor-help transition-all hover:scale-105">
                     <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
                     <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
-                    <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
+                    <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} COMUNS</p>
                 </div>`;
         });
 
-        // Preenchimento das pílulas de sugestão nos itens da lista
+        // Atualiza as pílulas de sugestão individual (sempre o melhor preço histórico)
         if (data.precosIndividuais) {
             Object.keys(data.precosIndividuais).forEach(nomeItem => {
                 const idFormatado = nomeItem.replace(/\s+/g, '-');
@@ -299,17 +299,14 @@ async function atualizarRankingEPilulasOtimizado() {
                     const info = data.precosIndividuais[nomeItem];
                     el.innerHTML = `
                         <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
-                            <span>💡 Sugestão: ${info.loja}</span>
+                            <span>💡 Melhor: ${info.loja}</span>
                             <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
                         </div>`;
                 }
             });
         }
-    } catch (e) {
-        console.error("Erro na atualização em lote:", e);
-    }
+    } catch (e) { console.error("Erro no ranking justo:", e); }
 }
-
 /**
  * Soma os preços reais (inputs) da lista e atualiza o total na tela.
  */
