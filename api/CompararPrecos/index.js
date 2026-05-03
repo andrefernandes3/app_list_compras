@@ -42,7 +42,9 @@ module.exports = async function (context, req) {
                         // Conta em quantas lojas este item aparece
                         mapaOcorrencias[item.item_nome] = (mapaOcorrencias[item.item_nome] || 0) + 1;
 
-                        // Cache para a pílula de sugestão (melhor preço de todos)
+                        // Na API CompararPrecos, onde define a pílula:
+                        // ANTES: pegava o preço da última nota
+                        // DEPOIS: pegamos o menor preço encontrado em todo o loop de busca
                         if (!precosIndividuais[item.item_nome] || preco < precosIndividuais[item.item_nome].valor) {
                             precosIndividuais[item.item_nome] = { loja: loja, valor: preco };
                         }
