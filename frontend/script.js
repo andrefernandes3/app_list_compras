@@ -258,22 +258,39 @@ async function atualizarRankingEPilulasOtimizado() {
     try {
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
+        
         if (!data.ranking || data.ranking.length === 0) {
             totalDiv.classList.add('hidden');
             return;
         }
+
         totalDiv.classList.remove('hidden');
         container.innerHTML = '';
-        data.ranking.forEach((loja, index) => {
+
+        // --- LÓGICA DE BLINDAGEM: FILTRO DE COBERTURA ---
+        // Só mostra lojas com mais de 50% dos itens ou a loja que tiver mais itens encontrados
+        const maxEncontrados = Math.max(...data.ranking.map(l => l.encontrados));
+        const rankingFiltrado = data.ranking.filter(loja => 
+            (loja.encontrados / loja.totalItens * 100) >= 50 || loja.encontrados === maxEncontrados
+        );
+
+        rankingFiltrado.forEach((loja, index) => {
             const cor = obterCorMercado(loja.nome);
             const isVencedor = index === 0;
+            
+            // --- TOOLTIP: Lista os itens ao passar o mouse ---
+            const listaItens = loja.itensNomes ? loja.itensNomes.join(', ') : 'Itens variados';
+            
             container.innerHTML += `
-                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50' : 'border-gray-100 bg-white'} text-center shadow-sm">
+                <div title="Itens considerados: ${listaItens}" 
+                     class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center shadow-sm cursor-help transition-transform hover:scale-105">
                     <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
                     <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
                     <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
                 </div>`;
         });
+
+        // Preenchimento das pílulas de sugestão nos itens da lista
         if (data.precosIndividuais) {
             Object.keys(data.precosIndividuais).forEach(nomeItem => {
                 const idFormatado = nomeItem.replace(/\s+/g, '-');

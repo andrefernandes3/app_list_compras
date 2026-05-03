@@ -7,7 +7,6 @@ module.exports = async function (context, req) {
         await client.connect();
         const db = client.db('app_compras');
 
-        // 1. Busca os itens da lista
         const listaAtiva = await db.collection('lista_compras').find({}).toArray();
         if (listaAtiva.length === 0) {
             return context.res = { status: 200, body: { ranking: [], precosIndividuais: {} } };
@@ -15,16 +14,16 @@ module.exports = async function (context, req) {
 
         const lojas = await db.collection('historico_precos').distinct("estabelecimento");
         const ranking = [];
-        const precosIndividuais = {}; 
+        const precosIndividuais = {};
 
-        // 2. Processamento em Lote
         for (const loja of lojas) {
             let totalLoja = 0;
-            let encontrados = 0;
+            let encontradosCount = 0; // Nome corrigido
+            let itensNaLoja = [];     // Inicializado para o Tooltip
 
             for (const item of listaAtiva) {
-                const vinculo = await db.collection('dicionario_produtos').findOne({ 
-                    nome_comum: item.item_nome.toUpperCase() 
+                const vinculo = await db.collection('dicionario_produtos').findOne({
+                    nome_comum: item.item_nome.toUpperCase()
                 });
 
                 if (vinculo) {
@@ -39,27 +38,35 @@ module.exports = async function (context, req) {
                     if (h.length > 0) {
                         const preco = h[0].itens.preco_unitario;
                         totalLoja += preco * (item.quantidade || 1);
-                        encontrados++;
+                        encontradosCount++;
+                        itensNaLoja.push(item.item_nome); // Adiciona para o Tooltip
 
-                        // Registra a melhor sugestão para a pílula
                         if (!precosIndividuais[item.item_nome] || preco < precosIndividuais[item.item_nome].valor) {
                             precosIndividuais[item.item_nome] = { loja: loja, valor: preco };
                         }
                     }
                 }
             }
-            if (encontrados > 0) {
-                ranking.push({ nome: loja, total: totalLoja, encontrados, totalItens: listaAtiva.length });
+            
+            if (encontradosCount > 0) {
+                const cobertura = (encontradosCount / listaAtiva.length) * 100;
+                ranking.push({
+                    nome: loja,
+                    total: totalLoja,
+                    encontrados: encontradosCount,
+                    totalItens: listaAtiva.length,
+                    cobertura: cobertura,
+                    itensNomes: itensNaLoja 
+                });
             }
         }
 
-        // RETORNO FORMATADO PARA O SCRIPT OTIMIZADO
         context.res = {
             status: 200,
             headers: { "Content-Type": "application/json" },
-            body: { 
+            body: {
                 ranking: ranking.sort((a, b) => a.total - b.total),
-                precosIndividuais 
+                precosIndividuais
             }
         };
     } catch (error) {
