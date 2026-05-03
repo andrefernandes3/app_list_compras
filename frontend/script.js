@@ -760,18 +760,19 @@ async function renderizarRankingTopCompras() {
 
         dados.forEach((item, index) => {
             html += `
-                <div class="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-                    <span class="text-lg font-black text-blue-200">#${index + 1}</span>
-                    <img src="${item.foto || 'https://via.placeholder.com/50'}" class="w-10 h-10 rounded-lg object-cover bg-gray-50">
-                    <div class="flex-1">
-                        <p class="text-[10px] font-black text-gray-700 uppercase">${item._id}</p>
-                        <p class="text-[9px] text-gray-400 font-bold">${item.vezesComprado} notas fiscais</p>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-sm font-black text-blue-600">${item.totalQtd} un</p>
-                        <p class="text-[8px] text-gray-400">R$ ${item.totalGasto.toFixed(2)} total</p>
-                    </div>
-                </div>`;
+    <div onclick="abrirGrafico('${item._id}')" 
+         class="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 cursor-pointer hover:bg-blue-50 transition-colors">
+        <span class="text-lg font-black text-blue-200">#${index + 1}</span>
+        <img src="${item.foto || 'https://via.placeholder.com/50'}" class="w-10 h-10 rounded-lg object-cover bg-gray-50">
+        <div class="flex-1">
+            <p class="text-[10px] font-black text-gray-700 uppercase">${item._id}</p>
+            <p class="text-[9px] text-gray-400 font-bold">${item.vezesComprado} notas fiscais</p>
+        </div>
+        <div class="text-right">
+            <p class="text-sm font-black text-blue-600">${item.totalQtd} un</p>
+            <p class="text-[8px] text-gray-400">R$ ${item.totalGasto.toFixed(2)} total</p>
+        </div>
+    </div>`;
         });
 
         html += `</div></div>`;
