@@ -177,9 +177,10 @@ async function carregarLista() {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         }
-        // Atualiza ranking e pílulas (apenas uma vez, sem recarregar a lista)
-        await atualizarInterfaceEconomia();
-        calcularTotalReal();
+        setTimeout(async () => {
+            await atualizarInterfaceEconomia();
+            calcularTotalReal();
+        }, 0);
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
         listaDiv.innerHTML = '<p class="text-red-500 text-xs text-center">Erro ao carregar. Tente novamente.</p>';
@@ -267,7 +268,7 @@ function agendarSalvarQtd(nome, qtd) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
             });
-            // ⚠️ CORREÇÃO: Não recarrega a lista inteira, apenas atualiza ranking e total
+            // 🔥 BLINDAGEM: Atualiza apenas o ranking e o total, sem redesenhar os 100 itens
             await atualizarInterfaceEconomia();
             calcularTotalReal();
         } catch (e) { console.error(e); }
