@@ -7,22 +7,23 @@ module.exports = async function (context, req) {
         await client.connect();
         const db = client.db('app_compras');
 
-        // 1. Busca os itens da lista
+        // 1. Busca os itens ativos na sua lista
         const listaAtiva = await db.collection('lista_compras').find({}).toArray();
         if (listaAtiva.length === 0) {
             return context.res = { status: 200, body: { ranking: [], precosIndividuais: {} } };
         }
 
+        // 2. Mapeia todos os estabelecimentos do seu histórico em Osasco
         const lojas = await db.collection('historico_precos').distinct("estabelecimento");
         const ranking = [];
         const precosIndividuais = {}; 
 
-        // 2. Processamento em Lote
         for (const loja of lojas) {
             let totalLoja = 0;
-            let encontrados = 0;
+            let encontradosCount = 0;
 
             for (const item of listaAtiva) {
+                // Busca o vínculo no dicionário para saber quais IDs procurar
                 const vinculo = await db.collection('dicionario_produtos').findOne({ 
                     nome_comum: item.item_nome.toUpperCase() 
                 });
@@ -39,21 +40,25 @@ module.exports = async function (context, req) {
                     if (h.length > 0) {
                         const preco = h[0].itens.preco_unitario;
                         totalLoja += preco * (item.quantidade || 1);
-                        encontrados++;
+                        encontradosCount++;
 
-                        // Registra a melhor sugestão para a pílula
+                        // Lógica da Pílula: Guarda sempre o melhor preço global encontrado
                         if (!precosIndividuais[item.item_nome] || preco < precosIndividuais[item.item_nome].valor) {
                             precosIndividuais[item.item_nome] = { loja: loja, valor: preco };
                         }
                     }
                 }
             }
-            if (encontrados > 0) {
-                ranking.push({ nome: loja, total: totalLoja, encontrados, totalItens: listaAtiva.length });
+            if (encontradosCount > 0) {
+                ranking.push({ 
+                    nome: loja, 
+                    total: totalLoja, 
+                    encontrados: encontradosCount, 
+                    totalItens: listaAtiva.length 
+                });
             }
         }
 
-        // RETORNO FORMATADO PARA O SCRIPT OTIMIZADO
         context.res = {
             status: 200,
             headers: { "Content-Type": "application/json" },
