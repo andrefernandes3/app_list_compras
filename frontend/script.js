@@ -340,7 +340,10 @@ function agendarSalvarQtd(nome, qtd) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
             });
-            carregarLista();
+            // ❌ ANTIGO: carregarLista();  -> recria tudo, trava com 100 itens
+            // ✅ NOVO: Só atualiza ranking e pílulas (leve e rápido)
+            await atualizarRankingEPilulasOtimizado();
+            calcularTotalReal(); // Recalcula o total exibido
         } catch (e) { console.error(e); }
     }, 1000);
 }
