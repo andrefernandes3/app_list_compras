@@ -178,7 +178,7 @@ async function carregarLista() {
             }
         }
         // Atualiza ranking e pílulas (apenas uma vez, sem recarregar a lista)
-        await atualizarInterfaceEconomia();
+        await atualizarRankingEPilulasOtimizado();
         calcularTotalReal();
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
@@ -186,44 +186,36 @@ async function carregarLista() {
     }
 }
 
-async function atualizarInterfaceEconomia() {
-    const containerRanking = document.getElementById('mercados-soma');
+async function atualizarRankingEPilulasOtimizado() {
+    const container = document.getElementById('mercados-soma');
     const totalDiv = document.getElementById('totalizador-estimado');
-    if (!containerRanking || !totalDiv) return;
-
+    if (!container || !totalDiv) return;
     try {
-        // UMA única chamada para todos os 100 itens!
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
-
         if (!data.ranking || data.ranking.length === 0) {
             totalDiv.classList.add('hidden');
             return;
         }
-
         totalDiv.classList.remove('hidden');
-        containerRanking.innerHTML = '';
-
-        // Renderiza os cards de ranking (Vila Yara vs Shopping)
+        container.innerHTML = '';
         data.ranking.forEach((loja, index) => {
             const cor = obterCorMercado(loja.nome);
             const isVencedor = index === 0;
-            containerRanking.innerHTML += `
-                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-100 bg-white'} text-center transition-all">
+            container.innerHTML += `
+                <div class="p-2 rounded-xl border ${isVencedor ? 'border-green-500 bg-green-50' : 'border-gray-100 bg-white'} text-center shadow-sm">
                     <p class="text-[7px] font-black uppercase tracking-tighter" style="color: ${cor}">${loja.nome}</p>
                     <p class="text-[11px] font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
                     <p class="text-[6px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} ITENS</p>
                 </div>`;
         });
-
-        // Preenche as pílulas individuais nos 100 itens instantaneamente
         if (data.precosIndividuais) {
             Object.keys(data.precosIndividuais).forEach(nomeItem => {
                 const idFormatado = nomeItem.replace(/\s+/g, '-');
-                const elPila = document.getElementById(`preco-lista-${idFormatado}`);
-                if (elPila) {
+                const el = document.getElementById(`preco-lista-${idFormatado}`);
+                if (el) {
                     const info = data.precosIndividuais[nomeItem];
-                    elPila.innerHTML = `
+                    el.innerHTML = `
                         <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
                             <span>💡 Sugestão: ${info.loja}</span>
                             <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
@@ -231,7 +223,10 @@ async function atualizarInterfaceEconomia() {
                 }
             });
         }
-    } catch (e) { console.error("Erro na blindagem:", e); }
+    } catch (e) {
+        console.error("Erro no ranking:", e);
+        totalDiv.classList.add('hidden');
+    }
 }
 
 function calcularTotalReal() {
@@ -268,7 +263,7 @@ function agendarSalvarQtd(nome, qtd) {
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
             });
             // ⚠️ CORREÇÃO: Não recarrega a lista inteira, apenas atualiza ranking e total
-            await atualizarInterfaceEconomia();
+            await atualizarRankingEPilulasOtimizado();
             calcularTotalReal();
         } catch (e) { console.error(e); }
     }, 1000);
