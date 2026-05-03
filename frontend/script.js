@@ -780,6 +780,43 @@ async function renderizarRankingTopCompras() {
     } catch (e) { console.error("Erro no ranking de volume:", e); }
 }
 
+async function renderizarGraficoMedias() {
+    const container = document.getElementById('lista-gastos-detalhada');
+    container.innerHTML = '<div class="h-64 w-full"><canvas id="chartMediasTop10"></canvas></div>';
+
+    try {
+        const response = await fetch('/api/ObterMediaPrecoTop10');
+        const dados = await response.json();
+
+        const ctx = document.getElementById('chartMediasTop10').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dados.map(d => d._id.split(' ')[0] + '...'), // Abrevia o nome
+                datasets: [{
+                    label: 'Preço Médio (R$)',
+                    data: dados.map(d => d.precoMedio),
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: (c) => dados[c[0].dataIndex]._id,
+                            label: (c) => `Média: R$ ${c.parsed.y.toFixed(2)}`
+                        }
+                    }
+                }
+            }
+        });
+    } catch (e) { console.error(e); }
+}
+
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
 carregarSugestoes();
