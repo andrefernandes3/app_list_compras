@@ -24,6 +24,18 @@ module.exports = async function (context, req) {
             return;
         }
 
+      
+const dias = parseInt(req.query.dias) || 0;
+let filtroData = {};
+
+if (dias > 0) {
+    const dataLimite = new Date();
+    dataLimite.setDate(dataLimite.getDate() - dias);
+    filtroData = { "data_compra": { $gte: dataLimite } };
+}
+
+
+
         // 2. Busca o histórico de todos esses IDs para montar o gráfico
         const historico = await db.collection('historico_precos').aggregate([
             { $unwind: "$itens" },
