@@ -398,12 +398,11 @@ async function abrirGrafico(nome) {
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
     await filtrarPeriodoGrafico(nome, 0); // Carrega "Tudo" inicialmente
 }
-
 /**
- * Atualiza os dados do gráfico sem fechar o modal.
+ * Atualiza os dados do gráfico e exibe detalhes do mercado no tooltip.
  */
 async function filtrarPeriodoGrafico(nome, dias, btn = null) {
-    // Estilo visual dos botões
+    // Estilo visual dos botões de filtro
     if (btn) {
         document.querySelectorAll('.btn-filtro').forEach(b => {
             b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
@@ -414,7 +413,10 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
     }
 
     try {
-        const url = dias > 0 ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}` : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+        const url = dias > 0 
+            ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}` 
+            : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+            
         const response = await fetch(url);
         const dados = await response.json();
 
@@ -441,21 +443,45 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 10,
+                        titleFont: { size: 10 },
+                        bodyFont: { size: 12, weight: 'bold' },
+                        callbacks: {
+                            label: (context) => `R$ ${context.parsed.y.toFixed(2)}`,
+                            // CORREÇÃO MERCADO: Exibe o nome da loja no balão informativo
+                            afterLabel: (context) => `Loja: ${dados[context.dataIndex].mercado}`
+                        }
+                    }
+                },
                 scales: {
-                    y: { beginAtZero: false, grid: { display: false } },
-                    x: { grid: { display: false }, ticks: { font: { size: 8 } } }
+                    y: { 
+                        beginAtZero: false, 
+                        grid: { color: '#f3f4f6' },
+                        ticks: { font: { size: 9 } }
+                    },
+                    x: { 
+                        grid: { display: false }, 
+                        ticks: { font: { size: 8 } } 
+                    }
                 }
             }
         };
 
         if (chartInstance) {
             chartInstance.data = config.data;
+            chartInstance.options = config.options; // Garante atualização do tooltip
             chartInstance.update();
         } else {
             new Chart(ctx, config);
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+        console.error("Erro ao carregar gráfico filtrado:", e); 
+    }
 }
 
 // ================== DICIONÁRIO (CATÁLOGO) ==================
@@ -786,7 +812,16 @@ async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
         await fetch('/api/GerenciarLista', { method: 'DELETE' });
-        carregarLista();
+        
+        // Zera o totalizador visual imediatamente
+        const display = document.getElementById('total-real-dinamico');
+        if (display) display.innerText = "R$ 0,00";
+        
+        // Esconde o ranking de economia se existir
+        const ranking = document.getElementById('totalizador-estimado');
+        if (ranking) ranking.classList.add('hidden');
+
+        carregarLista(); // Recarrega a lista vazia
     } catch (e) { console.error(e); }
 }
 
