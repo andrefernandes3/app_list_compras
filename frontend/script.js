@@ -366,37 +366,62 @@ function agendarSalvarQtd(nome, qtd) {
 
 // ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
 /**
- * Abre modal com gráfico de evolução de preços de um produto.
+ * Abre o modal do gráfico com botões de filtro de período.
  */
-async function abrirGrafico(nome) {   
-let canvasHtml = `
-<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center">
-    <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl">
-        <div class="flex justify-between items-center mb-4 border-b pb-2">
-            <h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3>
-            <button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1">X</button>
-        </div>
-        
-        <div class="flex gap-2 mb-4 justify-center">
-            <button onclick="filtrarPeriodoGrafico('${nome}', 7)" class="px-3 py-1 bg-gray-100 text-[9px] font-black rounded-lg hover:bg-blue-600 hover:text-white transition-colors">7D</button>
-            <button onclick="filtrarPeriodoGrafico('${nome}', 30)" class="px-3 py-1 bg-gray-100 text-[9px] font-black rounded-lg hover:bg-blue-600 hover:text-white transition-colors">30D</button>
-            <button onclick="filtrarPeriodoGrafico('${nome}', 90)" class="px-3 py-1 bg-gray-100 text-[9px] font-black rounded-lg hover:bg-blue-600 hover:text-white transition-colors">90D</button>
-            <button onclick="filtrarPeriodoGrafico('${nome}', 0)" class="px-3 py-1 bg-blue-600 text-white text-[9px] font-black rounded-lg">TUDO</button>
-        </div>
+async function abrirGrafico(nome) {
+    const nomeSeguro = nome.replace(/'/g, "\\'");
+    let canvasHtml = `
+    <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-[60] p-4 flex flex-col justify-center">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-fade-in">
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Histórico de Preços</p>
+                    <h3 class="text-sm font-black text-gray-800 uppercase leading-tight">${nome}</h3>
+                </div>
+                <button onclick="document.getElementById('modal-grafico').remove()" class="bg-red-50 text-red-500 rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-sm active:scale-90">✕</button>
+            </div>
+            
+            <div class="flex gap-2 mb-6 justify-center" id="filtros-grafico">
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 7, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">7D</button>
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 30, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">30D</button>
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 90, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">90D</button>
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 0, this)" class="btn-filtro flex-1 py-2 bg-blue-600 text-white text-[9px] font-black rounded-xl shadow-md">TUDO</button>
+            </div>
 
-        <div class="relative h-64">
-            <canvas id="meuGrafico"></canvas>
+            <div class="relative h-64">
+                <canvas id="meuGrafico"></canvas>
+            </div>
+            <p class="text-[9px] text-gray-400 mt-6 text-center italic tracking-wide">Ponto verde indica menor preço no período</p>
         </div>
-        <p class="text-[9px] text-gray-400 mt-4 text-center italic">Cores indicam o mercado onde o item foi comprado</p>
-    </div>
-</div>`;
+    </div>`;
+
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
+    await filtrarPeriodoGrafico(nome, 0); // Carrega "Tudo" inicialmente
+}
+
+/**
+ * Atualiza os dados do gráfico sem fechar o modal.
+ */
+async function filtrarPeriodoGrafico(nome, dias, btn = null) {
+    // Estilo visual dos botões
+    if (btn) {
+        document.querySelectorAll('.btn-filtro').forEach(b => {
+            b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
+            b.classList.add('bg-gray-100', 'text-gray-500');
+        });
+        btn.classList.remove('bg-gray-100', 'text-gray-500');
+        btn.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+    }
+
     try {
-        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+        const url = dias > 0 ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}` : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+        const response = await fetch(url);
         const dados = await response.json();
-        if (!dados.length) return;
-        const ctx = document.getElementById('meuGrafico').getContext('2d');
-        new Chart(ctx, {
+
+        const ctx = document.getElementById('meuGrafico');
+        let chartInstance = Chart.getChart(ctx);
+
+        const config = {
             type: 'line',
             data: {
                 labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
@@ -404,60 +429,33 @@ let canvasHtml = `
                     label: 'Preço R$',
                     data: dados.map(d => d.preco),
                     borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    backgroundColor: 'rgba(37, 99, 235, 0.05)',
                     fill: true,
-                    tension: 0.3,
-                    pointRadius: 8,
+                    tension: 0.4,
+                    pointRadius: 6,
                     pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2
+                    pointBorderWidth: 2,
+                    pointBorderColor: '#fff'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: (c) => `R$ ${c.parsed.y.toFixed(2)}`,
-                            afterLabel: (c) => 'Mercado: ' + dados[c.dataIndex].mercado
-                        }
-                    }
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: false, grid: { display: false } },
+                    x: { grid: { display: false }, ticks: { font: { size: 8 } } }
                 }
             }
-        });
-    } catch (e) { console.error(e); }
-}
+        };
 
-/**
- * Recarrega o gráfico dentro do modal filtrando por um número de dias.
- * @param {string} nome Nome do produto.
- * @param {number} dias Quantidade de dias para trás (0 = tudo).
- */
-async function filtrarPeriodoGrafico(nome, dias) {
-    const url = dias > 0 
-        ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}`
-        : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
-    
-    try {
-        const response = await fetch(url);
-        const dados = await response.json();
-        
-        // Localiza a instância do gráfico e atualiza os dados
-        const ctx = document.getElementById('meuGrafico');
-        const chartInstance = Chart.getChart(ctx);
-        
         if (chartInstance) {
-            chartInstance.data.labels = dados.map(d => new Date(d.data).toLocaleDateString('pt-BR'));
-            chartInstance.data.datasets[0].data = dados.map(d => d.preco);
-            // Atualiza as cores dos pontos conforme o mercado
-            chartInstance.data.datasets[0].pointBackgroundColor = dados.map(d => obterCorMercado(d.mercado));
+            chartInstance.data = config.data;
             chartInstance.update();
+        } else {
+            new Chart(ctx, config);
         }
-    } catch (e) {
-        console.error("Erro ao filtrar período:", e);
-    }
+    } catch (e) { console.error(e); }
 }
 
 // ================== DICIONÁRIO (CATÁLOGO) ==================
