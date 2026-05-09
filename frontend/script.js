@@ -368,8 +368,28 @@ function agendarSalvarQtd(nome, qtd) {
 /**
  * Abre modal com gráfico de evolução de preços de um produto.
  */
-async function abrirGrafico(nome) {
-    let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center"><div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl"><div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3><button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1">X</button></div><div class="relative h-64"><canvas id="meuGrafico"></canvas></div><p class="text-[9px] text-gray-400 mt-4 text-center italic">Cores indicam o mercado onde o item foi comprado</p></div></div>`;
+async function abrirGrafico(nome) {   
+let canvasHtml = `
+<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center">
+    <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3>
+            <button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1">X</button>
+        </div>
+        
+        <div class="flex gap-2 mb-4 justify-center">
+            <button onclick="filtrarPeriodoGrafico('${nome}', 7)" class="px-3 py-1 bg-gray-100 text-[9px] font-black rounded-lg hover:bg-blue-600 hover:text-white transition-colors">7D</button>
+            <button onclick="filtrarPeriodoGrafico('${nome}', 30)" class="px-3 py-1 bg-gray-100 text-[9px] font-black rounded-lg hover:bg-blue-600 hover:text-white transition-colors">30D</button>
+            <button onclick="filtrarPeriodoGrafico('${nome}', 90)" class="px-3 py-1 bg-gray-100 text-[9px] font-black rounded-lg hover:bg-blue-600 hover:text-white transition-colors">90D</button>
+            <button onclick="filtrarPeriodoGrafico('${nome}', 0)" class="px-3 py-1 bg-blue-600 text-white text-[9px] font-black rounded-lg">TUDO</button>
+        </div>
+
+        <div class="relative h-64">
+            <canvas id="meuGrafico"></canvas>
+        </div>
+        <p class="text-[9px] text-gray-400 mt-4 text-center italic">Cores indicam o mercado onde o item foi comprado</p>
+    </div>
+</div>`;
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
     try {
         const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
@@ -408,6 +428,36 @@ async function abrirGrafico(nome) {
             }
         });
     } catch (e) { console.error(e); }
+}
+
+/**
+ * Recarrega o gráfico dentro do modal filtrando por um número de dias.
+ * @param {string} nome Nome do produto.
+ * @param {number} dias Quantidade de dias para trás (0 = tudo).
+ */
+async function filtrarPeriodoGrafico(nome, dias) {
+    const url = dias > 0 
+        ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}`
+        : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+    
+    try {
+        const response = await fetch(url);
+        const dados = await response.json();
+        
+        // Localiza a instância do gráfico e atualiza os dados
+        const ctx = document.getElementById('meuGrafico');
+        const chartInstance = Chart.getChart(ctx);
+        
+        if (chartInstance) {
+            chartInstance.data.labels = dados.map(d => new Date(d.data).toLocaleDateString('pt-BR'));
+            chartInstance.data.datasets[0].data = dados.map(d => d.preco);
+            // Atualiza as cores dos pontos conforme o mercado
+            chartInstance.data.datasets[0].pointBackgroundColor = dados.map(d => obterCorMercado(d.mercado));
+            chartInstance.update();
+        }
+    } catch (e) {
+        console.error("Erro ao filtrar período:", e);
+    }
 }
 
 // ================== DICIONÁRIO (CATÁLOGO) ==================
