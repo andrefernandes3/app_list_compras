@@ -390,8 +390,7 @@ async function abrirGrafico(nome) {
 
             <div class="relative h-64">
                 <canvas id="meuGrafico"></canvas>
-            </div>
-            <p class="text-[9px] text-gray-400 mt-6 text-center italic tracking-wide">Ponto verde indica menor preço no período</p>
+            </div>            
         </div>
     </div>`;
 
