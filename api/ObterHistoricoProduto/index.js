@@ -23,10 +23,11 @@ module.exports = async function (context, req) {
         // 2. Define o filtro de data se o parâmetro 'dias' for enviado
         let matchStage = { "itens.id_interno": { $in: produto.ids_vinculados } };
         if (dias > 0) {
-            const dataLimite = new Date();
-            dataLimite.setDate(dataLimite.getDate() - dias);
-            matchStage["data_compra"] = { $gte: dataLimite };
-        }
+    const dataLimite = new Date();
+    dataLimite.setDate(dataLimite.getDate() - dias);
+    dataLimite.setHours(0, 0, 0, 0); // Define para o início do dia
+    matchStage["data_compra"] = { $gte: dataLimite };
+}
 
         // 3. Busca o histórico formatado
         const historico = await db.collection('historico_precos').aggregate([
