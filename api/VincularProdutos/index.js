@@ -14,22 +14,32 @@ module.exports = async function (context, req) {
             const produtos = await colecao.find({}).sort({ categoria: 1, nome_comum: 1 }).toArray();
             context.res = { status: 200, body: produtos };
         } 
-        else if (metodo === 'POST') {            
+        else if (metodo === 'POST') {       
+                 
 const { idPrincipal, nomePadrao, categoria, fotoUrl } = req.body; 
+
+// 1. Montamos o objeto básico de atualização
+const updateQuery = { 
+    $addToSet: { ids_vinculados: idPrincipal },
+    $set: { 
+        categoria: (categoria || "OUTROS").toUpperCase(),
+        ultima_atualizacao: new Date() 
+    }
+};
+
+// 2. REGRA DE OURO: Só atualiza a foto se houver uma nova URL sendo enviada
+// Isso evita que o campo fique vazio caso você salve o item sem foto
+if (fotoUrl && fotoUrl.trim() !== "") {
+    updateQuery.$set.foto_url = fotoUrl;
+}
 
 await colecao.updateOne(
     { nome_comum: nomePadrao.toUpperCase() },
-    { 
-        $addToSet: { ids_vinculados: idPrincipal },
-        $set: { 
-            categoria: (categoria || "OUTROS").toUpperCase(),
-            foto_url: fotoUrl || "", // Novo campo para a imagem
-            ultima_atualizacao: new Date() 
-        }
-    },
+    updateQuery,
     { upsert: true }
 );
-            context.res = { status: 200, body: "Dicionário atualizado!" };
+
+context.res = { status: 200, body: "Dicionário atualizado!" };
         }
     } catch (e) {
         context.res = { status: 500, body: e.message };
