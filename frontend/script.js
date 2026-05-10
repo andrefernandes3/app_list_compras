@@ -216,29 +216,31 @@ async function carregarLista() {
 
             // --- LÓGICA DE CORES DE ALERTA REVISADA E BLINDADA ---
             // 1. Normalizamos o nome para busca (Trim remove espaços invisíveis)
+            // --- LÓGICA DE CORES DE ALERTA REVISADA E BLINDADA ---
             const nomeBusca = item.item_nome.trim().toUpperCase();
 
-            // 2. Pegamos os dados da API com fallback seguro
-            const p = (dataPrecos.precosPorLojaCompleto && dataPrecos.precosPorLojaCompleto[nomeBusca])
-                || { CARREFOUR: null, ASSAI: null, ATACADAO: null };
+            // Pegamos os dados do objeto de comparação
+            const dadosComparativos = dataPrecos.precosPorLojaCompleto || {};
+            const p = dadosComparativos[nomeBusca] || {};
 
-            // 3. Verificação ultra-flexível (ignora se tem "Vila Yara" ou acentos no nome da chave)
-            const temCarrefour = Object.keys(p).some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
-            const temAssai = Object.keys(p).some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
-            const temAtacadao = Object.keys(p).some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
+            // Verificação ultra-flexível: procuramos a existência do preço em qualquer chave que contenha o nome da rede
+            const chavesDisponiveis = Object.keys(p);
+
+            const temCarrefour = chavesDisponiveis.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
+            const temAssai = chavesDisponiveis.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
+            const temAtacadao = chavesDisponiveis.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
 
             const lojasConhecidas = [temCarrefour, temAssai, temAtacadao].filter(v => v === true).length;
 
-            // 4. Definição da Classe de Alerta
+            // Define a cor da borda
             let classeAlerta = "border-transparent";
             if (lojasConhecidas === 0) {
-                classeAlerta = "border-red-500"; // Não conheço em nenhum dos 3 grandes
+                classeAlerta = "border-red-500";
             } else if (lojasConhecidas < 3) {
-                classeAlerta = "border-orange-400"; // Conheço apenas em 1 ou 2
+                classeAlerta = "border-orange-400";
             }
 
             const itemElement = document.createElement('div');
-            // Forçamos a borda esquerda (border-l-4) e a cor
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 ${classeAlerta} shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
 
             itemElement.innerHTML = `
