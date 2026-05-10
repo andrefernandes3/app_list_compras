@@ -366,17 +366,63 @@ function agendarSalvarQtd(nome, qtd) {
 
 // ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
 /**
- * Abre modal com gráfico de evolução de preços de um produto.
+ * Abre o modal do gráfico com botões de filtro de período.
  */
 async function abrirGrafico(nome) {
-    let canvasHtml = `<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-50 p-4 flex flex-col justify-center"><div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-2xl"><div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-[11px] font-black text-blue-600 uppercase tracking-wider">${nome}</h3><button onclick="document.getElementById('modal-grafico').remove()" class="text-red-500 font-bold px-3 py-1">X</button></div><div class="relative h-64"><canvas id="meuGrafico"></canvas></div><p class="text-[9px] text-gray-400 mt-4 text-center italic">Cores indicam o mercado onde o item foi comprado</p></div></div>`;
+    const nomeSeguro = nome.replace(/'/g, "\\'");
+    let canvasHtml = `
+    <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-[60] p-4 flex flex-col justify-center">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-fade-in">
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Histórico de Preços</p>
+                    <h3 class="text-sm font-black text-gray-800 uppercase leading-tight">${nome}</h3>
+                </div>
+                <button onclick="document.getElementById('modal-grafico').remove()" class="bg-red-50 text-red-500 rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-sm active:scale-90">✕</button>
+            </div>
+            
+            <div class="flex gap-2 mb-6 justify-center" id="filtros-grafico">
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 7, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">7D</button>
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 30, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">30D</button>
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 90, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">90D</button>
+                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 0, this)" class="btn-filtro flex-1 py-2 bg-blue-600 text-white text-[9px] font-black rounded-xl shadow-md">TUDO</button>
+            </div>
+
+            <div class="relative h-64">
+                <canvas id="meuGrafico"></canvas>
+            </div>            
+        </div>
+    </div>`;
+
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
+    await filtrarPeriodoGrafico(nome, 0); // Carrega "Tudo" inicialmente
+}
+/**
+ * Atualiza os dados do gráfico e exibe detalhes do mercado no tooltip.
+ */
+async function filtrarPeriodoGrafico(nome, dias, btn = null) {
+    // Estilo visual dos botões de filtro
+    if (btn) {
+        document.querySelectorAll('.btn-filtro').forEach(b => {
+            b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
+            b.classList.add('bg-gray-100', 'text-gray-500');
+        });
+        btn.classList.remove('bg-gray-100', 'text-gray-500');
+        btn.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+    }
+
     try {
-        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
+        const url = dias > 0 
+            ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}` 
+            : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+            
+        const response = await fetch(url);
         const dados = await response.json();
-        if (!dados.length) return;
-        const ctx = document.getElementById('meuGrafico').getContext('2d');
-        new Chart(ctx, {
+
+        const ctx = document.getElementById('meuGrafico');
+        let chartInstance = Chart.getChart(ctx);
+
+        const config = {
             type: 'line',
             data: {
                 labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
@@ -384,30 +430,57 @@ async function abrirGrafico(nome) {
                     label: 'Preço R$',
                     data: dados.map(d => d.preco),
                     borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    backgroundColor: 'rgba(37, 99, 235, 0.05)',
                     fill: true,
-                    tension: 0.3,
-                    pointRadius: 8,
+                    tension: 0.4,
+                    pointRadius: 6,
                     pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2
+                    pointBorderWidth: 2,
+                    pointBorderColor: '#fff'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: {
+                plugins: { 
+                    legend: { display: false },
                     tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 10,
+                        titleFont: { size: 10 },
+                        bodyFont: { size: 12, weight: 'bold' },
                         callbacks: {
-                            label: (c) => `R$ ${c.parsed.y.toFixed(2)}`,
-                            afterLabel: (c) => 'Mercado: ' + dados[c.dataIndex].mercado
+                            label: (context) => `R$ ${context.parsed.y.toFixed(2)}`,
+                            // CORREÇÃO MERCADO: Exibe o nome da loja no balão informativo
+                            afterLabel: (context) => `Loja: ${dados[context.dataIndex].mercado}`
                         }
+                    }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: false, 
+                        grid: { color: '#f3f4f6' },
+                        ticks: { font: { size: 9 } }
+                    },
+                    x: { 
+                        grid: { display: false }, 
+                        ticks: { font: { size: 8 } } 
                     }
                 }
             }
-        });
-    } catch (e) { console.error(e); }
+        };
+
+        if (chartInstance) {
+            chartInstance.data = config.data;
+            chartInstance.options = config.options; // Garante atualização do tooltip
+            chartInstance.update();
+        } else {
+            new Chart(ctx, config);
+        }
+    } catch (e) { 
+        console.error("Erro ao carregar gráfico filtrado:", e); 
+    }
 }
 
 // ================== DICIONÁRIO (CATÁLOGO) ==================
@@ -738,7 +811,16 @@ async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
         await fetch('/api/GerenciarLista', { method: 'DELETE' });
-        carregarLista();
+        
+        // Zera o totalizador visual imediatamente
+        const display = document.getElementById('total-real-dinamico');
+        if (display) display.innerText = "R$ 0,00";
+        
+        // Esconde o ranking de economia se existir
+        const ranking = document.getElementById('totalizador-estimado');
+        if (ranking) ranking.classList.add('hidden');
+
+        carregarLista(); // Recarrega a lista vazia
     } catch (e) { console.error(e); }
 }
 
