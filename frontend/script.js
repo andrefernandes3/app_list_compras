@@ -214,28 +214,31 @@ async function carregarLista() {
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
-            // --- LÓGICA DE CORES DE ALERTA ---
-            // --- LÓGICA DE CORES DE ALERTA REVISADA ---
-            const p = (dataPrecos.precosPorLojaCompleto && dataPrecos.precosPorLojaCompleto[item.item_nome.toUpperCase()])
+            // --- LÓGICA DE CORES DE ALERTA REVISADA E BLINDADA ---
+            // 1. Normalizamos o nome para busca (Trim remove espaços invisíveis)
+            const nomeBusca = item.item_nome.trim().toUpperCase();
+
+            // 2. Pegamos os dados da API com fallback seguro
+            const p = (dataPrecos.precosPorLojaCompleto && dataPrecos.precosPorLojaCompleto[nomeBusca])
                 || { CARREFOUR: null, ASSAI: null, ATACADAO: null };
 
-            // Verificação robusta: Procuramos se existe QUALQUER valor nas chaves que contenham o nome da rede
-            const temCarrefour = Object.keys(p).some(k => k.includes("CARREFOUR") && p[k] !== null);
-            const temAssai = Object.keys(p).some(k => (k.includes("ASSAI") || k.includes("ASSAÍ")) && p[k] !== null);
-            const temAtacadao = Object.keys(p).some(k => k.includes("ATACADAO") && p[k] !== null);
+            // 3. Verificação ultra-flexível (ignora se tem "Vila Yara" ou acentos no nome da chave)
+            const temCarrefour = Object.keys(p).some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
+            const temAssai = Object.keys(p).some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
+            const temAtacadao = Object.keys(p).some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
 
             const lojasConhecidas = [temCarrefour, temAssai, temAtacadao].filter(v => v === true).length;
 
-            // Define a cor da borda baseado na cobertura de dados
-            let classeAlerta = "border-transparent"; // Agora, se lojasConhecidas for 3, fica transparente
+            // 4. Definição da Classe de Alerta
+            let classeAlerta = "border-transparent";
             if (lojasConhecidas === 0) {
-                classeAlerta = "border-red-400";
+                classeAlerta = "border-red-500"; // Não conheço em nenhum dos 3 grandes
             } else if (lojasConhecidas < 3) {
-                classeAlerta = "border-orange-400";
+                classeAlerta = "border-orange-400"; // Conheço apenas em 1 ou 2
             }
-            
+
             const itemElement = document.createElement('div');
-            // Adicionado ${classeAlerta} e border-l-4 na classe do elemento
+            // Forçamos a borda esquerda (border-l-4) e a cor
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 ${classeAlerta} shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
 
             itemElement.innerHTML = `
