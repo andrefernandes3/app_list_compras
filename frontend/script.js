@@ -976,6 +976,44 @@ async function renderizarGraficoMedias() {
     } catch (e) { console.error(e); }
 }
 
+(function debugCores() {
+    console.log("--- INICIANDO DEBUG DE CORES ---");
+    const listaItens = document.querySelectorAll('.nome-item');
+    
+    listaItens.forEach(el => {
+        const nomeOriginal = el.innerText.trim();
+        const nomeBusca = nomeOriginal.toUpperCase();
+        const dados = window.totaisPorMercado[nomeBusca];
+
+        console.group(`Produto: ${nomeOriginal}`);
+        if (!dados) {
+            console.error("❌ ERRO: Produto não encontrado em window.totaisPorMercado. Verifique se o nome no Dicionário é IDENTICO ao da Lista.");
+            console.log("Nomes disponíveis no sistema:", Object.keys(window.totaisPorMercado));
+        } else {
+            const chaves = Object.keys(dados);
+            const temCRF = chaves.some(k => k.includes("CARREFOUR") && dados[k] !== null);
+            const temASA = chaves.some(k => (k.includes("ASSAI") || k.includes("ASSAÍ")) && dados[k] !== null);
+            const temATA = chaves.some(k => k.includes("ATACADAO") && dados[k] !== null);
+
+            console.log("Dados Brutos da API:", dados);
+            console.log(`Tem Carrefour? ${temCRF ? '✅' : '❌'}`);
+            console.log(`Tem Assaí? ${temASA ? '✅' : '❌'}`);
+            console.log(`Tem Atacadão? ${temATA ? '✅' : '❌'}`);
+
+            const total = [temCRF, temASA, temATA].filter(v => v).length;
+            console.log(`Total de lojas detectadas: ${total}/3`);
+            
+            if (total < 3) {
+                console.warn("⚠️ MOTIVO DO LARANJA: O sistema não encontrou preço para uma das 3 redes principais acima.");
+            } else {
+                console.info("✨ DEVERIA SER TRANSPARENTE: Se está laranja e o total é 3, há um erro de CSS ou o elemento não recebeu a classe.");
+            }
+        }
+        console.groupEnd();
+    });
+    console.log("--- FIM DO DEBUG ---");
+})();
+
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
 carregarSugestoes();
