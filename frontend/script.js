@@ -720,26 +720,32 @@ async function renderPreview(dados) {
 function vincularID(id, desc) {
     const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
     const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
-    if (!novoNome) return;
-    const categoriaSugerida = sugerirCategoria(novoNome);
+    
+    // Se cancelar o prompt, para aqui
+    if (novoNome === null) return; 
+
+    const nomeFinal = novoNome.trim().toUpperCase(); // Limpeza extra
+    const categoriaSugerida = sugerirCategoria(nomeFinal);
     const cat = prompt(`Categoria:`, categoriaSugerida);
-    if (!cat) return;
-    const foto = prompt(`URL da Foto:`, "");
+    
+    if (cat === null) return;
+
+    const foto = prompt(`URL da Foto (Deixe vazio para manter a atual):`, "");
+
     fetch('/api/VincularProdutos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             idPrincipal: id,
-            nomePadrao: novoNome.toUpperCase(),
+            nomePadrao: nomeFinal,
             categoria: cat.toUpperCase(),
-            fotoUrl: foto
+            fotoUrl: foto // Enviamos o que vier, a API decide se usa
         })
     }).then(() => {
         processarUrlManual();
         renderizarDicionario();
     });
 }
-
 // ================== ALERTA DE PREÇO E SUGESTÕES ==================
 /**
  * Compara o preço digitado com a média histórica do produto e exibe um badge.

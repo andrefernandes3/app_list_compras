@@ -10,54 +10,60 @@ module.exports = async function (context, req) {
         const colecao = db.collection('dicionario_produtos');
 
         if (metodo === 'GET') {
-            // Retorna todo o seu dicionário organizado
+            // Retorna o dicionário organizado por categoria e nome
             const produtos = await colecao.find({}).sort({ categoria: 1, nome_comum: 1 }).toArray();
             context.res = { status: 200, body: produtos };
-        }
+        } 
         else if (metodo === 'POST') {
-
             const { idPrincipal, nomePadrao, categoria, fotoUrl } = req.body;
+            
+            // Normalização rigorosa para evitar duplicatas por espaços ou caixa
             const nomeFormatado = nomePadrao.trim().toUpperCase();
 
-            // 1. Busca o documento existente pelo nome comum
+            // 1. Busca se o produto já existe para decidir sobre a foto
             const produtoExistente = await colecao.findOne({ nome_comum: nomeFormatado });
 
             let updateQuery;
 
             if (produtoExistente) {
-                // SE JÁ EXISTE: Mantemos a foto antiga se a nova vier vazia
+                // SE JÁ EXISTE: 
+                // - Adiciona o novo ID à lista sem duplicar ($addToSet)
+                // - Atualiza categoria e data
                 updateQuery = {
-                    $addToSet: { ids_vinculados: idPrincipal }, // Adiciona o novo ID sem duplicar
+                    $addToSet: { ids_vinculados: idPrincipal },
                     $set: {
                         categoria: (categoria || produtoExistente.categoria || "OUTROS").toUpperCase(),
                         ultima_atualizacao: new Date()
                     }
                 };
 
-                // Só atualiza a foto se você realmente enviou uma nova URL
+                // PROTEÇÃO DA FOTO: Só sobrescreve se o usuário enviou uma nova URL
                 if (fotoUrl && fotoUrl.trim() !== "") {
                     updateQuery.$set.foto_url = fotoUrl;
                 }
             } else {
-                // SE É NOVO: Cria do zero com os dados enviados
+                // SE É NOVO: 
+                // Cria o documento com todos os campos básicos
                 updateQuery = {
-                    $setOnInsert: { nome_comum: nomeFormatado },
-                    $addToSet: { ids_vinculados: idPrincipal },
                     $set: {
+                        nome_comum: nomeFormatado,
+                        ids_vinculados: [idPrincipal],
                         categoria: (categoria || "OUTROS").toUpperCase(),
-                        foto_url: fotoUrl || "",
+                        foto_url: fotoUrl || "", // Se for novo e vazio, inicia vazio
                         ultima_atualizacao: new Date()
                     }
                 };
             }
 
+            // Executa a atualização baseada no nome_comum
+            // O upsert: true garante a criação caso o findOne falhe por milissegundos de diferença
             await colecao.updateOne(
                 { nome_comum: nomeFormatado },
                 updateQuery,
                 { upsert: true }
             );
 
-            context.res = { status: 200, body: "Vínculo atualizado com sucesso!" };
+            context.res = { status: 200, body: "Vínculo e dicionário atualizados com sucesso!" };
         }
     } catch (e) {
         context.res = { status: 500, body: e.message };
