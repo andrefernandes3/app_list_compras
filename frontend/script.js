@@ -175,7 +175,7 @@ async function carregarLista() {
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
-        // 1. Chamadas em paralelo para garantir que todos os dados cheguem antes da renderização
+        // 1. Chamadas em paralelo para garantir que todos os dados cheguem
         const [respLista, respDict, respPrecos] = await Promise.all([
             fetch('/api/GerenciarLista'),
             fetch('/api/VincularProdutos'),
@@ -186,7 +186,7 @@ async function carregarLista() {
         const dicionario = await respDict.json();
         const dataPrecos = await respPrecos.json();
 
-        // 2. Armazena os preços em uma variável global para acesso de outros componentes
+        // 2. Armazena os preços globalmente
         window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
 
         if (itens.length === 0) {
@@ -194,20 +194,19 @@ async function carregarLista() {
             return;
         }
 
-        // 3. Organiza os itens por categoria (Corredores)
+        // 3. Organiza os itens por categoria
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
 
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
-        
+
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
-        // 4. Loop de renderização dos itens
+        // 4. Loop de renderização (Foco em montar o esqueleto)
         itensOrdenados.forEach(item => {
-            // Renderiza o separador de categoria/corredor
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
                 const separador = document.createElement('div');
@@ -219,33 +218,16 @@ async function carregarLista() {
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             const idFormatado = item.item_nome.replace(/\s+/g, '-');
             const nomeSeguro = escapeHTML(item.item_nome);
+            const nomeBusca = item.item_nome.trim().toUpperCase();
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
-            // --- LÓGICA DE CORES DE ALERTA (COBERTURA DE DADOS) ---
-            const nomeBusca = item.item_nome.trim().toUpperCase();
-            const p = window.totaisPorMercado[nomeBusca] || {};
-            const chaves = Object.keys(p);
-
-            // Checagem flexível para encontrar as redes mesmo com nomes de unidades diferentes
-            const temCarrefour = chaves.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
-            const temAssai = chaves.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
-            const temAtacadao = chaves.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
-
-            const lojasConhecidas = [temCarrefour, temAssai, temAtacadao].filter(v => v === true).length;
-
-            // Define a classe de borda: Transparente se tiver os 3, Laranja se tiver 1 ou 2, Vermelho se 0.
-            let classeAlerta = "border-transparent"; 
-            if (lojasConhecidas === 0) {
-                classeAlerta = "border-red-500"; 
-            } else if (lojasConhecidas < 3) {
-                classeAlerta = "border-orange-400"; 
-            }
-            
             const itemElement = document.createElement('div');
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 ${classeAlerta} shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
-
+            // Iniciamos com borda laranja padrão até a função de pintura atuar
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-orange-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+            itemElement.setAttribute('data-produto', nomeBusca); 
+            
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
                      onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
@@ -275,16 +257,18 @@ async function carregarLista() {
                 </div>`;
 
             listaDiv.appendChild(itemElement);
-            
-            // Se já tiver preço preenchido na lista, verifica se está caro/barato
+
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
 
-        // 5. Finaliza atualizando o ranking fixo e o totalizador
-        await atualizarRankingEPilulasOtimizado();
-        calcularTotalReal();
+        // 5. O SEGREDO: Dispara a pintura e o ranking após um pequeno delay para garantir o DOM pronto
+        setTimeout(async () => {
+            pintarBordasDeCobertura(window.totaisPorMercado);
+            await atualizarRankingEPilulasOtimizado();
+            calcularTotalReal();
+        }, 300);
 
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
@@ -979,7 +963,7 @@ async function renderizarGraficoMedias() {
 (function debugCores() {
     console.log("--- INICIANDO DEBUG DE CORES ---");
     const listaItens = document.querySelectorAll('.nome-item');
-    
+
     listaItens.forEach(el => {
         const nomeOriginal = el.innerText.trim();
         const nomeBusca = nomeOriginal.toUpperCase();
@@ -1002,7 +986,7 @@ async function renderizarGraficoMedias() {
 
             const total = [temCRF, temASA, temATA].filter(v => v).length;
             console.log(`Total de lojas detectadas: ${total}/3`);
-            
+
             if (total < 3) {
                 console.warn("⚠️ MOTIVO DO LARANJA: O sistema não encontrou preço para uma das 3 redes principais acima.");
             } else {
@@ -1013,6 +997,34 @@ async function renderizarGraficoMedias() {
     });
     console.log("--- FIM DO DEBUG ---");
 })();
+
+function pintarBordasDeCobertura(dadosComparativos) {
+    const cards = document.querySelectorAll('[data-produto]');
+    
+    cards.forEach(card => {
+        const nome = card.getAttribute('data-produto');
+        const p = dadosComparativos[nome] || {};
+        const chaves = Object.keys(p);
+
+        // Checagem flexível para as redes
+        const temCRF = chaves.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
+        const temASA = chaves.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
+        const temATA = chaves.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
+
+        const total = [temCRF, temASA, temATA].filter(v => v).length;
+
+        // Reset de classes de borda
+        card.classList.remove('border-orange-400', 'border-red-500', 'border-transparent');
+        
+        if (total >= 3) {
+            card.classList.add('border-transparent'); // Tudo ok!
+        } else if (total === 0) {
+            card.classList.add('border-red-500'); // Sem dados
+        } else {
+            card.classList.add('border-orange-400'); // Dados parciais
+        }
+    });
+}
 
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
