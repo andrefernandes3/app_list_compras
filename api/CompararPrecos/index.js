@@ -9,7 +9,8 @@ module.exports = async function (context, req) {
 
         const listaAtiva = await db.collection('lista_compras').find({}).toArray();
         if (listaAtiva.length === 0) {
-            return context.res = { status: 200, body: { ranking: [], precosIndividuais: {}, itensEmComum: [] } };
+            // Adicionado precosPorLojaCompleto ao retorno vazio
+            return context.res = { status: 200, body: { ranking: [], precosIndividuais: {}, precosPorLojaCompleto: {} } };
         }
 
         const lojas = await db.collection('historico_precos').distinct("estabelecimento");
@@ -37,16 +38,24 @@ module.exports = async function (context, req) {
         const precosPorLoja = {};
         const precosIndividuais = {};
         const mapaOcorrencias = {};
+        
+        // A VARIÁVEL MÁGICA QUE FALTAVA
+        const precosPorLojaCompleto = {}; 
 
         historico.forEach(h => {
             const nomeAmigavel = mapaIdParaNome[h._id.idProd];
-            if (!precosPorLoja[h.loja]) precosPorLoja[h.loja] = {};
             
-            // O Ranking usa o preço mais recente
+            if (!precosPorLoja[h.loja]) precosPorLoja[h.loja] = {};
+            if (!precosPorLojaCompleto[nomeAmigavel]) precosPorLojaCompleto[nomeAmigavel] = {};
+            
+            // Guarda para o cálculo interno do ranking
             precosPorLoja[h.loja][nomeAmigavel] = h.precoUltimo;
+            
+            // Guarda para o frontend conseguir pintar as bordas corretamente
+            precosPorLojaCompleto[nomeAmigavel][h.loja] = h.precoUltimo; 
+            
             mapaOcorrencias[nomeAmigavel] = (mapaOcorrencias[nomeAmigavel] || 0) + 1;
 
-            // A Pílula usa o mínimo histórico (ex: R$ 4,00 do leite)[cite: 4]
             if (!precosIndividuais[nomeAmigavel] || h.precoMin < precosIndividuais[nomeAmigavel].valor) {
                 precosIndividuais[nomeAmigavel] = { valor: h.precoMin, loja: h.loja };
             }
@@ -67,7 +76,8 @@ module.exports = async function (context, req) {
             return { nome: loja, total: totalJusto, encontrados: encontradosNomes.length, totalItens: itensEmComum.length, itensNomes: encontradosNomes };
         }).filter(l => l.encontrados > 0).sort((a, b) => a.total - b.total);
 
-        context.res = { status: 200, body: { ranking, precosIndividuais, itensEmComum } };
+        // AGORA SIM ESTAMOS A ENVIAR A INFORMAÇÃO PARA O FRONTEND
+        context.res = { status: 200, body: { ranking, precosIndividuais, precosPorLojaCompleto } };
     } catch (error) {
         context.res = { status: 500, body: error.message };
     }
