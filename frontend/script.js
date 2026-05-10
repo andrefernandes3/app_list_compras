@@ -173,7 +173,7 @@ async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
-    
+
     try {
         const response = await fetch('/api/GerenciarLista');
         const itens = await response.json();
@@ -185,7 +185,7 @@ async function carregarLista() {
         const dataPrecos = await respPrecos.json();
 
         if (itens.length === 0) {
-            listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';           
+            listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             return;
         }
 
@@ -215,20 +215,29 @@ async function carregarLista() {
             const precoReal = item.preco_real || '';
 
             // --- LÓGICA DE CORES DE ALERTA ---
-            const p = (dataPrecos.precosPorLojaCompleto && dataPrecos.precosPorLojaCompleto[item.item_nome.toUpperCase()]) 
-                      || { CARREFOUR: null, ASSAI: null, ATACADAO: null };
-            
-            const lojasConhecidas = [p.CARREFOUR, p.ASSAI, p.ATACADAO].filter(v => v !== null).length;
-            
-            // Define a cor da borda baseado na cobertura de dados
-            let classeAlerta = "border-transparent"; // Tem dados em quase tudo
-            if (lojasConhecidas === 0) classeAlerta = "border-red-400"; // Não conhece nada (Novo)
-            else if (lojasConhecidas <= 2) classeAlerta = "border-orange-400"; // Conhece pouco (Incompleto)
+            // --- LÓGICA DE CORES DE ALERTA REVISADA ---
+            const p = (dataPrecos.precosPorLojaCompleto && dataPrecos.precosPorLojaCompleto[item.item_nome.toUpperCase()])
+                || { CARREFOUR: null, ASSAI: null, ATACADAO: null };
 
+            // Verificação robusta: Procuramos se existe QUALQUER valor nas chaves que contenham o nome da rede
+            const temCarrefour = Object.keys(p).some(k => k.includes("CARREFOUR") && p[k] !== null);
+            const temAssai = Object.keys(p).some(k => (k.includes("ASSAI") || k.includes("ASSAÍ")) && p[k] !== null);
+            const temAtacadao = Object.keys(p).some(k => k.includes("ATACADAO") && p[k] !== null);
+
+            const lojasConhecidas = [temCarrefour, temAssai, temAtacadao].filter(v => v === true).length;
+
+            // Define a cor da borda baseado na cobertura de dados
+            let classeAlerta = "border-transparent"; // Agora, se lojasConhecidas for 3, fica transparente
+            if (lojasConhecidas === 0) {
+                classeAlerta = "border-red-400";
+            } else if (lojasConhecidas < 3) {
+                classeAlerta = "border-orange-400";
+            }
+            
             const itemElement = document.createElement('div');
             // Adicionado ${classeAlerta} e border-l-4 na classe do elemento
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 ${classeAlerta} shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
-            
+
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
                      onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
@@ -256,7 +265,7 @@ async function carregarLista() {
                     </div>
                     <div id="preco-lista-${idFormatado}"></div>
                 </div>`;
-            
+
             listaDiv.appendChild(itemElement);
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
@@ -266,7 +275,7 @@ async function carregarLista() {
         setTimeout(async () => {
             await atualizarRankingEPilulasOtimizado();
             calcularTotalReal();
-        }, 400); 
+        }, 400);
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
     }
@@ -285,10 +294,10 @@ async function atualizarRankingEPilulasOtimizado() {
         if (containerRanking && data.ranking && data.ranking.length > 0) {
             containerRanking.classList.remove('hidden');
             let rankingHtml = `<p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3 text-center">🏆 Ranking de Economia (Itens Comuns)</p><div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
-            
+
             data.ranking.forEach(loja => {
                 const cobertura = (loja.encontrados / loja.totalItens) * 100;
-                
+
                 let corBorda = "border-red-500";
                 let textoDestaque = "text-red-600";
                 let bgCard = "bg-red-50/30";
@@ -462,10 +471,10 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
     }
 
     try {
-        const url = dias > 0 
-            ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}` 
+        const url = dias > 0
+            ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}`
             : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
-            
+
         const response = await fetch(url);
         const dados = await response.json();
 
@@ -492,7 +501,7 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { 
+                plugins: {
                     legend: { display: false },
                     tooltip: {
                         enabled: true,
@@ -508,14 +517,14 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
                     }
                 },
                 scales: {
-                    y: { 
-                        beginAtZero: false, 
+                    y: {
+                        beginAtZero: false,
                         grid: { color: '#f3f4f6' },
                         ticks: { font: { size: 9 } }
                     },
-                    x: { 
-                        grid: { display: false }, 
-                        ticks: { font: { size: 8 } } 
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 8 } }
                     }
                 }
             }
@@ -528,8 +537,8 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
         } else {
             new Chart(ctx, config);
         }
-    } catch (e) { 
-        console.error("Erro ao carregar gráfico filtrado:", e); 
+    } catch (e) {
+        console.error("Erro ao carregar gráfico filtrado:", e);
     }
 }
 
@@ -770,14 +779,14 @@ async function renderPreview(dados) {
 function vincularID(id, desc) {
     const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
     const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
-    
+
     // Se cancelar o prompt, para aqui
-    if (novoNome === null) return; 
+    if (novoNome === null) return;
 
     const nomeFinal = novoNome.trim().toUpperCase(); // Limpeza extra
     const categoriaSugerida = sugerirCategoria(nomeFinal);
     const cat = prompt(`Categoria:`, categoriaSugerida);
-    
+
     if (cat === null) return;
 
     const foto = prompt(`URL da Foto (Deixe vazio para manter a atual):`, "");
@@ -867,11 +876,11 @@ async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
         await fetch('/api/GerenciarLista', { method: 'DELETE' });
-        
+
         // Zera o totalizador visual imediatamente
         const display = document.getElementById('total-real-dinamico');
         if (display) display.innerText = "R$ 0,00";
-        
+
         // Esconde o ranking de economia se existir
         const ranking = document.getElementById('totalizador-estimado');
         if (ranking) ranking.classList.add('hidden');
