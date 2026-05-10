@@ -175,30 +175,39 @@ async function carregarLista() {
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
-        const response = await fetch('/api/GerenciarLista');
-        const itens = await response.json();
-        const respDict = await fetch('/api/VincularProdutos');
-        const dicionario = await respDict.json();
+        // 1. Chamadas em paralelo para garantir que todos os dados cheguem antes da renderização
+        const [respLista, respDict, respPrecos] = await Promise.all([
+            fetch('/api/GerenciarLista'),
+            fetch('/api/VincularProdutos'),
+            fetch('/api/CompararPrecos')
+        ]);
 
-        // BUSCA OS DADOS DE COMPARAÇÃO ANTECIPADAMENTE PARA AS CORES
-        const respPrecos = await fetch('/api/CompararPrecos');
+        const itens = await respLista.json();
+        const dicionario = await respDict.json();
         const dataPrecos = await respPrecos.json();
+
+        // 2. Armazena os preços em uma variável global para acesso de outros componentes
+        window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
 
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             return;
         }
 
+        // 3. Organiza os itens por categoria (Corredores)
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
 
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
+        
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
+        // 4. Loop de renderização dos itens
         itensOrdenados.forEach(item => {
+            // Renderiza o separador de categoria/corredor
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
                 const separador = document.createElement('div');
@@ -214,32 +223,26 @@ async function carregarLista() {
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
-            // --- LÓGICA DE CORES DE ALERTA REVISADA E BLINDADA ---
-            // 1. Normalizamos o nome para busca (Trim remove espaços invisíveis)
-            // --- LÓGICA DE CORES DE ALERTA REVISADA E BLINDADA ---
+            // --- LÓGICA DE CORES DE ALERTA (COBERTURA DE DADOS) ---
             const nomeBusca = item.item_nome.trim().toUpperCase();
+            const p = window.totaisPorMercado[nomeBusca] || {};
+            const chaves = Object.keys(p);
 
-            // Pegamos os dados do objeto de comparação
-            const dadosComparativos = dataPrecos.precosPorLojaCompleto || {};
-            const p = dadosComparativos[nomeBusca] || {};
-
-            // Verificação ultra-flexível: procuramos a existência do preço em qualquer chave que contenha o nome da rede
-            const chavesDisponiveis = Object.keys(p);
-
-            const temCarrefour = chavesDisponiveis.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
-            const temAssai = chavesDisponiveis.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
-            const temAtacadao = chavesDisponiveis.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
+            // Checagem flexível para encontrar as redes mesmo com nomes de unidades diferentes
+            const temCarrefour = chaves.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
+            const temAssai = chaves.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
+            const temAtacadao = chaves.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
 
             const lojasConhecidas = [temCarrefour, temAssai, temAtacadao].filter(v => v === true).length;
 
-            // Define a cor da borda
-            let classeAlerta = "border-transparent";
+            // Define a classe de borda: Transparente se tiver os 3, Laranja se tiver 1 ou 2, Vermelho se 0.
+            let classeAlerta = "border-transparent"; 
             if (lojasConhecidas === 0) {
-                classeAlerta = "border-red-500";
+                classeAlerta = "border-red-500"; 
             } else if (lojasConhecidas < 3) {
-                classeAlerta = "border-orange-400";
+                classeAlerta = "border-orange-400"; 
             }
-
+            
             const itemElement = document.createElement('div');
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 ${classeAlerta} shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
 
@@ -272,15 +275,17 @@ async function carregarLista() {
                 </div>`;
 
             listaDiv.appendChild(itemElement);
+            
+            // Se já tiver preço preenchido na lista, verifica se está caro/barato
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
 
-        setTimeout(async () => {
-            await atualizarRankingEPilulasOtimizado();
-            calcularTotalReal();
-        }, 400);
+        // 5. Finaliza atualizando o ranking fixo e o totalizador
+        await atualizarRankingEPilulasOtimizado();
+        calcularTotalReal();
+
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
     }
