@@ -173,23 +173,31 @@ async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
+    
     try {
         const response = await fetch('/api/GerenciarLista');
         const itens = await response.json();
         const respDict = await fetch('/api/VincularProdutos');
         const dicionario = await respDict.json();
+
+        // BUSCA OS DADOS DE COMPARAÇÃO ANTECIPADAMENTE PARA AS CORES
+        const respPrecos = await fetch('/api/CompararPrecos');
+        const dataPrecos = await respPrecos.json();
+
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';           
             return;
         }
-        // Ordena por categoria
+
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
+
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
+
         itensOrdenados.forEach(item => {
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
@@ -198,14 +206,29 @@ async function carregarLista() {
                 separador.innerHTML = `📍 Corredor: ${categoriaAtual}`;
                 listaDiv.appendChild(separador);
             }
+
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             const idFormatado = item.item_nome.replace(/\s+/g, '-');
             const nomeSeguro = escapeHTML(item.item_nome);
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
+
+            // --- LÓGICA DE CORES DE ALERTA ---
+            const p = (dataPrecos.precosPorLojaCompleto && dataPrecos.precosPorLojaCompleto[item.item_nome.toUpperCase()]) 
+                      || { CARREFOUR: null, ASSAI: null, ATACADAO: null };
+            
+            const lojasConhecidas = [p.CARREFOUR, p.ASSAI, p.ATACADAO].filter(v => v !== null).length;
+            
+            // Define a cor da borda baseado na cobertura de dados
+            let classeAlerta = "border-transparent"; // Tem dados em quase tudo
+            if (lojasConhecidas === 0) classeAlerta = "border-red-400"; // Não conhece nada (Novo)
+            else if (lojasConhecidas <= 2) classeAlerta = "border-orange-400"; // Conhece pouco (Incompleto)
+
             const itemElement = document.createElement('div');
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+            // Adicionado ${classeAlerta} e border-l-4 na classe do elemento
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 ${classeAlerta} shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+            
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
                      onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
@@ -233,11 +256,13 @@ async function carregarLista() {
                     </div>
                     <div id="preco-lista-${idFormatado}"></div>
                 </div>`;
+            
             listaDiv.appendChild(itemElement);
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
+
         setTimeout(async () => {
             await atualizarRankingEPilulasOtimizado();
             calcularTotalReal();
@@ -246,7 +271,6 @@ async function carregarLista() {
         console.error("Erro ao carregar lista:", err);
     }
 }
-
 /**
  * Busca em lote o melhor preço histórico de cada item (pílula individual).
  * Não depende mais de elementos de ranking (mercados-soma / totalizador-estimado).
@@ -263,18 +287,42 @@ async function atualizarRankingEPilulasOtimizado() {
             let rankingHtml = `<p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3 text-center">🏆 Ranking de Economia (Itens Comuns)</p><div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
             
             data.ranking.forEach(loja => {
-                rankingHtml += `
-                    <div class="min-w-[140px] bg-white p-2 rounded-xl border-l-4 border-blue-500 shadow-sm">
-                        <p class="text-[8px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
-                        <p class="text-sm font-black text-blue-600">R$ ${loja.total.toFixed(2)}</p>
-                        <p class="text-[7px] text-gray-400 font-bold">${loja.encontrados}/${loja.totalItens} itens</p>
-                    </div>`;
-            });
-            rankingHtml += `</div>`;
-            containerRanking.innerHTML = rankingHtml;
-        }
+                const cobertura = (loja.encontrados / loja.totalItens) * 100;
+                
+                let corBorda = "border-red-500";
+                let textoDestaque = "text-red-600";
+                let bgCard = "bg-red-50/30";
 
-        // 2. Renderiza as Pílulas de Melhor Preço Individual nos itens[cite: 3]
+                if (cobertura >= 90) {
+                    corBorda = "border-green-500";
+                    textoDestaque = "text-green-600";
+                    bgCard = "bg-white";
+                } else if (cobertura >= 50) {
+                    corBorda = "border-yellow-500";
+                    textoDestaque = "text-yellow-600";
+                    bgCard = "bg-white";
+                }
+
+                // ✅ Removi o ';' dentro da template string
+                rankingHtml += `
+                    <div class="min-w-[140px] ${bgCard} p-2 rounded-xl border-l-4 ${corBorda} shadow-sm transition-all">
+                        <p class="text-[8px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
+                        <p class="text-sm font-black ${textoDestaque}">R$ ${loja.total.toFixed(2)}</p>
+                        <div class="flex items-center gap-1">
+                            <div class="w-full bg-gray-200 h-1 rounded-full overflow-hidden">
+                                <div class="h-full ${corBorda.replace('border', 'bg')}" style="width: ${cobertura}%"></div>
+                            </div>
+                            <span class="text-[7px] font-bold text-gray-500">${loja.encontrados}/${loja.totalItens}</span>
+                        </div>
+                    </div>`; // ✅ fecha a template string corretamente
+            }); // ✅ FECHA o forEach (a chave que faltava)
+
+            rankingHtml += `</div>`; // ✅ fecha a div flex
+            containerRanking.innerHTML = rankingHtml; // ✅ insere o HTML no DOM
+        } // ✅ fecha o if do ranking
+
+        // 2. Renderiza as Pílulas de Melhor Preço Individual nos itens
+        // ✅ Agora este código está fora do forEach, como deveria
         if (data.precosIndividuais) {
             Object.keys(data.precosIndividuais).forEach(nomeItem => {
                 const idFormatado = nomeItem.replace(/\s+/g, '-');
@@ -289,7 +337,9 @@ async function atualizarRankingEPilulasOtimizado() {
                 }
             });
         }
-    } catch (e) { console.error("Erro ao processar ranking/pílulas:", e); }
+    } catch (e) {
+        console.error("Erro ao processar ranking/pílulas:", e);
+    }
 }
 
 /**

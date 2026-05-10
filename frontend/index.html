@@ -33,7 +33,9 @@
 
     <main class="p-4 max-w-md mx-auto">
         <div id="secao-lista">
-            <div id="totalizador-estimado" class="mb-4 hidden"></div>
+            <div class="sticky top-[110px] z-20 bg-gray-50/95 backdrop-blur-sm pb-2 shadow-md mb-4">
+                <div id="totalizador-estimado" class="px-4 hidden"></div>
+            </div>
             <button onclick="finalizarCompra()"
                 class="w-full mb-4 bg-red-100 text-red-600 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest active:scale-95 transition-transform">
                 🗑️ Finalizar Compra e Limpar Lista
@@ -59,7 +61,7 @@
 
                 <div id="lista-ativa" class="space-y-2 text-sm mb-4"></div>
 
-                </div>
+            </div>
 
             <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
                 <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
