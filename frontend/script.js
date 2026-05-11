@@ -223,11 +223,20 @@ async function carregarLista() {
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
+            // Define a classe de borda: Transparente se tiver os 3, Amarelo se tiver 1 ou 2, Vermelho se 0.
+            let classeAlerta = "border-transparent";
+            if (lojasConhecidas === 0) {
+                classeAlerta = "border-red-500";
+            } else if (lojasConhecidas < 3) {
+                classeAlerta = "border-yellow-400"; // <-- MUDOU AQUI (era orange-400)
+            }
+
             const itemElement = document.createElement('div');
-            // Iniciamos com borda laranja padrão até a função de pintura atuar
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-orange-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
-            itemElement.setAttribute('data-produto', nomeBusca); 
-            
+            // Iniciamos TODOS como amarelo (yellow-400) ou cinza, 
+            // e deixaremos a função de pintura resolver depois.
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`; // <-- MUDOU AQUI TAMBÉM
+            itemElement.setAttribute('data-produto', nomeBusca);
+
             itemElement.innerHTML = `
                 <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
                      onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
@@ -1000,7 +1009,7 @@ async function renderizarGraficoMedias() {
 
 function pintarBordasDeCobertura(dadosComparativos) {
     const cards = document.querySelectorAll('[data-produto]');
-    
+
     cards.forEach(card => {
         const nome = card.getAttribute('data-produto');
         const p = dadosComparativos[nome] || {};
@@ -1015,7 +1024,7 @@ function pintarBordasDeCobertura(dadosComparativos) {
 
         // Reset de classes de borda
         card.classList.remove('border-orange-400', 'border-red-500', 'border-transparent');
-        
+
         if (total >= 3) {
             card.classList.add('border-transparent'); // Tudo ok!
         } else if (total === 0) {
