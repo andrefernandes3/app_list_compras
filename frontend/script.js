@@ -175,7 +175,7 @@ async function carregarLista() {
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
-        // 1. Chamadas em paralelo para garantir que todos os dados cheguem
+        // 1. Chamadas em paralelo
         const [respLista, respDict, respPrecos] = await Promise.all([
             fetch('/api/GerenciarLista'),
             fetch('/api/VincularProdutos'),
@@ -186,7 +186,7 @@ async function carregarLista() {
         const dicionario = await respDict.json();
         const dataPrecos = await respPrecos.json();
 
-        // 2. Armazena os preços globalmente
+        // 2. Armazena preços globalmente
         window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
 
         if (itens.length === 0) {
@@ -194,18 +194,17 @@ async function carregarLista() {
             return;
         }
 
-        // 3. Organiza os itens por categoria
+        // 3. Organiza itens por categoria
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
-
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
 
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
-        // 4. Loop de renderização (Foco em montar o esqueleto)
+        // 4. Renderização
         itensOrdenados.forEach(item => {
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
@@ -223,18 +222,9 @@ async function carregarLista() {
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
-            // Define a classe de borda: Transparente se tiver os 3, Amarelo se tiver 1 ou 2, Vermelho se 0.
-            let classeAlerta = "border-transparent";
-            if (lojasConhecidas === 0) {
-                classeAlerta = "border-red-500";
-            } else if (lojasConhecidas < 3) {
-                classeAlerta = "border-yellow-400"; // <-- MUDOU AQUI (era orange-400)
-            }
-
+            // Cria o elemento com classe neutra (a borda será pintada depois)
             const itemElement = document.createElement('div');
-            // Iniciamos TODOS como amarelo (yellow-400) ou cinza, 
-            // e deixaremos a função de pintura resolver depois.
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`; // <-- MUDOU AQUI TAMBÉM
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
 
             itemElement.innerHTML = `
@@ -272,15 +262,30 @@ async function carregarLista() {
             }
         });
 
-        // 5. O SEGREDO: Dispara a pintura e o ranking após um pequeno delay para garantir o DOM pronto
-        setTimeout(async () => {
-            pintarBordasDeCobertura(window.totaisPorMercado);
-            await atualizarRankingEPilulasOtimizado();
-            calcularTotalReal();
+        // 5. Aplica cores e atualiza ranking após o DOM estar pronto
+        // Usa setTimeout para garantir que todos os elementos já estejam no DOM
+        setTimeout(() => {
+            // A função pintarBordasDeCobertura deve ler window.totaisPorMercado
+            // e adicionar as classes de borda apropriadas (ex: border-red-500, border-yellow-400, etc.)
+            if (typeof pintarBordasDeCobertura === 'function') {
+                pintarBordasDeCobertura(window.totaisPorMercado);
+            }
+            
+            if (typeof atualizarRankingEPilulasOtimizado === 'function') {
+                atualizarRankingEPilulasOtimizado();
+            }
+            
+            if (typeof calcularTotalReal === 'function') {
+                calcularTotalReal();
+            }
         }, 300);
 
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
+        const listaDiv = document.getElementById('lista-ativa');
+        if (listaDiv) {
+            listaDiv.innerHTML = '<p class="text-red-500 text-center py-4">Erro ao carregar lista. Tente novamente.</p>';
+        }
     }
 }
 /**
