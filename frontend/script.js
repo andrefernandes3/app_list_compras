@@ -284,50 +284,61 @@ window.precosDigitadosNoMercado = {};
 
 async function atualizarRankingEPilulasOtimizado() {
     try {
-        const response = await fetch('/api/CompararPrecos');
-        const data = await response.json();
+        // Buscamos os dados de comparação e a lista de compras atual
+        const [respPrecos, respLista] = await Promise.all([
+            fetch('/api/CompararPrecos'),
+            fetch('/api/GerenciarLista')
+        ]);
 
-        window.dadosOriginaisDicionario = data; // Guardamos para o cálculo live
+        const data = await respPrecos.json();
+        const itensLista = await respLista.json();
 
-        // 1. Renderiza as Caixas de Digitação (Inputs) fixas para cada item
-        if (data.precosIndividuais && data.precosPorLojaCompleto) {
-            Object.keys(data.precosIndividuais).forEach(nomeItem => {
-                const idFormatado = nomeItem.replace(/\s+/g, '-');
-                const el = document.getElementById(`preco-lista-${idFormatado}`);
-                if (el) {
-                    const info = data.precosIndividuais[nomeItem];
-                    const p = data.precosPorLojaCompleto[nomeItem] || {};
-                    const chaves = Object.keys(p);
+        window.dadosOriginaisDicionario = data; 
 
-                    // Busca os preços do banco (histórico) adicionando o Sam's Club
-                    const precoCRF = p[chaves.find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
-                    const precoASA = p[chaves.find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
-                    const precoATA = p[chaves.find(k => k.toUpperCase().includes("ATACADAO"))] || null;
-                    const precoSAM = p[chaves.find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S"))] || null;
+        // Percorremos TODOS os itens que estão na sua lista de compras agora
+        itensLista.forEach(item => {
+            const nomeItem = item.item_nome;
+            const nomeBusca = nomeItem.trim().toUpperCase();
+            const idFormatado = nomeItem.replace(/\s+/g, '-');
+            const el = document.getElementById(`preco-lista-${idFormatado}`);
 
-                    el.innerHTML = `
-                        <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                            ${renderInputMercado('CRF', precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeItem, 'CARREFOUR')}
-                            ${renderInputMercado('ASA', precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeItem, 'ASSAI')}
-                            ${renderInputMercado('ATA', precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeItem, 'ATACADAO')}
-                            ${renderInputMercado('SAM', precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeItem, 'SAMS CLUB')}
-                        </div>
-                        
-                        ${info ? `
-                        <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
-                            <span>💡 Recorde: ${info.loja}</span>
-                            <span class="font-black text-emerald-800">R$ ${info.valor.toFixed(2)}</span>
-                        </div>` : ''}
-                        
-                        <p class="text-[7px] text-gray-400 mt-1 italic text-center">Digite o preço na gôndola para comparar</p>
-                    `;
-                }
-            });
-        }
+            if (el) {
+                // Busca dados históricos se existirem
+                const infoRecorde = data.precosIndividuais ? data.precosIndividuais[nomeBusca] : null;
+                const p = (data.precosPorLojaCompleto && data.precosPorLojaCompleto[nomeBusca]) || {};
+                const chaves = Object.keys(p);
+                
+                // Mapeamento de preços históricos (se houver)
+                const precoCRF = p[chaves.find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
+                const precoASA = p[chaves.find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
+                const precoATA = p[chaves.find(k => k.toUpperCase().includes("ATACADAO"))] || null;
+                const precoSAM = p[chaves.find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S"))] || null;
 
-        recalcularRankingLive(data.ranking); // Desenha o ranking inicial
+                el.innerHTML = `
+                    <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
+                        ${renderInputMercado('CRF', precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeBusca, 'CARREFOUR')}
+                        ${renderInputMercado('ASA', precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeBusca, 'ASSAI')}
+                        ${renderInputMercado('ATA', precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeBusca, 'ATACADAO')}
+                        ${renderInputMercado('SAM', precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeBusca, 'SAMS CLUB')}
+                    </div>
+                    
+                    ${infoRecorde ? `
+                    <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
+                        <span>💡 Menor Preço Histórico: ${infoRecorde.loja}</span>
+                        <span class="font-black">R$ ${infoRecorde.valor.toFixed(2)}</span>
+                    </div>` : `
+                    <div class="mt-1 text-[8px] bg-gray-50 text-gray-400 p-1 px-2 rounded-lg border border-dashed border-gray-200 text-center">
+                        Novo produto: Sem histórico de recorde ainda
+                    </div>`}
+                    
+                    <p class="text-[7px] text-gray-400 mt-1 italic text-center">Compare os preços em tempo real</p>
+                `;
+            }
+        });
+        
+        recalcularRankingLive(data.ranking || []);
     } catch (e) {
-        console.error("Erro ao processar inputs de comparação:", e);
+        console.error("Erro ao processar inputs para todos os produtos:", e);
     }
 }
 
