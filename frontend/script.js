@@ -339,12 +339,18 @@ function renderInputMercado(label, valorHistorico, cores, nomeItem, rede) {
         </div>`;
 }
 
-// Função que captura o que você digita e atualiza o ranking no topo
+// 1. Busca os dados salvos no telemóvel (ou cria vazio se for a primeira vez)
+window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
+
+// 2. Atualizamos a função que regista o preço para gravar sempre no LocalStorage
 function registrarPrecoLive(nome, rede, valor) {
     if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
     window.precosDigitadosNoMercado[nome][rede] = parseFloat(valor) || null;
     
-    // Atualiza o ranking visual no topo sem recarregar a página
+    // Salva no armazenamento do navegador (sobrevive a refresh e falta de internet)
+    localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+    
+    // Atualiza o ecrã
     recalcularRankingLive(window.dadosOriginaisDicionario.ranking);
 }
 
@@ -913,8 +919,17 @@ async function deletarItem(nome) {
     if (!confirm(`Remover ${nome} da lista?`)) return;
     try {
         await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
-        carregarLista();
-    } catch (e) { console.error(e); }
+        
+        // Remove o valor digitado da memória e atualiza o armazenamento
+        if (window.precosDigitadosNoMercado && window.precosDigitadosNoMercado[nome]) {
+            delete window.precosDigitadosNoMercado[nome];
+            localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+        }
+
+        carregarLista(); // O ranking vai recalcular automaticamente sem este item
+    } catch (e) { 
+        console.error("Erro ao deletar item:", e); 
+    }
 }
 
 async function finalizarCompra() {
@@ -922,16 +937,22 @@ async function finalizarCompra() {
     try {
         await fetch('/api/GerenciarLista', { method: 'DELETE' });
 
-        // Zera o totalizador visual imediatamente
+        // Zera toda a memória de digitação e limpa completamente o armazenamento do telemóvel
+        window.precosDigitadosNoMercado = {};
+        localStorage.removeItem('precosLive');
+
+        // Zera o totalizador visual no ecrã imediatamente
         const display = document.getElementById('total-real-dinamico');
         if (display) display.innerText = "R$ 0,00";
 
-        // Esconde o ranking de economia se existir
+        // Esconde o painel do ranking
         const ranking = document.getElementById('totalizador-estimado');
         if (ranking) ranking.classList.add('hidden');
 
-        carregarLista(); // Recarrega a lista vazia
-    } catch (e) { console.error(e); }
+        carregarLista(); // Recarrega a lista agora vazia
+    } catch (e) { 
+        console.error("Erro ao finalizar compra:", e); 
+    }
 }
 
 async function renderizarRankingTopCompras() {
