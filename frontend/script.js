@@ -378,32 +378,42 @@ function recalcularRankingLive(rankingBase) {
     const containerRanking = document.getElementById('totalizador-estimado');
     if (!containerRanking) return;
 
-    // Criamos uma cópia do ranking para recalcular com os preços digitados
-    let novoRanking = rankingBase.map(loja => {
+    // 1. Força os 4 mercados a existirem na comparação, mesmo sem histórico
+    const lojasParaProcessar = [...rankingBase];
+    const redesFixas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
+    
+    redesFixas.forEach(rede => {
+        if (!lojasParaProcessar.find(l => l.nome.toUpperCase().includes(rede))) {
+            lojasParaProcessar.push({ nome: rede, total: 0, encontrados: 0, totalItens: 1 });
+        }
+    });
+
+    // 2. Calcula os totais com base no que você digitou hoje
+    let novoRanking = lojasParaProcessar.map(loja => {
         let totalLive = 0;
         let encontrados = 0;
 
-        // Percorremos os itens que você digitou ou que já estão no banco
-        Object.keys(window.precosDigitadosNoMercado).forEach(nomeItem => {
+        Object.keys(window.precosDigitadosNoMercado || {}).forEach(nomeItem => {
             const precosDoItem = window.precosDigitadosNoMercado[nomeItem];
-            const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k));
-
+            // Mapeia a rede digitada com o nome da loja
+            const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k) || k.includes(loja.nome.toUpperCase()));
+            
             if (redeChave && precosDoItem[redeChave]) {
                 totalLive += precosDoItem[redeChave];
                 encontrados++;
             }
         });
 
-        // Se você não digitou nada para esta loja, mantém o total do banco
-        if (totalLive === 0) return loja;
+        // Se digitou algo para esta loja, atualiza. Se não, mantém o do banco.
+        if (totalLive > 0) {
+            return { ...loja, total: totalLive, encontrados: encontrados, isLive: true };
+        }
+        return loja;
+    }).filter(l => l.total > 0); // Oculta lojas totalmente vazias
 
-        return { ...loja, total: totalLive, encontrados: encontrados, isLive: true };
-    });
-
-    // Ordena pelo mais barato
     novoRanking.sort((a, b) => a.total - b.total);
 
-    // Desenha os cards no topo (Sticky)
+    // 3. Renderiza os blocos
     let html = `<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-3 text-center">📊 Comparativo em Tempo Real</p>
                 <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
 
