@@ -395,35 +395,48 @@ function recalcularRankingLive(rankingBase) {
 
         Object.keys(window.precosDigitadosNoMercado || {}).forEach(nomeItem => {
             const precosDoItem = window.precosDigitadosNoMercado[nomeItem];
-            // Mapeia a rede digitada com o nome da loja
             const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k) || k.includes(loja.nome.toUpperCase()));
             
             if (redeChave && precosDoItem[redeChave]) {
-                totalLive += precosDoItem[redeChave];
+                // UX: Busca a quantidade do item na tela para a simulação ficar real
+                const idFormatado = nomeItem.replace(/\s+/g, '-');
+                const boxProduto = document.getElementById(`preco-lista-${idFormatado}`)?.closest('.bg-white');
+                let qtd = 1;
+                if (boxProduto) {
+                    const inputQtd = boxProduto.querySelector('.input-qtd-real');
+                    if (inputQtd) qtd = parseFloat(inputQtd.value) || 1;
+                }
+                
+                totalLive += precosDoItem[redeChave] * qtd; // Multiplica pela quantidade
                 encontrados++;
             }
         });
 
-        // Se digitou algo para esta loja, atualiza. Se não, mantém o do banco.
         if (totalLive > 0) {
             return { ...loja, total: totalLive, encontrados: encontrados, isLive: true };
         }
         return loja;
-    }).filter(l => l.total > 0); // Oculta lojas totalmente vazias
+    }).filter(l => l.total > 0); 
 
     novoRanking.sort((a, b) => a.total - b.total);
 
-    // 3. Renderiza os blocos
+    // 3. Renderiza os blocos com o aviso de quantos itens estão na conta
     let html = `<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-3 text-center">📊 Comparativo em Tempo Real</p>
                 <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
 
     novoRanking.forEach(loja => {
         const corCard = loja.isLive ? 'border-blue-500 bg-blue-50/20' : 'border-gray-200 bg-white';
+        
+        // UX: Mostra de onde vem o valor e quantos itens estão sendo somados
+        const textoRodape = loja.isLive 
+            ? `✍️ Digitou ${loja.encontrados} item(ns)` 
+            : `🗄️ Banco: ${loja.encontrados} item(ns)`;
+
         html += `
             <div class="min-w-[130px] p-2 rounded-xl border-l-4 ${corCard} shadow-sm transition-all">
                 <p class="text-[7px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
                 <p class="text-sm font-black ${loja.isLive ? 'text-blue-600' : 'text-gray-700'}">R$ ${loja.total.toFixed(2)}</p>
-                <p class="text-[7px] font-bold text-gray-500">${loja.isLive ? 'Digitado Agora' : 'Dados do Banco'}</p>
+                <p class="text-[7px] font-bold text-gray-500 mt-1">${textoRodape}</p>
             </div>`;
     });
 
