@@ -224,7 +224,7 @@ async function carregarLista() {
             const precoReal = item.preco_real || '';
 
             const itemElement = document.createElement('div');
-            
+
             // Aqui ele nasce Amarelo (yellow-400), a função de pintura vai ajustar logo em seguida!
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
@@ -298,24 +298,33 @@ async function atualizarRankingEPilulasOtimizado() {
                     const info = data.precosIndividuais[nomeItem];
                     const p = data.precosPorLojaCompleto[nomeItem] || {};
                     const chaves = Object.keys(p);
-                    
-                    // Busca os preços do banco (histórico)
+
+                    // Busca os preços do banco (histórico) adicionando o Sam's Club
                     const precoCRF = p[chaves.find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
                     const precoASA = p[chaves.find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
                     const precoATA = p[chaves.find(k => k.toUpperCase().includes("ATACADAO"))] || null;
+                    const precoSAM = p[chaves.find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S"))] || null;
 
                     el.innerHTML = `
-                        <div class="flex gap-1 mt-2 w-full">
+                        <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
                             ${renderInputMercado('CRF', precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeItem, 'CARREFOUR')}
                             ${renderInputMercado('ASA', precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeItem, 'ASSAI')}
                             ${renderInputMercado('ATA', precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeItem, 'ATACADAO')}
+                            ${renderInputMercado('SAM', precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeItem, 'SAMS CLUB')}
                         </div>
-                        <p class="text-[7px] text-gray-400 mt-1 italic text-center">Digite o preço visto na gôndola para comparar agora</p>
+                        
+                        ${info ? `
+                        <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
+                            <span>💡 Recorde: ${info.loja}</span>
+                            <span class="font-black text-emerald-800">R$ ${info.valor.toFixed(2)}</span>
+                        </div>` : ''}
+                        
+                        <p class="text-[7px] text-gray-400 mt-1 italic text-center">Digite o preço na gôndola para comparar</p>
                     `;
                 }
             });
         }
-        
+
         recalcularRankingLive(data.ranking); // Desenha o ranking inicial
     } catch (e) {
         console.error("Erro ao processar inputs de comparação:", e);
@@ -328,12 +337,12 @@ function renderInputMercado(label, valorHistorico, cores, nomeItem, rede) {
                         || valorHistorico || '';
     
     return `
-        <div class="flex-1 flex flex-col items-center p-1 rounded-md border ${cores} shadow-sm focus-within:ring-2 focus-within:ring-blue-400 transition-all">
+        <div class="min-w-[75px] flex-1 flex flex-col items-center p-1 rounded-md border ${cores} shadow-sm focus-within:ring-2 focus-within:ring-blue-400 transition-all">
             <span class="text-[7px] font-black uppercase opacity-70">${label}</span>
-            <div class="flex items-center">
+            <div class="flex items-center w-full justify-center">
                 <span class="text-[8px] mr-0.5">R$</span>
                 <input type="number" step="0.01" value="${valorAtual}" placeholder="---"
-                    class="w-full bg-transparent text-[10px] font-bold outline-none text-center"
+                    class="w-full max-w-[45px] bg-transparent text-[10px] font-bold outline-none text-center"
                     oninput="registrarPrecoLive('${nomeItem}', '${rede}', this.value)">
             </div>
         </div>`;
@@ -346,10 +355,10 @@ window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive'))
 function registrarPrecoLive(nome, rede, valor) {
     if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
     window.precosDigitadosNoMercado[nome][rede] = parseFloat(valor) || null;
-    
+
     // Salva no armazenamento do navegador (sobrevive a refresh e falta de internet)
     localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
-    
+
     // Atualiza o ecrã
     recalcularRankingLive(window.dadosOriginaisDicionario.ranking);
 }
@@ -367,7 +376,7 @@ function recalcularRankingLive(rankingBase) {
         Object.keys(window.precosDigitadosNoMercado).forEach(nomeItem => {
             const precosDoItem = window.precosDigitadosNoMercado[nomeItem];
             const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k));
-            
+
             if (redeChave && precosDoItem[redeChave]) {
                 totalLive += precosDoItem[redeChave];
                 encontrados++;
@@ -919,7 +928,7 @@ async function deletarItem(nome) {
     if (!confirm(`Remover ${nome} da lista?`)) return;
     try {
         await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
-        
+
         // Remove o valor digitado da memória e atualiza o armazenamento
         if (window.precosDigitadosNoMercado && window.precosDigitadosNoMercado[nome]) {
             delete window.precosDigitadosNoMercado[nome];
@@ -927,8 +936,8 @@ async function deletarItem(nome) {
         }
 
         carregarLista(); // O ranking vai recalcular automaticamente sem este item
-    } catch (e) { 
-        console.error("Erro ao deletar item:", e); 
+    } catch (e) {
+        console.error("Erro ao deletar item:", e);
     }
 }
 
@@ -950,8 +959,8 @@ async function finalizarCompra() {
         if (ranking) ranking.classList.add('hidden');
 
         carregarLista(); // Recarrega a lista agora vazia
-    } catch (e) { 
-        console.error("Erro ao finalizar compra:", e); 
+    } catch (e) {
+        console.error("Erro ao finalizar compra:", e);
     }
 }
 
