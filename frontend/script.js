@@ -279,71 +279,121 @@ async function carregarLista() {
  * Busca em lote o melhor preço histórico de cada item (pílula individual).
  * Não depende mais de elementos de ranking (mercados-soma / totalizador-estimado).
  */
+// Variável global para armazenar os preços que você digitar no mercado hoje
+window.precosDigitadosNoMercado = {};
+
 async function atualizarRankingEPilulasOtimizado() {
     try {
         const response = await fetch('/api/CompararPrecos');
         const data = await response.json();
 
-        // 1. Renderiza o Ranking de Economia no topo
-        const containerRanking = document.getElementById('totalizador-estimado');
-        if (containerRanking && data.ranking && data.ranking.length > 0) {
-            containerRanking.classList.remove('hidden');
-            let rankingHtml = `<p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3 text-center">🏆 Ranking de Economia (Itens Comuns)</p><div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
+        window.dadosOriginaisDicionario = data; // Guardamos para o cálculo live
 
-            data.ranking.forEach(loja => {
-                const cobertura = (loja.encontrados / loja.totalItens) * 100;
-
-                let corBorda = "border-red-500";
-                let textoDestaque = "text-red-600";
-                let bgCard = "bg-red-50/30";
-
-                if (cobertura >= 90) {
-                    corBorda = "border-green-500";
-                    textoDestaque = "text-green-600";
-                    bgCard = "bg-white";
-                } else if (cobertura >= 50) {
-                    corBorda = "border-yellow-500";
-                    textoDestaque = "text-yellow-600";
-                    bgCard = "bg-white";
-                }
-
-                // ✅ Removi o ';' dentro da template string
-                rankingHtml += `
-                    <div class="min-w-[140px] ${bgCard} p-2 rounded-xl border-l-4 ${corBorda} shadow-sm transition-all">
-                        <p class="text-[8px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
-                        <p class="text-sm font-black ${textoDestaque}">R$ ${loja.total.toFixed(2)}</p>
-                        <div class="flex items-center gap-1">
-                            <div class="w-full bg-gray-200 h-1 rounded-full overflow-hidden">
-                                <div class="h-full ${corBorda.replace('border', 'bg')}" style="width: ${cobertura}%"></div>
-                            </div>
-                            <span class="text-[7px] font-bold text-gray-500">${loja.encontrados}/${loja.totalItens}</span>
-                        </div>
-                    </div>`; // ✅ fecha a template string corretamente
-            }); // ✅ FECHA o forEach (a chave que faltava)
-
-            rankingHtml += `</div>`; // ✅ fecha a div flex
-            containerRanking.innerHTML = rankingHtml; // ✅ insere o HTML no DOM
-        } // ✅ fecha o if do ranking
-
-        // 2. Renderiza as Pílulas de Melhor Preço Individual nos itens
-        // ✅ Agora este código está fora do forEach, como deveria
-        if (data.precosIndividuais) {
+        // 1. Renderiza as Caixas de Digitação (Inputs) fixas para cada item
+        if (data.precosIndividuais && data.precosPorLojaCompleto) {
             Object.keys(data.precosIndividuais).forEach(nomeItem => {
                 const idFormatado = nomeItem.replace(/\s+/g, '-');
                 const el = document.getElementById(`preco-lista-${idFormatado}`);
                 if (el) {
                     const info = data.precosIndividuais[nomeItem];
+                    const p = data.precosPorLojaCompleto[nomeItem] || {};
+                    const chaves = Object.keys(p);
+                    
+                    // Busca os preços do banco (histórico)
+                    const precoCRF = p[chaves.find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
+                    const precoASA = p[chaves.find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
+                    const precoATA = p[chaves.find(k => k.toUpperCase().includes("ATACADAO"))] || null;
+
                     el.innerHTML = `
-                        <div class="mt-1 text-[9px] bg-green-50 text-green-700 p-1 px-2 rounded-lg border border-green-200 flex justify-between items-center">
-                            <span>💡 Melhor: ${info.loja}</span>
-                            <span class="font-black text-blue-600">R$ ${info.valor.toFixed(2)}</span>
-                        </div>`;
+                        <div class="flex gap-1 mt-2 w-full">
+                            ${renderInputMercado('CRF', precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeItem, 'CARREFOUR')}
+                            ${renderInputMercado('ASA', precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeItem, 'ASSAI')}
+                            ${renderInputMercado('ATA', precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeItem, 'ATACADAO')}
+                        </div>
+                        <p class="text-[7px] text-gray-400 mt-1 italic text-center">Digite o preço visto na gôndola para comparar agora</p>
+                    `;
                 }
             });
         }
+        
+        recalcularRankingLive(data.ranking); // Desenha o ranking inicial
     } catch (e) {
-        console.error("Erro ao processar ranking/pílulas:", e);
+        console.error("Erro ao processar inputs de comparação:", e);
     }
+}
+
+// Função que cria a caixa de digitação
+function renderInputMercado(label, valorHistorico, cores, nomeItem, rede) {
+    const valorAtual = (window.precosDigitadosNoMercado[nomeItem] && window.precosDigitadosNoMercado[nomeItem][rede]) 
+                        || valorHistorico || '';
+    
+    return `
+        <div class="flex-1 flex flex-col items-center p-1 rounded-md border ${cores} shadow-sm focus-within:ring-2 focus-within:ring-blue-400 transition-all">
+            <span class="text-[7px] font-black uppercase opacity-70">${label}</span>
+            <div class="flex items-center">
+                <span class="text-[8px] mr-0.5">R$</span>
+                <input type="number" step="0.01" value="${valorAtual}" placeholder="---"
+                    class="w-full bg-transparent text-[10px] font-bold outline-none text-center"
+                    oninput="registrarPrecoLive('${nomeItem}', '${rede}', this.value)">
+            </div>
+        </div>`;
+}
+
+// Função que captura o que você digita e atualiza o ranking no topo
+function registrarPrecoLive(nome, rede, valor) {
+    if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
+    window.precosDigitadosNoMercado[nome][rede] = parseFloat(valor) || null;
+    
+    // Atualiza o ranking visual no topo sem recarregar a página
+    recalcularRankingLive(window.dadosOriginaisDicionario.ranking);
+}
+
+function recalcularRankingLive(rankingBase) {
+    const containerRanking = document.getElementById('totalizador-estimado');
+    if (!containerRanking) return;
+
+    // Criamos uma cópia do ranking para recalcular com os preços digitados
+    let novoRanking = rankingBase.map(loja => {
+        let totalLive = 0;
+        let encontrados = 0;
+
+        // Percorremos os itens que você digitou ou que já estão no banco
+        Object.keys(window.precosDigitadosNoMercado).forEach(nomeItem => {
+            const precosDoItem = window.precosDigitadosNoMercado[nomeItem];
+            const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k));
+            
+            if (redeChave && precosDoItem[redeChave]) {
+                totalLive += precosDoItem[redeChave];
+                encontrados++;
+            }
+        });
+
+        // Se você não digitou nada para esta loja, mantém o total do banco
+        if (totalLive === 0) return loja;
+
+        return { ...loja, total: totalLive, encontrados: encontrados, isLive: true };
+    });
+
+    // Ordena pelo mais barato
+    novoRanking.sort((a, b) => a.total - b.total);
+
+    // Desenha os cards no topo (Sticky)
+    let html = `<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-3 text-center">📊 Comparativo em Tempo Real</p>
+                <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
+
+    novoRanking.forEach(loja => {
+        const corCard = loja.isLive ? 'border-blue-500 bg-blue-50/20' : 'border-gray-200 bg-white';
+        html += `
+            <div class="min-w-[130px] p-2 rounded-xl border-l-4 ${corCard} shadow-sm transition-all">
+                <p class="text-[7px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
+                <p class="text-sm font-black ${loja.isLive ? 'text-blue-600' : 'text-gray-700'}">R$ ${loja.total.toFixed(2)}</p>
+                <p class="text-[7px] font-bold text-gray-500">${loja.isLive ? 'Digitado Agora' : 'Dados do Banco'}</p>
+            </div>`;
+    });
+
+    html += `</div>`;
+    containerRanking.innerHTML = html;
+    containerRanking.classList.remove('hidden');
 }
 
 /**
