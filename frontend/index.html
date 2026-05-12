@@ -16,11 +16,15 @@
         <h1 class="text-xl font-bold">🛒 Minha Lista Inteligente</h1>
     </nav>
 
-    <div class="sticky top-0 z-30 bg-blue-600 p-4 shadow-lg border-b border-blue-700 transition-all">
-        <p class="text-[10px] font-black text-blue-200 uppercase text-center tracking-widest">💰 Carrinho / Total
-            Planejado</p>
+    <div class="sticky top-0 z-30 bg-blue-600 shadow-lg border-b border-blue-700 transition-all">
+    <div class="p-4">
+        <p class="text-[10px] font-black text-blue-200 uppercase text-center tracking-widest">💰 Carrinho / Total Planejado</p>
         <p id="total-real-dinamico" class="text-3xl font-black text-white text-center">R$ 0,00</p>
     </div>
+    
+    <div id="totalizador-estimado" class="px-4 pb-3 hidden bg-blue-700/30 backdrop-blur-md">
+        </div>
+</div>
 
     <div class="flex justify-center border-b border-gray-200 bg-white sticky top-[94px] z-20 shadow-sm transition-all">
         <div class="flex w-full max-w-md md:max-w-3xl lg:max-w-5xl">
