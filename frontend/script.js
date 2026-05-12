@@ -1,16 +1,24 @@
 // ================== ESTADO GLOBAL ==================
-let totaisPorMercado = {};
-let itensSelecionados = new Set();      // Controle de seleção no dicionário
-let meuGraficoRelatorio = null;         // Instância do gráfico de relatórios
-let timeoutPreco, timeoutQtd;           // Debouncers para salvar preço e quantidade
+let totaisPorMercado = {};       // Armazena preços por mercado para pintura de bordas
+let itensSelecionados = new Set(); // Checkboxes selecionados no dicionário
+let meuGraficoRelatorio = null;   // Instância do gráfico de relatórios
+let timeoutPreco, timeoutQtd;     // Debouncers para salvar preço e quantidade
+let precosDigitadosNoMercado = {}; // Preços digitados ao vivo (guardados no localStorage)
 
 // ================== FUNÇÕES UTILITÁRIAS ==================
+
 /**
  * Escapa caracteres especiais para uso em atributos HTML.
+ * Mais robusto que a versão anterior (escapa aspas duplas e &)
  */
 function escapeHTML(str) {
     if (!str) return "";
-    return str.replace(/'/g, "\\'");
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 /**
@@ -36,17 +44,22 @@ function obterCorMercado(nomeMercado) {
  */
 function ampliarImagem(url, nome) {
     if (!url || url.includes('placeholder')) return;
+    // Remove modal anterior se existir
+    const modalExistente = document.getElementById('modal-foto');
+    if (modalExistente) modalExistente.remove();
+    
     const modalHtml = `
         <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
             <div class="relative w-full max-w-sm"> 
                 <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
-                <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
+                <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${escapeHTML(nome)}</p>
             </div>
         </div>`;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
 // ================== ABAS PRINCIPAIS ==================
+
 /**
  * Alterna entre as abas: Lista, Dicionário, Relatórios.
  */
@@ -69,6 +82,8 @@ function alternarAba(aba) {
     if (aba === 'relatorios') carregarRelatorios();
 }
 
+// ================== RELATÓRIOS (GRÁFICO DE GASTOS) ==================
+
 /**
  * Carrega os relatórios (gráfico de gastos por categoria).
  * Filtro por loja opcional.
@@ -85,10 +100,11 @@ async function carregarRelatorios() {
         const dados = await response.json();
         // Preenche o seletor de lojas apenas na primeira vez
         if (seletorLoja && seletorLoja.options.length <= 1) {
-            carregarFiltroLojas();
+            await carregarFiltroLojas();
         }
         if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
         if (!dados || dados.length === 0) return;
+        
         meuGraficoRelatorio = new Chart(ctx, {
             type: 'doughnut',
             data: {
@@ -114,7 +130,10 @@ async function carregarRelatorios() {
                 }
             }
         });
-    } catch (e) { console.error("Erro ao carregar gráfico:", e); }
+    } catch (e) {
+        console.error("Erro ao carregar gráfico:", e);
+        mostrarFeedbackErro("Erro ao carregar relatórios.");
+    }
 }
 
 /**
@@ -122,14 +141,19 @@ async function carregarRelatorios() {
  */
 async function carregarFiltroLojas() {
     const seletor = document.getElementById('filtro-loja-relatorio');
-    const response = await fetch('/api/ListarLojas');
-    const lojas = await response.json();
-    lojas.forEach(loja => {
-        const option = document.createElement('option');
-        option.value = loja;
-        option.innerText = `🏪 ${loja}`;
-        seletor.appendChild(option);
-    });
+    if (!seletor) return;
+    try {
+        const response = await fetch('/api/ListarLojas');
+        const lojas = await response.json();
+        lojas.forEach(loja => {
+            const option = document.createElement('option');
+            option.value = loja;
+            option.innerText = `🏪 ${loja}`;
+            seletor.appendChild(option);
+        });
+    } catch (e) {
+        console.error("Erro ao carregar lojas:", e);
+    }
 }
 
 /**
@@ -150,7 +174,7 @@ function exibirDetalhesCategoria(categoria) {
         html += `
             <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
                 <div class="flex flex-col">
-                    <span class="text-gray-600 font-bold uppercase truncate pr-2">${item.nome}</span>
+                    <span class="text-gray-600 font-bold uppercase truncate pr-2">${escapeHTML(item.nome)}</span>
                     <span class="text-[9px] text-gray-400 font-medium">
                         ${item.qtd}x de R$ ${unitario.toFixed(2)}
                     </span>
@@ -164,6 +188,7 @@ function exibirDetalhesCategoria(categoria) {
 }
 
 // ================== LISTA DE COMPRAS (ABA) ==================
+
 /**
  * Carrega a lista ativa a partir do backend e renderiza na tela.
  * Ordena por categoria e adiciona os elementos visuais.
@@ -191,6 +216,9 @@ async function carregarLista() {
 
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
+            // Esconde o ranking quando não há itens
+            const totalizador = document.getElementById('totalizador-estimado');
+            if (totalizador) totalizador.classList.add('hidden');
             return;
         }
 
@@ -199,13 +227,12 @@ async function carregarLista() {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: info.categoria || "OUTROS" };
         });
-
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
 
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
-        // 4. Loop de renderização
+        // 4. Loop de renderização (monta os cards)
         itensOrdenados.forEach(item => {
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
@@ -224,9 +251,8 @@ async function carregarLista() {
             const precoReal = item.preco_real || '';
 
             const itemElement = document.createElement('div');
-
-            // Aqui ele nasce Amarelo (yellow-400), a função de pintura vai ajustar logo em seguida!
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+            // Inicia com borda neutra; será pintada depois por pintarBordasDeCobertura
+            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
 
             itemElement.innerHTML = `
@@ -237,7 +263,7 @@ async function carregarLista() {
                 <div class="flex-1 min-w-0">
                     <div class="flex justify-between items-start">
                         <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words cursor-pointer hover:text-blue-600" onclick="abrirGrafico('${nomeSeguro}')">
-                            ${item.item_nome}
+                            ${escapeHTML(item.item_nome)}
                         </span>
                         <div class="relative flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
                             <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
@@ -264,204 +290,155 @@ async function carregarLista() {
             }
         });
 
-        // 5. Dispara a pintura e o ranking após um pequeno delay
-        setTimeout(async () => {
+        // 5. Dispara a pintura das bordas (cobertura de preços) e atualiza ranking/pílulas
+        // Usamos setTimeout para garantir que o DOM esteja pronto
+        setTimeout(() => {
             pintarBordasDeCobertura(window.totaisPorMercado);
-            await atualizarRankingEPilulasOtimizado();
+            atualizarRankingEPilulasOtimizado();
             calcularTotalReal();
         }, 300);
 
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
-    }
-}
-/**
- * Busca em lote o melhor preço histórico de cada item (pílula individual).
- * Não depende mais de elementos de ranking (mercados-soma / totalizador-estimado).
- */
-// Variável global para armazenar os preços que você digitar no mercado hoje
-window.precosDigitadosNoMercado = {};
-
-async function atualizarRankingEPilulasOtimizado() {
-    try {
-        // Buscamos os dados de comparação e a lista de compras atual
-        const [respPrecos, respLista] = await Promise.all([
-            fetch('/api/CompararPrecos'),
-            fetch('/api/GerenciarLista')
-        ]);
-
-        const data = await respPrecos.json();
-        const itensLista = await respLista.json();
-
-        window.dadosOriginaisDicionario = data; 
-
-        // Percorremos TODOS os itens que estão na sua lista de compras agora
-        itensLista.forEach(item => {
-            const nomeItem = item.item_nome;
-            const nomeBusca = nomeItem.trim().toUpperCase();
-            const idFormatado = nomeItem.replace(/\s+/g, '-');
-            const el = document.getElementById(`preco-lista-${idFormatado}`);
-
-            if (el) {
-                // Busca dados históricos se existirem
-                const infoRecorde = data.precosIndividuais ? data.precosIndividuais[nomeBusca] : null;
-                const p = (data.precosPorLojaCompleto && data.precosPorLojaCompleto[nomeBusca]) || {};
-                const chaves = Object.keys(p);
-                
-                // Mapeamento de preços históricos (se houver)
-                const precoCRF = p[chaves.find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
-                const precoASA = p[chaves.find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
-                const precoATA = p[chaves.find(k => k.toUpperCase().includes("ATACADAO"))] || null;
-                const precoSAM = p[chaves.find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S"))] || null;
-
-                el.innerHTML = `
-                    <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                        ${renderInputMercado('CRF', precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeBusca, 'CARREFOUR')}
-                        ${renderInputMercado('ASA', precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeBusca, 'ASSAI')}
-                        ${renderInputMercado('ATA', precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeBusca, 'ATACADAO')}
-                        ${renderInputMercado('SAM', precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeBusca, 'SAMS CLUB')}
-                    </div>
-                    
-                    ${infoRecorde ? `
-                    <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
-                        <span>💡 Menor Preço Histórico: ${infoRecorde.loja}</span>
-                        <span class="font-black">R$ ${infoRecorde.valor.toFixed(2)}</span>
-                    </div>` : `
-                    <div class="mt-1 text-[8px] bg-gray-50 text-gray-400 p-1 px-2 rounded-lg border border-dashed border-gray-200 text-center">
-                        Novo produto: Sem histórico de recorde ainda
-                    </div>`}
-                    
-                    <p class="text-[7px] text-gray-400 mt-1 italic text-center">Compare os preços em tempo real</p>
-                `;
-            }
-        });
-        
-        recalcularRankingLive(data.ranking || []);
-    } catch (e) {
-        console.error("Erro ao processar inputs para todos os produtos:", e);
-    }
-}
-
-// Função que cria a caixa de digitação
-function renderInputMercado(label, valorHistorico, cores, nomeItem, rede) {
-    const valorAtual = (window.precosDigitadosNoMercado[nomeItem] && window.precosDigitadosNoMercado[nomeItem][rede]) 
-                        || valorHistorico || '';
-    
-    return `
-        <div class="min-w-[75px] flex-1 flex flex-col items-center p-1 rounded-md border ${cores} shadow-sm focus-within:ring-2 focus-within:ring-blue-400 transition-all">
-            <span class="text-[7px] font-black uppercase opacity-70">${label}</span>
-            <div class="flex items-center w-full justify-center">
-                <span class="text-[8px] mr-0.5">R$</span>
-                <input type="number" step="0.01" value="${valorAtual}" placeholder="---"
-                    class="w-full max-w-[45px] bg-transparent text-[10px] font-bold outline-none text-center"
-                    oninput="registrarPrecoLive('${nomeItem}', '${rede}', this.value)">
-            </div>
-        </div>`;
-}
-
-// 1. Busca os dados salvos no telemóvel (ou cria vazio se for a primeira vez)
-window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
-
-// 2. Atualizamos a função que regista o preço para gravar sempre no LocalStorage
-function registrarPrecoLive(nome, rede, valor) {
-    if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
-    window.precosDigitadosNoMercado[nome][rede] = parseFloat(valor) || null;
-
-    // Salva no armazenamento do navegador (sobrevive a refresh e falta de internet)
-    localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
-
-    // Atualiza o ecrã
-    recalcularRankingLive(window.dadosOriginaisDicionario.ranking);
-}
-
-function recalcularRankingLive(rankingBase) {
-    const containerRanking = document.getElementById('totalizador-estimado');
-    if (!containerRanking) return;
-
-    // 1. Força os 4 mercados a existirem na comparação, mesmo sem histórico
-    const lojasParaProcessar = [...rankingBase];
-    const redesFixas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
-    
-    redesFixas.forEach(rede => {
-        if (!lojasParaProcessar.find(l => l.nome.toUpperCase().includes(rede))) {
-            lojasParaProcessar.push({ nome: rede, total: 0, encontrados: 0, totalItens: 1 });
+        const listaDiv = document.getElementById('lista-ativa');
+        if (listaDiv) {
+            listaDiv.innerHTML = '<p class="text-red-500 text-center py-4">Erro ao carregar lista. Tente novamente.</p>';
         }
-    });
+        mostrarFeedbackErro("Falha ao carregar lista.");
+    }
+}
 
-    // 2. Calcula os totais com base no que você digitou hoje
-    let novoRanking = lojasParaProcessar.map(loja => {
+/**
+ * Busca em lote o melhor preço histórico de cada item e atualiza o ranking.
+ * Agora usa o elemento correto "totalizador-estimado".
+ */
+async function atualizarRankingEPilulasOtimizado() {
+    const container = document.getElementById('totalizador-estimado');
+    if (!container) return;
+
+    try {
+        const response = await fetch('/api/CompararPrecos');
+        const data = await response.json();
+
+        if (!data.ranking || data.ranking.length === 0) {
+            container.classList.add('hidden');
+            return;
+        }
+
+        container.classList.remove('hidden');
+        // Monta o HTML do ranking
+        let html = `<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-3 text-center">📊 Comparativo em Tempo Real</p>
+                    <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
+        
+        data.ranking.forEach((loja, index) => {
+            const cor = obterCorMercado(loja.nome);
+            const isVencedor = index === 0;
+            html += `
+                <div class="min-w-[130px] p-2 rounded-xl border-l-4 ${isVencedor ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'} shadow-sm transition-all">
+                    <p class="text-[7px] font-black text-gray-400 uppercase truncate">${escapeHTML(loja.nome)}</p>
+                    <p class="text-sm font-black ${isVencedor ? 'text-green-600' : 'text-gray-700'}">R$ ${loja.total.toFixed(2)}</p>
+                    <p class="text-[6px] font-bold text-gray-500">${loja.encontrados}/${loja.totalItens} itens</p>
+                </div>`;
+        });
+        html += `</div>`;
+        container.innerHTML = html;
+
+        // Preenche as pílulas individuais de melhor preço histórico abaixo de cada item
+        if (data.precosIndividuais) {
+            Object.keys(data.precosIndividuais).forEach(nomeItem => {
+                const idFormatado = nomeItem.replace(/\s+/g, '-');
+                const el = document.getElementById(`preco-lista-${idFormatado}`);
+                if (el) {
+                    const info = data.precosIndividuais[nomeItem];
+                    el.innerHTML = `
+                        <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
+                            <span>💡 Menor Preço Histórico: ${escapeHTML(info.loja)}</span>
+                            <span class="font-black">R$ ${info.valor.toFixed(2)}</span>
+                        </div>`;
+                }
+            });
+        }
+
+        // Recarrega os preços digitados ao vivo (do localStorage)
+        carregarPrecosLive();
+        recalcularRankingLive(data.ranking);
+    } catch (e) {
+        console.error("Erro ao atualizar ranking e pílulas:", e);
+    }
+}
+
+// ================== PREÇOS DIGITADOS AO VIVO ==================
+
+/**
+ * Carrega do localStorage os preços digitados pelo usuário.
+ */
+function carregarPrecosLive() {
+    const stored = localStorage.getItem('precosLive');
+    if (stored) {
+        try {
+            precosDigitadosNoMercado = JSON.parse(stored);
+        } catch (e) {}
+    }
+}
+
+/**
+ * Registra um preço digitado ao vivo para determinado produto e loja.
+ * Salva no localStorage e atualiza ranking.
+ */
+function registrarPrecoLive(nome, rede, valor) {
+    if (!precosDigitadosNoMercado[nome]) precosDigitadosNoMercado[nome] = {};
+    precosDigitadosNoMercado[nome][rede] = parseFloat(valor) || null;
+    localStorage.setItem('precosLive', JSON.stringify(precosDigitadosNoMercado));
+    // Recalcula ranking com os novos preços
+    fetch('/api/CompararPrecos')
+        .then(res => res.json())
+        .then(data => recalcularRankingLive(data.ranking))
+        .catch(e => console.error("Erro ao recalcular ranking live:", e));
+}
+
+/**
+ * Recalcula o ranking com base nos preços digitados ao vivo (sobrescreve os históricos).
+ * Atualiza o container "totalizador-estimado".
+ */
+function recalcularRankingLive(rankingBase) {
+    const container = document.getElementById('totalizador-estimado');
+    if (!container || !rankingBase) return;
+
+    let novoRanking = rankingBase.map(loja => {
         let totalLive = 0;
         let encontrados = 0;
-
-        Object.keys(window.precosDigitadosNoMercado || {}).forEach(nomeItem => {
-            const precosDoItem = window.precosDigitadosNoMercado[nomeItem];
-            const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k) || k.includes(loja.nome.toUpperCase()));
-            
+        // Para cada produto com preço digitado, soma se a loja corresponde
+        Object.keys(precosDigitadosNoMercado).forEach(nomeItem => {
+            const precosDoItem = precosDigitadosNoMercado[nomeItem];
+            const redeChave = Object.keys(precosDoItem).find(k => loja.nome.toUpperCase().includes(k));
             if (redeChave && precosDoItem[redeChave]) {
-                // UX: Busca a quantidade do item na tela para a simulação ficar real
-                const idFormatado = nomeItem.replace(/\s+/g, '-');
-                const boxProduto = document.getElementById(`preco-lista-${idFormatado}`)?.closest('.bg-white');
-                let qtd = 1;
-                if (boxProduto) {
-                    const inputQtd = boxProduto.querySelector('.input-qtd-real');
-                    if (inputQtd) qtd = parseFloat(inputQtd.value) || 1;
-                }
-                
-                totalLive += precosDoItem[redeChave] * qtd; // Multiplica pela quantidade
+                totalLive += precosDoItem[redeChave];
                 encontrados++;
             }
         });
-
-        if (totalLive > 0) {
-            return { ...loja, total: totalLive, encontrados: encontrados, isLive: true };
-        }
-        return loja;
-    }).filter(l => l.total > 0); 
+        if (totalLive === 0) return loja;
+        return { ...loja, total: totalLive, encontrados: encontrados, isLive: true };
+    });
 
     novoRanking.sort((a, b) => a.total - b.total);
 
-    // 3. Renderiza os blocos com o aviso de quantos itens estão na conta
     let html = `<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-3 text-center">📊 Comparativo em Tempo Real</p>
                 <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
-
     novoRanking.forEach(loja => {
         const corCard = loja.isLive ? 'border-blue-500 bg-blue-50/20' : 'border-gray-200 bg-white';
-        
-        // UX: Mostra de onde vem o valor e quantos itens estão sendo somados
-        const textoRodape = loja.isLive 
-            ? `✍️ Digitou ${loja.encontrados} item(ns)` 
-            : `🗄️ Banco: ${loja.encontrados} item(ns)`;
-
         html += `
             <div class="min-w-[130px] p-2 rounded-xl border-l-4 ${corCard} shadow-sm transition-all">
-                <p class="text-[7px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
+                <p class="text-[7px] font-black text-gray-400 uppercase truncate">${escapeHTML(loja.nome)}</p>
                 <p class="text-sm font-black ${loja.isLive ? 'text-blue-600' : 'text-gray-700'}">R$ ${loja.total.toFixed(2)}</p>
-                <p class="text-[7px] font-bold text-gray-500 mt-1">${textoRodape}</p>
+                <p class="text-[6px] font-bold text-gray-500">${loja.isLive ? 'Digitado Agora' : 'Dados do Banco'}</p>
             </div>`;
     });
-
     html += `</div>`;
-    containerRanking.innerHTML = html;
-    containerRanking.classList.remove('hidden');
+    container.innerHTML = html;
 }
 
-/**
- * Função auxiliar para exibir "Sem histórico" nos itens que ainda não têm preço.
- * (opcional, melhora a experiência)
- */
-function exibirSemHistorico() {
-    // Percorre todos os cards da lista que não receberam pílula
-    const cards = document.querySelectorAll('#lista-ativa > div');
-    cards.forEach(card => {
-        const precoDiv = card.querySelector('[id^="preco-lista-"]');
-        if (precoDiv && precoDiv.innerHTML.trim() === '') {
-            precoDiv.innerHTML = `
-                <div class="mt-1 text-[9px] bg-gray-100 text-gray-500 p-1 px-2 rounded-lg">
-                    📭 Sem histórico de preços
-                </div>`;
-        }
-    });
-}
+// ================== CÁLCULO DO TOTAL REAL ==================
+
 /**
  * Soma os preços reais (inputs) da lista e atualiza o total na tela.
  */
@@ -498,7 +475,8 @@ function salvarPrecoNoBanco(nome, valor) {
 }
 
 /**
- * Salva a quantidade informada no banco (debounced) e recarrega a lista.
+ * Salva a quantidade informada no banco (debounced) e atualiza ranking/pílulas.
+ * Evita recarregar a lista inteira.
  */
 function agendarSalvarQtd(nome, qtd) {
     clearTimeout(timeoutQtd);
@@ -509,47 +487,50 @@ function agendarSalvarQtd(nome, qtd) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
             });
-            // ❌ ANTIGO: carregarLista();  -> recria tudo, trava com 100 itens
-            // ✅ NOVO: Só atualiza ranking e pílulas (leve e rápido)
+            // Atualiza apenas ranking e pílulas, sem recarregar toda a lista
             await atualizarRankingEPilulasOtimizado();
-            calcularTotalReal(); // Recalcula o total exibido
+            calcularTotalReal();
         } catch (e) { console.error(e); }
     }, 1000);
 }
 
 // ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
+
 /**
  * Abre o modal do gráfico com botões de filtro de período.
+ * Remove qualquer modal existente antes de criar.
  */
 async function abrirGrafico(nome) {
-    const nomeSeguro = nome.replace(/'/g, "\\'");
+    // Remove modal antigo se existir
+    const modalExistente = document.getElementById('modal-grafico');
+    if (modalExistente) modalExistente.remove();
+
+    const nomeSeguro = escapeHTML(nome);
     let canvasHtml = `
     <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-[60] p-4 flex flex-col justify-center">
         <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-fade-in">
             <div class="flex justify-between items-start mb-4">
                 <div>
                     <p class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Histórico de Preços</p>
-                    <h3 class="text-sm font-black text-gray-800 uppercase leading-tight">${nome}</h3>
+                    <h3 class="text-sm font-black text-gray-800 uppercase leading-tight">${nomeSeguro}</h3>
                 </div>
                 <button onclick="document.getElementById('modal-grafico').remove()" class="bg-red-50 text-red-500 rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-sm active:scale-90">✕</button>
             </div>
-            
             <div class="flex gap-2 mb-6 justify-center" id="filtros-grafico">
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 7, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">7D</button>
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 30, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">30D</button>
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 90, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">90D</button>
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 0, this)" class="btn-filtro flex-1 py-2 bg-blue-600 text-white text-[9px] font-black rounded-xl shadow-md">TUDO</button>
+                <button onclick="filtrarPeriodoGrafico('${encodeURIComponent(nome)}', 7, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">7D</button>
+                <button onclick="filtrarPeriodoGrafico('${encodeURIComponent(nome)}', 30, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">30D</button>
+                <button onclick="filtrarPeriodoGrafico('${encodeURIComponent(nome)}', 90, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">90D</button>
+                <button onclick="filtrarPeriodoGrafico('${encodeURIComponent(nome)}', 0, this)" class="btn-filtro flex-1 py-2 bg-blue-600 text-white text-[9px] font-black rounded-xl shadow-md">TUDO</button>
             </div>
-
             <div class="relative h-64">
                 <canvas id="meuGrafico"></canvas>
             </div>            
         </div>
     </div>`;
-
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
     await filtrarPeriodoGrafico(nome, 0); // Carrega "Tudo" inicialmente
 }
+
 /**
  * Atualiza os dados do gráfico e exibe detalhes do mercado no tooltip.
  */
@@ -573,6 +554,7 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
         const dados = await response.json();
 
         const ctx = document.getElementById('meuGrafico');
+        if (!ctx) return;
         let chartInstance = Chart.getChart(ctx);
 
         const config = {
@@ -605,38 +587,32 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
                         bodyFont: { size: 12, weight: 'bold' },
                         callbacks: {
                             label: (context) => `R$ ${context.parsed.y.toFixed(2)}`,
-                            // CORREÇÃO MERCADO: Exibe o nome da loja no balão informativo
                             afterLabel: (context) => `Loja: ${dados[context.dataIndex].mercado}`
                         }
                     }
                 },
                 scales: {
-                    y: {
-                        beginAtZero: false,
-                        grid: { color: '#f3f4f6' },
-                        ticks: { font: { size: 9 } }
-                    },
-                    x: {
-                        grid: { display: false },
-                        ticks: { font: { size: 8 } }
-                    }
+                    y: { beginAtZero: false, grid: { color: '#f3f4f6' }, ticks: { font: { size: 9 } } },
+                    x: { grid: { display: false }, ticks: { font: { size: 8 } } }
                 }
             }
         };
 
         if (chartInstance) {
             chartInstance.data = config.data;
-            chartInstance.options = config.options; // Garante atualização do tooltip
+            chartInstance.options = config.options;
             chartInstance.update();
         } else {
             new Chart(ctx, config);
         }
     } catch (e) {
         console.error("Erro ao carregar gráfico filtrado:", e);
+        mostrarFeedbackErro("Não foi possível carregar o histórico.");
     }
 }
 
 // ================== DICIONÁRIO (CATÁLOGO) ==================
+
 /**
  * Renderiza o dicionário de produtos, agrupado por categoria,
  * com checkboxes e botão de adicionar individual.
@@ -670,13 +646,16 @@ async function renderizarDicionario() {
                         <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
                             <img src="${fotoUrl}" class="w-full h-full object-cover">
                         </div>
-                        <div class="flex-1"><p class="text-[10px] font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
+                        <div class="flex-1"><p class="text-[10px] font-bold text-gray-800 uppercase">${escapeHTML(prod.nome_comum)}</p></div>
                         <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
                     </div>`;
             });
             container.appendChild(div);
         }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = '<p class="text-red-500 text-center p-4">Erro ao carregar catálogo.</p>';
+    }
 }
 
 function selecionarTudoDicionario(checked) {
@@ -731,10 +710,12 @@ async function enviarSelecionadosParaLista() {
         console.error(e);
         btn.disabled = false;
         btn.innerText = `ADICIONAR ${itensSelecionados.size} ITENS`;
+        mostrarFeedbackErro("Erro ao adicionar itens.");
     }
 }
 
 // ================== MANIPULAÇÃO MANUAL DA LISTA ==================
+
 async function alternarStatus(nome, novoStatus) {
     try {
         await fetch('/api/GerenciarLista', {
@@ -743,7 +724,10 @@ async function alternarStatus(nome, novoStatus) {
             body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
         });
         carregarLista();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        mostrarFeedbackErro("Erro ao alterar status.");
+    }
 }
 
 async function adicionarItemManual() {
@@ -760,7 +744,10 @@ async function adicionarItemManual() {
         inputNome.value = '';
         inputQtd.value = '1';
         carregarLista();
-    } catch (e) { }
+    } catch (e) {
+        console.error(e);
+        mostrarFeedbackErro("Erro ao adicionar item.");
+    }
 }
 
 async function adicionarDiretoALista(nome) {
@@ -772,10 +759,14 @@ async function adicionarDiretoALista(nome) {
         });
         alert("Item adicionado à lista!");
         carregarLista();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        mostrarFeedbackErro("Erro ao adicionar item.");
+    }
 }
 
-// ================== NOTA FISCAL ==================
+// ================== NOTA FISCAL (COM MODO CONSULTA) ==================
+
 async function processarUrlManual() {
     const urlInput = document.getElementById('url-input');
     const url = urlInput.value.trim();
@@ -784,7 +775,7 @@ async function processarUrlManual() {
     statusDiv.classList.remove('hidden');
     statusDiv.innerText = "📡 Analisando CNPJ da nota...";
     try {
-        // Consulta apenas para saber se o estabelecimento já é conhecido
+        // 1. Consulta apenas (não salva) para obter CNPJ e estabelecimento sugerido
         let response = await fetch('/api/ProcessarNota', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -802,6 +793,7 @@ async function processarUrlManual() {
                 return;
             }
         }
+        // 2. Agora sim, envia para salvar com o apelido definido
         statusDiv.innerText = "💾 Salvando dados...";
         response = await fetch('/api/ProcessarNota', {
             method: 'POST',
@@ -813,9 +805,14 @@ async function processarUrlManual() {
         urlInput.value = '';
         renderPreview(resData.dados);
         carregarLista();
+        // Atualiza também o gráfico de relatórios se estiver visível
+        if (!document.getElementById('secao-relatorios').classList.contains('hidden')) {
+            carregarRelatorios();
+        }
     } catch (err) {
-        statusDiv.innerText = "❌ Erro ao processar nota.";
         console.error(err);
+        statusDiv.innerText = "❌ Erro ao processar nota.";
+        mostrarFeedbackErro("Falha no processamento da nota.");
     }
 }
 
@@ -830,7 +827,7 @@ async function renderPreview(dados) {
     header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
     header.innerHTML = `
         <div class="flex justify-between items-start mb-2">
-            <div><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p><p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "DESCONHECIDO"}</p></div>
+            <div><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p><p class="text-xs font-bold text-gray-800 uppercase">${escapeHTML(dados.estabelecimento || "DESCONHECIDO")}</p></div>
             <div class="text-right"><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total</p><p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p></div>
         </div>
         <div class="flex justify-between items-center pt-2 border-t border-blue-100">
@@ -850,7 +847,7 @@ async function renderPreview(dados) {
         itemDiv.innerHTML = `
         <div class="flex-1 pr-2">
             <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-orange-500'} uppercase leading-tight">
-                ${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
+                ${escapeHTML(temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao)}
             </p>
             <div class="flex flex-wrap gap-2 mt-1 items-center">
                 <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">
@@ -873,18 +870,12 @@ async function renderPreview(dados) {
 function vincularID(id, desc) {
     const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
     const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
-
-    // Se cancelar o prompt, para aqui
     if (novoNome === null) return;
-
-    const nomeFinal = novoNome.trim().toUpperCase(); // Limpeza extra
+    const nomeFinal = novoNome.trim().toUpperCase();
     const categoriaSugerida = sugerirCategoria(nomeFinal);
     const cat = prompt(`Categoria:`, categoriaSugerida);
-
     if (cat === null) return;
-
     const foto = prompt(`URL da Foto (Deixe vazio para manter a atual):`, "");
-
     fetch('/api/VincularProdutos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -892,14 +883,19 @@ function vincularID(id, desc) {
             idPrincipal: id,
             nomePadrao: nomeFinal,
             categoria: cat.toUpperCase(),
-            fotoUrl: foto // Enviamos o que vier, a API decide se usa
+            fotoUrl: foto
         })
     }).then(() => {
         processarUrlManual();
         renderizarDicionario();
+    }).catch(e => {
+        console.error(e);
+        mostrarFeedbackErro("Erro ao vincular produto.");
     });
 }
+
 // ================== ALERTA DE PREÇO E SUGESTÕES ==================
+
 /**
  * Compara o preço digitado com a média histórica do produto e exibe um badge.
  */
@@ -924,7 +920,9 @@ async function verificarAlertaPreco(nome, precoAtual, elementoDestino) {
             badge = `<span class="bg-blue-400 text-white text-[8px] px-1 rounded">⚖️ NA MÉDIA</span>`;
         }
         elementoDestino.innerHTML = badge;
-    } catch (e) { console.error("Erro no alerta de preço", e); }
+    } catch (e) {
+        console.error("Erro no alerta de preço", e);
+    }
 }
 
 /**
@@ -952,26 +950,28 @@ async function carregarSugestoes() {
         const datalist = document.getElementById('sugestoes-produtos');
         if (datalist) {
             datalist.innerHTML = [...new Set(produtos.map(p => p.nome_comum))]
-                .map(nome => `<option value="${nome.toUpperCase()}">`).join('');
+                .map(nome => `<option value="${escapeHTML(nome.toUpperCase())}">`).join('');
         }
-    } catch (e) { }
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 // ================== EXCLUSÃO E FINALIZAÇÃO ==================
+
 async function deletarItem(nome) {
     if (!confirm(`Remover ${nome} da lista?`)) return;
     try {
         await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
-
-        // Remove o valor digitado da memória e atualiza o armazenamento
-        if (window.precosDigitadosNoMercado && window.precosDigitadosNoMercado[nome]) {
-            delete window.precosDigitadosNoMercado[nome];
-            localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+        // Remove preços digitados ao vivo associados a este item
+        if (precosDigitadosNoMercado && precosDigitadosNoMercado[nome]) {
+            delete precosDigitadosNoMercado[nome];
+            localStorage.setItem('precosLive', JSON.stringify(precosDigitadosNoMercado));
         }
-
-        carregarLista(); // O ranking vai recalcular automaticamente sem este item
+        carregarLista();
     } catch (e) {
         console.error("Erro ao deletar item:", e);
+        mostrarFeedbackErro("Erro ao remover item.");
     }
 }
 
@@ -979,51 +979,43 @@ async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
         await fetch('/api/GerenciarLista', { method: 'DELETE' });
-
-        // Zera toda a memória de digitação e limpa completamente o armazenamento do telemóvel
-        window.precosDigitadosNoMercado = {};
+        // Limpa todos os preços digitados ao vivo
+        precosDigitadosNoMercado = {};
         localStorage.removeItem('precosLive');
-
-        // Zera o totalizador visual no ecrã imediatamente
         const display = document.getElementById('total-real-dinamico');
         if (display) display.innerText = "R$ 0,00";
-
-        // Esconde o painel do ranking
-        const ranking = document.getElementById('totalizador-estimado');
-        if (ranking) ranking.classList.add('hidden');
-
-        carregarLista(); // Recarrega a lista agora vazia
+        const totalizador = document.getElementById('totalizador-estimado');
+        if (totalizador) totalizador.classList.add('hidden');
+        carregarLista();
     } catch (e) {
         console.error("Erro ao finalizar compra:", e);
+        mostrarFeedbackErro("Erro ao finalizar compra.");
     }
 }
 
+// ================== RELATÓRIOS ADICIONAIS (TOP ITENS, MÉDIAS) ==================
+
 async function renderizarRankingTopCompras() {
-    const container = document.getElementById('lista-gastos-detalhada'); // Reutilizando o container de detalhes
+    const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
-
-    // Mostra um carregando para dar feedback visual
-    container.innerHTML = '<p class="text-center text-gray-400 text-[10px] animate-pulse py-8">CALCULANDO SEU CONSUMO EM OSASCO...</p>';
-
+    container.innerHTML = '<p class="text-center text-gray-400 text-[10px] animate-pulse py-8">CALCULANDO SEU CONSUMO...</p>';
     try {
         const response = await fetch('/api/ObterRankingTopCompras');
         const dados = await response.json();
-
         let html = `
             <div class="mt-8">
                 <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 text-center">
                     🏆 TOP 10 PRODUTOS (VOLUME)
                 </h3>
                 <div class="space-y-2">`;
-
         dados.forEach((item, index) => {
             html += `
-    <div onclick="abrirGrafico('${item._id}')" 
+    <div onclick="abrirGrafico('${encodeURIComponent(item._id)}')" 
          class="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 cursor-pointer hover:bg-blue-50 transition-colors">
         <span class="text-lg font-black text-blue-200">#${index + 1}</span>
         <img src="${item.foto || 'https://via.placeholder.com/50'}" class="w-10 h-10 rounded-lg object-cover bg-gray-50">
         <div class="flex-1">
-            <p class="text-[10px] font-black text-gray-700 uppercase">${item._id}</p>
+            <p class="text-[10px] font-black text-gray-700 uppercase">${escapeHTML(item._id)}</p>
             <p class="text-[9px] text-gray-400 font-bold">${item.vezesComprado} notas fiscais</p>
         </div>
         <div class="text-right">
@@ -1032,25 +1024,25 @@ async function renderizarRankingTopCompras() {
         </div>
     </div>`;
         });
-
         html += `</div></div>`;
         container.innerHTML = html;
-    } catch (e) { console.error("Erro no ranking de volume:", e); }
+    } catch (e) {
+        console.error("Erro no ranking de volume:", e);
+        container.innerHTML = '<p class="text-red-500 text-center p-4">Erro ao carregar ranking.</p>';
+    }
 }
 
 async function renderizarGraficoMedias() {
     const container = document.getElementById('lista-gastos-detalhada');
     container.innerHTML = '<div class="h-64 w-full"><canvas id="chartMediasTop10"></canvas></div>';
-
     try {
         const response = await fetch('/api/ObterMediaPrecoTop10');
         const dados = await response.json();
-
         const ctx = document.getElementById('chartMediasTop10').getContext('2d');
         new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: dados.map(d => d._id.split(' ')[0] + '...'), // Abrevia o nome
+                labels: dados.map(d => d._id.split(' ')[0] + '...'),
                 datasets: [{
                     label: 'Preço Médio (R$)',
                     data: dados.map(d => d.precoMedio),
@@ -1072,75 +1064,54 @@ async function renderizarGraficoMedias() {
                 }
             }
         });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = '<p class="text-red-500 text-center p-4">Erro ao carregar gráfico de médias.</p>';
+    }
 }
 
-(function debugCores() {
-    console.log("--- INICIANDO DEBUG DE CORES ---");
-    const listaItens = document.querySelectorAll('.nome-item');
-
-    listaItens.forEach(el => {
-        const nomeOriginal = el.innerText.trim();
-        const nomeBusca = nomeOriginal.toUpperCase();
-        const dados = window.totaisPorMercado[nomeBusca];
-
-        console.group(`Produto: ${nomeOriginal}`);
-        if (!dados) {
-            console.error("❌ ERRO: Produto não encontrado em window.totaisPorMercado. Verifique se o nome no Dicionário é IDENTICO ao da Lista.");
-            console.log("Nomes disponíveis no sistema:", Object.keys(window.totaisPorMercado));
-        } else {
-            const chaves = Object.keys(dados);
-            const temCRF = chaves.some(k => k.includes("CARREFOUR") && dados[k] !== null);
-            const temASA = chaves.some(k => (k.includes("ASSAI") || k.includes("ASSAÍ")) && dados[k] !== null);
-            const temATA = chaves.some(k => k.includes("ATACADAO") && dados[k] !== null);
-
-            console.log("Dados Brutos da API:", dados);
-            console.log(`Tem Carrefour? ${temCRF ? '✅' : '❌'}`);
-            console.log(`Tem Assaí? ${temASA ? '✅' : '❌'}`);
-            console.log(`Tem Atacadão? ${temATA ? '✅' : '❌'}`);
-
-            const total = [temCRF, temASA, temATA].filter(v => v).length;
-            console.log(`Total de lojas detectadas: ${total}/3`);
-
-            if (total < 3) {
-                console.warn("⚠️ MOTIVO DO LARANJA: O sistema não encontrou preço para uma das 3 redes principais acima.");
-            } else {
-                console.info("✨ DEVERIA SER TRANSPARENTE: Se está laranja e o total é 3, há um erro de CSS ou o elemento não recebeu a classe.");
-            }
-        }
-        console.groupEnd();
-    });
-    console.log("--- FIM DO DEBUG ---");
-})();
+// ================== PINTURA DE BORDAS (COBERTURA DE PREÇOS) ==================
 
 function pintarBordasDeCobertura(dadosComparativos) {
     const cards = document.querySelectorAll('[data-produto]');
-
     cards.forEach(card => {
         const nome = card.getAttribute('data-produto');
         const p = dadosComparativos[nome] || {};
         const chaves = Object.keys(p);
-
-        // Checagem flexível para as redes
+        // Checagem flexível para as redes principais
         const temCRF = chaves.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
         const temASA = chaves.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
         const temATA = chaves.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
-
         const total = [temCRF, temASA, temATA].filter(v => v).length;
-
-        // Reset de classes de borda
-        card.classList.remove('border-orange-400', 'border-red-500', 'border-transparent');
-
+        // Remove classes anteriores
+        card.classList.remove('border-yellow-400', 'border-red-500', 'border-transparent');
         if (total >= 3) {
-            card.classList.add('border-transparent'); // Tudo ok!
+            card.classList.add('border-transparent');
         } else if (total === 0) {
-            card.classList.add('border-red-500'); // Sem dados
+            card.classList.add('border-red-500');
         } else {
-            card.classList.add('border-yellow-400'); // Dados parciais
+            card.classList.add('border-yellow-400');
         }
     });
 }
 
+// ================== FEEDBACK DE ERRO (VISUAL) ==================
+
+/**
+ * Exibe uma mensagem temporária de erro para o usuário.
+ */
+function mostrarFeedbackErro(mensagem) {
+    const div = document.createElement('div');
+    div.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-full text-xs font-bold z-50 shadow-lg animate-fade-in';
+    div.innerText = mensagem;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 3000);
+}
+
 // ================== INICIALIZAÇÃO ==================
+
+// Carrega preços digitados salvos
+carregarPrecosLive();
+// Carrega lista e sugestões
 carregarLista();
 carregarSugestoes();
