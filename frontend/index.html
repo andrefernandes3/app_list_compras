@@ -35,49 +35,58 @@
 
     <main class="p-4 w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto transition-all duration-300">
         
-        <div id="secao-lista">
-            <div class="sticky top-[110px] z-20 bg-gray-50/95 backdrop-blur-sm pb-2 shadow-md mb-4">
-                <div id="totalizador-estimado" class="px-4 hidden"></div>
-            </div>
-            <button onclick="finalizarCompra()"
-                class="w-full mb-4 bg-red-100 text-red-600 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest active:scale-95 transition-transform">
-                🗑️ Finalizar Compra e Limpar Lista
-            </button>
+        <div id="secao-lista" class="lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
+            
+            <div class="lg:col-span-8">
+                <div class="mb-4 bg-blue-50 p-4 lg:p-6 rounded-2xl shadow-sm border border-blue-200 transition-all hover:shadow-md">
+                    <h2 class="text-blue-800 font-bold mb-4 flex justify-between italic text-lg">
+                        📝 Próxima Compra
+                        <button onclick="carregarLista()" class="text-xs underline hover:text-blue-500">Sincronizar</button>
+                    </h2>
 
-            <div class="mb-4 bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-200">
-                <h2 class="text-blue-800 font-bold mb-2 flex justify-between italic">
-                    📝 Próxima Compra
-                    <button onclick="carregarLista()" class="text-[10px] underline">Sincronizar</button>
-                </h2>
-
-                <div class="flex flex-wrap gap-2 mb-3">
-                    <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="O que falta?"
-                        class="flex-[3] min-w-[150px] p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
-                    <datalist id="sugestoes-produtos"></datalist>
-                    <div class="flex flex-1 gap-2 min-w-[100px]">
-                        <input type="number" id="qtd-item-lista" value="1" min="1"
-                            class="w-full p-3 text-sm border border-blue-200 rounded-xl outline-none text-center">
-                        <button onclick="adicionarItemManual()"
-                            class="bg-blue-600 text-white px-4 rounded-xl font-bold flex items-center justify-center shadow-md active:scale-95">+</button>
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <input type="text" id="novo-item-lista" list="sugestoes-produtos" placeholder="O que falta?"
+                            class="flex-[3] min-w-[150px] p-3 text-sm border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-shadow">
+                        <datalist id="sugestoes-produtos"></datalist>
+                        <div class="flex flex-1 gap-2 min-w-[100px]">
+                            <input type="number" id="qtd-item-lista" value="1" min="1"
+                                class="w-full p-3 text-sm border border-blue-200 rounded-xl outline-none text-center">
+                            <button onclick="adicionarItemManual()"
+                                class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl font-bold flex items-center justify-center shadow-md active:scale-95 transition-colors">+</button>
+                        </div>
                     </div>
+
+                    <div id="lista-ativa" class="space-y-3 text-sm mb-4"></div>
                 </div>
-
-                <div id="lista-ativa" class="space-y-2 text-sm mb-4"></div>
-
             </div>
 
-            <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
-                <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
-                    class="w-full p-2 border rounded-lg text-sm mb-2 focus:ring-2 focus:ring-blue-500 outline-none">
-                <button onclick="processarUrlManual()"
-                    class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold active:scale-95 transition-transform">Processar
-                    Nota</button>
-            </div>
-            <div id="status" class="mt-4 p-4 rounded-xl hidden text-sm text-center"></div>
-            <div id="preview-container" class="mt-6 hidden">
-                <h3 class="text-gray-700 font-bold mb-2 text-sm">Itens da Nota:</h3>
-                <div id="lista-itens" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="lg:col-span-4 lg:sticky lg:top-[160px] flex flex-col gap-4">
+                
+                <div class="bg-gray-50/95 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none pb-2 lg:pb-0 shadow-md lg:shadow-none mb-2 lg:mb-0 z-20 sticky top-[110px] lg:static">
+                    <div id="totalizador-estimado" class="px-4 lg:px-0 hidden"></div>
                 </div>
+
+                <button onclick="finalizarCompra()"
+                    class="w-full bg-red-100 hover:bg-red-200 text-red-600 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest active:scale-95 transition-all shadow-sm">
+                    🗑️ Finalizar Compra e Limpar
+                </button>
+
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                    <h3 class="text-xs font-black text-gray-500 uppercase tracking-widest mb-3 text-center">🧾 Escanear Nota</h3>
+                    <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
+                        class="w-full p-3 border border-gray-200 rounded-xl text-sm mb-3 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow">
+                    <button onclick="processarUrlManual()"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold active:scale-95 transition-all shadow-md">
+                        Processar Nota
+                    </button>
+                    <div id="status" class="mt-4 p-3 bg-gray-50 rounded-xl hidden text-xs font-medium text-center"></div>
+                </div>
+                
+                <div id="preview-container" class="mt-2 hidden">
+                    <h3 class="text-gray-700 font-bold mb-2 text-sm px-1">Itens da Nota:</h3>
+                    <div id="lista-itens" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-h-[300px] overflow-y-auto"></div>
+                </div>
+
             </div>
         </div>
 
