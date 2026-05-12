@@ -1,15 +1,26 @@
 const { MongoClient } = require('mongodb');
+
+// Instancia o cliente fora da função para que seja reutilizado entre chamadas
 const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
+// Variável para armazenar a promessa de conexão
+let dbPromise = null;
+
+async function getDb() {
+    if (!dbPromise) {
+        // Apenas conecta se ainda não houver uma promessa de conexão ativa
+        dbPromise = client.connect().then(() => client.db('app_compras'));
+    }
+    return dbPromise;
+}
+
 module.exports = async function (context, req) {
     try {
-        await client.connect();
-        const db = client.db('app_compras');
+        const db = await getDb(); // Obtém a instância do banco já conectada
 
         const listaAtiva = await db.collection('lista_compras').find({}).toArray();
         if (listaAtiva.length === 0) {
-            // Adicionado precosPorLojaCompleto ao retorno vazio
             return context.res = { status: 200, body: { ranking: [], precosIndividuais: {}, precosPorLojaCompleto: {} } };
         }
 
