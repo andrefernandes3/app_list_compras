@@ -338,92 +338,80 @@ async function carregarLista() {
  */
 async function atualizarPrecosEPilulas() {
     try {
-        // Obtém os dados de precificação atualizados diretamente da API
         const respPrecos = await fetch('/api/CompararPrecos');
         const data = await respPrecos.json();
         window.dadosOriginaisDicionario = data;
 
-        // Seleciona absolutamente todos os cards que possuem o atributo data-produto
-        const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
+        // Pega todos os cards visíveis ou invisíveis da lista ativa
+        const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
         
         cards.forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
-            const idFormatado = nomeProduto.replace(/\s+/g, '-');
-            const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
+            if (!nomeProduto) return;
+
+            // 🔥 CORREÇÃO DO ID: Usa exatamente o mesmo padrão de Regex da carregarLista()
+            // Buscando o nome original a partir do cache ou tratando a string de forma idêntica
+            const dadosLista = window.dadosOriginaisDicionario?.precosPorLojaCompleto || {};
             
-            // Se o container não existir na árvore do DOM, ignora
+            // Encontra a chave original correspondente no banco (com acentos/caixa alta)
+            const nomeReal = Object.keys(dadosLista).find(k => k.trim().toUpperCase() === nomeProduto) || nomeProduto;
+            const idFormatado = nomeReal.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
             if (!containerPreco) return;
 
-            // Coleta os preços históricos mapeados no banco para este produto
-            const precosPorLoja = (data.precosPorLojaCompleto && data.precosPorLojaCompleto[nomeProduto]) || {};
-            
+            // Busca preços históricos do banco
+            const precosPorLoja = dadosLista[nomeReal] || {};
             const precoCRF = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
             const precoASA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
             const precoATA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ATACADAO"))] || null;
             const precoSAM = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S") || k.toUpperCase().includes("CLUB"))] || null;
 
-            // Coleta os valores temporários digitados na gôndola durante esta sessão
-            const digitados = window.precosDigitadosNoMercado[nomeProduto] || {};
-            const valorCRF = digitados['CARREFOUR'] !== undefined ? digitados['CARREFOUR'] : (precoCRF || '');
-            const valorASA = digitados['ASSAI'] !== undefined ? digitados['ASSAI'] : (precoASA || '');
-            const valorATA = digitados['ATACADAO'] !== undefined ? digitados['ATACADAO'] : (precoATA || '');
-            const valorSAM = digitados['SAMS CLUB'] !== undefined ? digitados['SAMS CLUB'] : (precoSAM || '');
+            // Busca os digitados da sessão atual (MongoDB Temp)
+            const digitados = window.precosDigitadosNoMercado?.[nomeReal.trim().toUpperCase()] || {};
 
-            // Injeta o HTML garantindo que as caixinhas herdem as cores corretas e o evento de input
+            // Injeta o HTML renderizando os inputs com indicador inteligente
             containerPreco.innerHTML = `
                 <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                    ${renderInputMercado('Carrefour', valorCRF, 'bg-green-50 text-green-700 border-green-200', nomeProduto, 'CARREFOUR')}
-                    ${renderInputMercado('Assaí', valorASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeProduto, 'ASSAI')}
-                    ${renderInputMercado('Atacadão', valorATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeProduto, 'ATACADAO')}
-                    ${renderInputMercado('Sams Club', valorSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeProduto, 'SAMS CLUB')}
+                    ${renderInputMercado('Carrefour', digitados['CARREFOUR'], precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeReal, 'CARREFOUR')}
+                    ${renderInputMercado('Assaí', digitados['ASSAI'], precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeReal, 'ASSAI')}
+                    ${renderInputMercado('Atacadão', digitados['ATACADAO'], precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeReal, 'ATACADAO')}
+                    ${renderInputMercado('Sams Club', digitados['SAMS CLUB'], precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeReal, 'SAMS CLUB')}
                 </div>
                 <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
-                    <span>💡 Menor Preço Histórico: ${data.precosIndividuais?.[nomeProduto]?.loja || 'N/A'}</span>
-                    <span class="font-black">R$ ${data.precosIndividuais?.[nomeProduto]?.valor?.toFixed(2) || '--'}</span>
+                    <span>💡 Menor Preço Histórico: ${data.precosIndividuais?.[nomeReal]?.loja || 'N/A'}</span>
+                    <span class="font-black">R$ ${data.precosIndividuais?.[nomeReal]?.valor?.toFixed(2) || '--'}</span>
                 </div>`;
         });
 
-        // Força a atualização do ranking no topo baseado no estado atual do DOM
         recalcularRankingLive(data.ranking || []);
     } catch (e) {
-        console.error("Erro ao restabelecer as pílulas de preço por mercado:", e);
+        console.error("Erro ao sincronizar pílulas de mercados:", e);
     }
 }
-
 /**
  * Componente do Input com inteligência visual (Diferencia estimativa de preço real).
  */
-function renderInputMercado(label, valorDigitado, valorBanco, nomeItem, rede) {
-    const possuiDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
-    const valorExibido = possuiDigitado ? valorDigitado : (valorBanco || '');
+function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProduto, rede) {
+    // Se o usuário já digitou algo, prioriza. Caso contrário, assume o valor estável do banco
+    const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
+    const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
     
-    // Define as classes de estilo: verde se você já checou/digitou, cinza/azul se for estimativa antiga do banco
-    let estiloClasses = "";
-    let sufixoStatus = "";
-    
-    if (possuiDigitado) {
-        estiloClasses = "bg-green-50 text-green-700 border-green-200 font-black";
-        sufixoStatus = "✅";
-    } else if (valorBanco) {
-        estiloClasses = "bg-gray-100/80 text-gray-500 border-gray-200 italic opacity-75";
-        sufixoStatus = "⚙️";
-    } else {
-        estiloClasses = "bg-gray-50 text-gray-300 border-gray-100";
-        sufixoStatus = "---";
-    }
+    // Configura o indicador visual (✍️ para manual, 🏦 para histórico do MongoDB)
+    const indicador = temDigitado ? '✍️' : (valorBanco ? '🏦' : '---');
+    const estiloTexto = temDigitado ? 'font-black text-gray-900' : 'font-medium text-gray-400/90 italic';
 
     return `
-        <div class="min-w-[78px] flex-1 flex flex-col items-center p-0.5 rounded-md border ${estiloClasses} shadow-xs transition-all">
-            <span class="text-[7px] font-bold uppercase tracking-tight flex items-center gap-0.5">
-                ${label} ${sufixoStatus}
-            </span>
-            <div class="flex items-center w-full justify-center">
-                <span class="text-[8px] mr-0.5 font-normal">R$</span>
-                <input type="number" step="0.01" value="${valorExibido}" placeholder="---"
-                    class="w-full max-w-[48px] bg-transparent text-[10px] font-bold outline-none text-center border-none p-0 focus:ring-0"
-                    oninput="registrarPrecoLive('${nomeItem}', '${rede}', this.value)">
+        <div class="flex-1 min-w-[78px] p-1 rounded-lg border ${classes} text-center shadow-sm relative">
+            <div class="flex justify-between items-center px-0.5 mb-0.5">
+                <span class="text-[7px] uppercase font-black tracking-wider opacity-75">${label}</span>
+                <span class="text-[6px] opacity-75">${indicador}</span>
             </div>
-        </div>`;
+            <input type="number" step="0.01" value="${valorExibido}" placeholder="---"
+                class="input-preco-mercado w-full bg-transparent border-none text-center outline-none text-[10px] p-0 m-0 ${estiloTexto}"
+                oninput="registrarPrecoLive('${nomeProduto.replace(/'/g, "\\'")}', '${rede}', this.value)">
+        </div>
+    `;
 }
 
 /**
