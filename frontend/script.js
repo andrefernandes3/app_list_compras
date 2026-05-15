@@ -428,34 +428,43 @@ function recalcularRankingLive(rankingBase) {
     const containerRanking = document.getElementById('totalizador-estimado');
     if (!containerRanking) return;
 
+    // Redes que vamos comparar
     const lojas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
     const totais = {};
     lojas.forEach(loja => { totais[loja] = 0; });
 
+    // Percorremos todos os cards de produtos visíveis na tela
     const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
     
+    if (cards.length === 0) {
+        containerRanking.classList.add('hidden');
+        return;
+    }
+
     cards.forEach(card => {
         const nomeProduto = card.getAttribute('data-produto');
         const inputQtd = card.querySelector('.input-qtd-real');
-        const qtd = parseFloat(inputQtd.value) || 1;
+        const qtd = parseFloat(inputQtd ? inputQtd.value : 1) || 1;
 
         lojas.forEach(loja => {
-            // 1. Tenta pegar o preço digitado na gôndola
+            // 1. Tenta pegar o preço que você digitou temporariamente nesta sessão
             let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
 
-            // 2. Se não digitou, recorre ao histórico guardado no dicionário original do banco
-            if (precoParaSomar === undefined || precoParaSomar === null || precoParaSomar === '') {
+            // 2. Se não tiver nada digitado (ou for nulo), busca no histórico geral do banco
+            if (precoParaSomar === undefined || precoParaSomar === null || precoParaSomar === 0) {
                 const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-                const keyLoja = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
-                precoParaSomar = dadosBanco && keyLoja ? dadosBanco[keyKey] : 0;
+                // Localiza correspondência (ex: mapeia "ASSAI" para "ASSAI VILA YARA")
+                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+                precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
             }
 
             if (precoParaSomar > 0) {
-                totais[loja] += parseFloat(precoParaSomar) * qtd;
+                totais[loja] += precoParaSomar * qtd;
             }
         });
     });
 
+    // Converte para formato de array e ordena do mais barato para o mais caro
     const rankingCalculado = Object.entries(totais)
         .filter(([_, total]) => total > 0)
         .map(([loja, total]) => ({ nome: loja, total }))
@@ -466,6 +475,8 @@ function recalcularRankingLive(rankingBase) {
         return;
     }
 
+    // Remove o hidden e renderiza o layout fixo no topo
+    containerRanking.classList.remove('hidden');
     exibirRanking(rankingCalculado);
 }
 /**
