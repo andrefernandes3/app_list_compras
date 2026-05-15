@@ -396,22 +396,30 @@ function renderInputMercado(label, valorDigitado, valorBanco, nomeItem, rede) {
  */
 async function registrarPrecoLive(nome, rede, valor) {
     const numValor = parseFloat(valor);
-    if (isNaN(numValor)) return;
+    
+    // Agora aceitamos o 0 de forma intencional
+    const valorValido = !isNaN(numValor) && numValor >= 0;
 
-    // 1. Atualiza localmente para resposta imediata na UI
-    if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
-    window.precosDigitadosNoMercado[nome][rede] = numValor;
-
-    // 2. Persiste no MongoDB para outros dispositivos
-    try {
-        await fetch('/api/GerenciarPrecosTemp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item: nome, loja: rede, preco: numValor })
-        });
-    } catch (e) { console.error("Erro ao sincronizar com nuvem", e); }
-
+    if (!window.precosDigitadosNoMercado[nome]) {
+        window.precosDigitadosNoMercado[nome] = {};
+    }
+    
+    // Se o usuário digitou 0 ou limpou o campo, definimos explicitamente como 0
+    window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
+    
+    // Recalcula o ranking imediatamente na tela
     recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
+
+    // Persiste no Banco de Dados Temporário
+    if (valorValido) {
+        try {
+            await fetch('/api/GerenciarPrecosTemp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item: nome.toUpperCase(), loja: rede.toUpperCase(), preco: numValor })
+            });
+        } catch (e) { console.error("Erro ao sincronizar preço temporário:", e); }
+    }
 }
 
 /**
@@ -448,15 +456,19 @@ function recalcularRankingLive(rankingBase) {
 
         lojas.forEach(loja => {
             // 1. Tenta pegar o preço que você digitou temporariamente nesta sessão
-            let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
+            // Dentro do laço lojas.forEach na função recalcularRankingLive:
+let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
 
-            // 2. Se não tiver nada digitado (ou for nulo), busca no histórico geral do banco
-            if (precoParaSomar === undefined || precoParaSomar === null || precoParaSomar === 0) {
-                const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-                // Localiza correspondência (ex: mapeia "ASSAI" para "ASSAI VILA YARA")
-                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
-                precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
-            }
+// Se for exatamente 0, significa que o usuário anulou manualmente o valor histórico
+if (precoParaSomar === 0) {
+    precoParaSomar = 0; // Mantém zero e não pega o do banco
+} 
+// Se estiver vazio ou nulo (undefined), aí sim busca o histórico do banco
+else if (precoParaSomar === undefined || precoParaSomar === null) {
+    const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
+    const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+    precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
+}
 
             if (precoParaSomar > 0) {
                 totais[loja] += precoParaSomar * qtd;
