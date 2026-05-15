@@ -194,6 +194,7 @@ async function carregarLista() {
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
+        // Busca concorrentemente os dados da lista, vínculos do dicionário e comparativo base
         const [respLista, respDict, respPrecos] = await Promise.all([
             fetch('/api/GerenciarLista'),
             fetch('/api/VincularProdutos'),
@@ -204,104 +205,130 @@ async function carregarLista() {
         const dicionario = await respDict.json();
         const dataPrecos = await respPrecos.json();
 
+        // Armazena em cache global a estrutura de preços por loja vinda do histórico do banco
         window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
+        
+        // Guarda o dicionário e ranking base na janela global para uso de outras funções (como o recalcularRankingLive)
+        window.dadosOriginaisDicionario = dataPrecos;
 
+        // Se a lista estiver vazia, encerra limpando a tela e escondendo o ranking superior
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             document.getElementById('totalizador-estimado').classList.add('hidden');
+            document.getElementById('secao-filtros-categorias').classList.add('hidden'); // Oculta barra de filtros vazia
             return;
         }
 
-        // Ordena os itens por categoria
+        // Mapeia e injeta a categoria correta em cada item consultando o dicionário de vínculos
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            return { ...item, categoria: info.categoria || "OUTROS" };
+            return { ...item, categoria: (info.categoria || "OUTROS").toUpperCase() };
         });
+        
+        // Ordena alfabeticamente pelas categorias para agrupar os itens por corredor
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
+
+        // [NOVO] Renderiza dinamicamente as pílulas de categorias com base nos itens que estão na lista ativa
+        renderizarFiltrosCategorias(itensOrdenados);
 
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
-        // Renderiza cada item
+        // Renderiza cada item agrupando-os visualmente por blocos de corredores
         itensOrdenados.forEach(item => {
-            if (item.categoria !== categoriaAtual) {
-                categoriaAtual = item.categoria;
-                const separador = document.createElement('div');
-                separador.className = "text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
-                separador.innerHTML = `📍 Corredor: ${categoriaAtual}`;
-                listaDiv.appendChild(separador);
-            }
-
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            const idFormatado = item.item_nome.replace(/\s+/g, '-');
-            const nomeSeguro = escapeHTML(item.item_nome);
+            
+            // Tratamentos de strings seguras para evitar quebras em atributos HTML e ID do DOM
+            const idFormatado = item.item_nome.replace(/[^a-zA-Z0-9]/g, '_');
+            const nomeSeguro = escapeHTML(item.item_nome).replace(/'/g, "\\'");
             const nomeBusca = item.item_nome.trim().toUpperCase();
+            
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
+            // Se mudou de categoria, cria uma nova divisória de cabeçalho de corredor
+            if (item.categoria !== categoriaAtual) {
+                categoriaAtual = item.categoria;
+                const separador = document.createElement('div');
+                
+                // Adicionadas classes e atributos essenciais para a inteligência da função 'filtrarPorCorredor'
+                separador.className = "header-corredor text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-50 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
+                separador.setAttribute('data-categoria', categoriaAtual);
+                separador.innerHTML = `📍 CORREDOR: ${categoriaAtual}`;
+                listaDiv.appendChild(separador);
+            }
+
+            // Instancia o container principal do Card do Produto
             const itemElement = document.createElement('div');
-            // Borda inicial amarela (será ajustada pela pintura)
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+            
+            // Adicionados atributos estruturais 'card-produto-lista' e 'data-categoria-produto' para o filtro funcionar
+            itemElement.className = `card-produto-lista bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
+            itemElement.setAttribute('data-categoria-produto', item.categoria);
 
-            // Localize onde o itemElement.innerHTML é definido dentro de itensOrdenados.forEach em carregarLista()
-itemElement.innerHTML = `
-    <div class="flex flex-col w-full gap-2">
-        <div class="flex items-center gap-2 w-full justify-between">
-            <div class="flex items-center gap-2 min-w-0 flex-1">
-                <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
-                     onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
-                    <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
-                </div>
-                <span class="nome-item font-bold text-gray-700 uppercase text-[11px] leading-tight truncate hover:text-blue-600 cursor-pointer flex-1" 
-                      title="${item.item_nome}" onclick="abrirGrafico('${nomeSeguro}')">
-                    ${item.item_nome}
-                </span>
-            </div>
+            // Injeta o HTML em linha única compactada para smartphones (Sua recomendação)
+            itemElement.innerHTML = `
+                <div class="flex flex-col w-full gap-2">
+                    <div class="flex items-center gap-2 w-full justify-between">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
+                                 onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
+                                <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
+                            </div>
+                            <span class="nome-item font-bold text-gray-700 uppercase text-[11px] leading-tight truncate flex-1" 
+                                  title="${item.item_nome}" onclick="abrirGrafico('${nomeSeguro}')">
+                                ${item.item_nome}
+                            </span>
+                        </div>
 
-            <div class="relative flex items-center gap-1 bg-blue-50/40 p-1 rounded-lg shrink-0">
-                <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
-                
-                <input type="number" min="1" value="${qtd}" 
-                    class="input-qtd-real w-7 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
-                    oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
-                
-                <span class="text-[8px] text-blue-400">x</span>
-                
-                <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
-                    oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
-                    class="input-preco-real w-12 p-1 text-[10px] border border-blue-200 rounded text-center outline-none bg-white focus:ring-1 focus:ring-blue-500">
-                
-                <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-0.5 active:scale-90 transition-transform">
-                    ${isComprado ? '🔄' : '✅'}
-                </button>
-                <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
-            </div>
-        </div>
+                        <div class="relative flex items-center gap-1 bg-blue-50/40 p-1 rounded-lg shrink-0">
+                            <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
+                            
+                            <input type="number" min="1" value="${qtd}" 
+                                class="input-qtd-real w-7 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
+                                oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
+                            
+                            <span class="text-[8px] text-blue-400">x</span>
+                            
+                            <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
+                                oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
+                                class="input-preco-real w-12 p-1 text-[10px] border border-blue-200 rounded text-center outline-none bg-white focus:ring-1 focus:ring-blue-500">
+                            
+                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-0.5 active:scale-90 transition-transform">
+                                ${isComprado ? '🔄' : '✅'}
+                            </button>
+                            <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
+                        </div>
+                    </div>
 
-        <div id="preco-lista-${idFormatado}" class="w-full"></div>
-    </div>`;
+                    <div id="preco-lista-${idFormatado}" class="w-full"></div>
+                </div>`;
 
             listaDiv.appendChild(itemElement);
 
+            // Caso o item já tenha um preço real digitado anteriormente, dispara a verificação de alerta de inflação
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
 
-        // Aplica a pintura de bordas (cobertura de preços) e atualiza os preços digitados (carrossel) e ranking
+        // Aguarda um curto período para garantir a fixação dos elementos no DOM antes de rodar os scripts visuais pós-carga
         setTimeout(() => {
-            pintarBordasDeCobertura(window.totaisPorMercado);
-            atualizarPrecosEPilulas();  // Função que recria os 4 boxes e o ranking
-            calcularTotalReal();
+            pintarBordasDeCobertura(window.totaisPorMercado); // Colore bordas esquerdas conforme menor preço histórico
+            atualizarPrecosEPilulas();                        // Popula os carrosséis inferiores e o ranking superior inteligente
+            calcularTotalReal();                              // Calcula e fixa o total planejado/carrinho no header
+            
+            // [NOVO] Garante que, se a página atualizar, o corredor selecionado anteriormente permaneça ativo e filtrado
+            if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
+                filtrarPorCorredor(categoriaSelecionadaFiltro);
+            }
         }, 300);
 
     } catch (err) {
-        console.error("Erro ao carregar lista:", err);
+        console.error("Erro fatal ao processar e renderizar a lista de compras:", err);
     }
 }
-
 /**
  * Atualiza os 4 boxes de digitação de preços (Carrefour, Assaí, Atacadão, Sams)
  * e também o ranking no elemento 'totalizador-estimado'.
@@ -1190,46 +1217,38 @@ function criarBotaoPilula(idCategoria, label) {
 function filtrarPorCorredor(idCategoria) {
     categoriaSelecionadaFiltro = idCategoria;
     
-    // Atualiza o estado visual dos botões
+    // 1. Atualiza visual dos botões do filtro
     const botoes = document.querySelectorAll('#container-categorias-filtro button');
     botoes.forEach(btn => {
-        const text = btn.innerText.replace('📍 ', '');
-        if (text === idCategoria) {
+        const text = btn.innerText.replace('📍 ', '').trim().toUpperCase();
+        if (text === idCategoria.toUpperCase()) {
             btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-blue-600 text-white border-blue-600 shadow-sm";
         } else {
             btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
         }
     });
 
-    // Filtra os elementos reais do DOM (Separadores de Corredor e Cards)
-    const elementosLista = document.getElementById('lista-ativa').children;
-    let currentCategoryMatch = true;
-
-    for (let el of elementosLista) {
-        // Se for uma div de cabeçalho de corredor (📍 Corredor: NOMECATEGORIA)
-        if (el.innerText.includes("📍 CORREDOR:")) {
-            const nomeCategoriaHeader = el.innerText.replace("📍 CORREDOR: ", "").trim().toUpperCase();
-            if (idCategoria === "TUDO" || nomeCategoriaHeader === idCategoria.toUpperCase()) {
-                el.classList.remove('hidden');
-                currentCategoryMatch = true;
-            } else {
-                el.classList.add('hidden');
-                currentCategoryMatch = false;
-            }
-        } 
-        // Se for o card do produto
-        else if (el.hasAttribute('data-produto')) {
-            const nomeProduto = el.getAttribute('data-produto');
-            // Procura a categoria real do produto no dicionário mapeado globalmente
-            const itemOriginal = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-            
-            if (idCategoria === "TUDO" || currentCategoryMatch) {
-                el.classList.remove('hidden');
-            } else {
-                el.classList.add('hidden');
-            }
+    // 2. Filtra divisórias de corredores
+    const headers = document.querySelectorAll('#lista-ativa .header-corredor');
+    headers.forEach(h => {
+        const catHeader = h.getAttribute('data-categoria');
+        if (idCategoria === "TUDO" || catHeader === idCategoria.toUpperCase()) {
+            h.classList.remove('hidden');
+        } else {
+            h.classList.add('hidden');
         }
-    }
+    });
+
+    // 3. Filtra os cards dos produtos
+    const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
+    cards.forEach(card => {
+        const catCard = card.getAttribute('data-categoria-produto');
+        if (idCategoria === "TUDO" || catCard === idCategoria.toUpperCase()) {
+            card.classList.remove('hidden');
+        } else {
+            card.classList.add('hidden');
+        }
+    });
 }
 
 // ================== INICIALIZAÇÃO ==================
