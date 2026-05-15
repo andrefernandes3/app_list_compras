@@ -421,16 +421,17 @@ async function registrarPrecoLive(nome, rede, valor) {
 /**
  * Recalcula o ranking somando Preços Digitados + Preços do Banco (onde não houver digitação).
  */
+/**
+ * Soma dinamicamente os valores reais digitados + estimativas históricas para atualizar o topo.
+ */
 function recalcularRankingLive(rankingBase) {
     const containerRanking = document.getElementById('totalizador-estimado');
     if (!containerRanking) return;
 
-    // Redes que vamos comparar
     const lojas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
     const totais = {};
     lojas.forEach(loja => { totais[loja] = 0; });
 
-    // Percorremos todos os cards da lista ativa
     const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
     
     cards.forEach(card => {
@@ -439,25 +440,22 @@ function recalcularRankingLive(rankingBase) {
         const qtd = parseFloat(inputQtd.value) || 1;
 
         lojas.forEach(loja => {
-            // 1. Tenta pegar o preço que você acabou de digitar
+            // 1. Tenta pegar o preço digitado na gôndola
             let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
 
-            // 2. Se não digitou nada (null ou vazio), tenta pegar o que veio do Banco
-            if (!precoParaSomar || precoParaSomar === 0) {
+            // 2. Se não digitou, recorre ao histórico guardado no dicionário original do banco
+            if (precoParaSomar === undefined || precoParaSomar === null || precoParaSomar === '') {
                 const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-                // Busca a chave que contém o nome da loja (ex: "CARREFOUR OSASCO")
-                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
-                precoParaSomar = dadosBanco ? dadosBanco[chaveLojaBanco] : 0;
+                const keyLoja = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+                precoParaSomar = dadosBanco && keyLoja ? dadosBanco[keyKey] : 0;
             }
 
-            // Soma ao total daquela loja
             if (precoParaSomar > 0) {
-                totais[loja] += precoParaSomar * qtd;
+                totais[loja] += parseFloat(precoParaSomar) * qtd;
             }
         });
     });
 
-    // Converte para o formato do ranking e ordena pelo menor preço
     const rankingCalculado = Object.entries(totais)
         .filter(([_, total]) => total > 0)
         .map(([loja, total]) => ({ nome: loja, total }))
