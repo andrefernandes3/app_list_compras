@@ -3,6 +3,7 @@ let totaisPorMercado = {};           // Dados de preços por loja (vindos da API
 let itensSelecionados = new Set();    // IDs dos produtos selecionados no dicionário
 let meuGraficoRelatorio = null;       // Instância do gráfico de gastos
 let timeoutPreco, timeoutQtd;         // Debouncers para salvar preço e quantidade
+let categoriaSelecionadaFiltro = "TUDO";
 
 // Armazena os preços digitados pelo usuário em tempo real (persistidos no localStorage)
 window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
@@ -193,6 +194,7 @@ async function carregarLista() {
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
+        // Busca concorrentemente os dados da lista, vínculos do dicionário e comparativo base
         const [respLista, respDict, respPrecos] = await Promise.all([
             fetch('/api/GerenciarLista'),
             fetch('/api/VincularProdutos'),
@@ -203,168 +205,213 @@ async function carregarLista() {
         const dicionario = await respDict.json();
         const dataPrecos = await respPrecos.json();
 
+        // Armazena em cache global a estrutura de preços por loja vinda do histórico do banco
         window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
+        
+        // Guarda o dicionário e ranking base na janela global para uso de outras funções (como o recalcularRankingLive)
+        window.dadosOriginaisDicionario = dataPrecos;
 
+        // Se a lista estiver vazia, encerra limpando a tela e escondendo o ranking superior
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             document.getElementById('totalizador-estimado').classList.add('hidden');
+            document.getElementById('secao-filtros-categorias').classList.add('hidden'); // Oculta barra de filtros vazia
             return;
         }
 
-        // Ordena os itens por categoria
+        // Mapeia e injeta a categoria correta em cada item consultando o dicionário de vínculos
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            return { ...item, categoria: info.categoria || "OUTROS" };
+            return { ...item, categoria: (info.categoria || "OUTROS").toUpperCase() };
         });
+        
+        // Ordena alfabeticamente pelas categorias para agrupar os itens por corredor
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
+
+        // [NOVO] Renderiza dinamicamente as pílulas de categorias com base nos itens que estão na lista ativa
+        renderizarFiltrosCategorias(itensOrdenados);
 
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
-        // Renderiza cada item
+        // Renderiza cada item agrupando-os visualmente por blocos de corredores
         itensOrdenados.forEach(item => {
-            if (item.categoria !== categoriaAtual) {
-                categoriaAtual = item.categoria;
-                const separador = document.createElement('div');
-                separador.className = "text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
-                separador.innerHTML = `📍 Corredor: ${categoriaAtual}`;
-                listaDiv.appendChild(separador);
-            }
-
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            const idFormatado = item.item_nome.replace(/\s+/g, '-');
-            const nomeSeguro = escapeHTML(item.item_nome);
+            
+            // Tratamentos de strings seguras para evitar quebras em atributos HTML e ID do DOM
+            const idFormatado = item.item_nome.replace(/[^a-zA-Z0-9]/g, '_');
+            const nomeSeguro = escapeHTML(item.item_nome).replace(/'/g, "\\'");
             const nomeBusca = item.item_nome.trim().toUpperCase();
+            
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
-            const itemElement = document.createElement('div');
-            // Borda inicial amarela (será ajustada pela pintura)
-            itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
-            itemElement.setAttribute('data-produto', nomeBusca);
+            // Se mudou de categoria, cria uma nova divisória de cabeçalho de corredor
+            if (item.categoria !== categoriaAtual) {
+                categoriaAtual = item.categoria;
+                const separador = document.createElement('div');
+                
+                // Adicionadas classes e atributos essenciais para a inteligência da função 'filtrarPorCorredor'
+                separador.className = "header-corredor text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-50 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
+                separador.setAttribute('data-categoria', categoriaAtual);
+                separador.innerHTML = `📍 CORREDOR: ${categoriaAtual}`;
+                listaDiv.appendChild(separador);
+            }
 
+            // Instancia o container principal do Card do Produto
+            const itemElement = document.createElement('div');
+            
+            // Adicionados atributos estruturais 'card-produto-lista' e 'data-categoria-produto' para o filtro funcionar
+            itemElement.className = `card-produto-lista bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+            itemElement.setAttribute('data-produto', nomeBusca);
+            itemElement.setAttribute('data-categoria-produto', item.categoria);
+
+            // Injeta o HTML em linha única compactada para smartphones (Sua recomendação)
             itemElement.innerHTML = `
-                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
-                     onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
-                    <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex justify-between items-start">
-                        <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words cursor-pointer hover:text-blue-600" onclick="abrirGrafico('${nomeSeguro}')">
-                            ${item.item_nome}
-                        </span>
-                        <div class="relative flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
+                <div class="flex flex-col w-full gap-2">
+                    <div class="flex items-center gap-2 w-full justify-between">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
+                                 onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
+                                <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
+                            </div>
+                            <span class="nome-item font-bold text-gray-700 uppercase text-[11px] leading-tight truncate flex-1" 
+                                  title="${item.item_nome}" onclick="abrirGrafico('${nomeSeguro}')">
+                                ${item.item_nome}
+                            </span>
+                        </div>
+
+                        <div class="relative flex items-center gap-1 bg-blue-50/40 p-1 rounded-lg shrink-0">
                             <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
+                            
                             <input type="number" min="1" value="${qtd}" 
-                                class="input-qtd-real w-8 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
+                                class="input-qtd-real w-7 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
                                 oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
+                            
                             <span class="text-[8px] text-blue-400">x</span>
+                            
                             <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
                                 oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
-                                class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
-                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
+                                class="input-preco-real w-12 p-1 text-[10px] border border-blue-200 rounded text-center outline-none bg-white focus:ring-1 focus:ring-blue-500">
+                            
+                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-0.5 active:scale-90 transition-transform">
                                 ${isComprado ? '🔄' : '✅'}
                             </button>
-                            <button onclick="deletarItem('${nomeSeguro}')" class="text-xs ml-1 hover:bg-red-100 rounded p-1">🗑️</button>
+                            <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
                         </div>
                     </div>
-                    <div id="preco-lista-${idFormatado}"></div>
+
+                    <div id="preco-lista-${idFormatado}" class="w-full"></div>
                 </div>`;
 
             listaDiv.appendChild(itemElement);
 
+            // Caso o item já tenha um preço real digitado anteriormente, dispara a verificação de alerta de inflação
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
 
-        // Aplica a pintura de bordas (cobertura de preços) e atualiza os preços digitados (carrossel) e ranking
+        // Aguarda um curto período para garantir a fixação dos elementos no DOM antes de rodar os scripts visuais pós-carga
         setTimeout(() => {
-            pintarBordasDeCobertura(window.totaisPorMercado);
-            atualizarPrecosEPilulas();  // Função que recria os 4 boxes e o ranking
-            calcularTotalReal();
+            pintarBordasDeCobertura(window.totaisPorMercado); // Colore bordas esquerdas conforme menor preço histórico
+            atualizarPrecosEPilulas();                        // Popula os carrosséis inferiores e o ranking superior inteligente
+            calcularTotalReal();                              // Calcula e fixa o total planejado/carrinho no header
+            
+            // [NOVO] Garante que, se a página atualizar, o corredor selecionado anteriormente permaneça ativo e filtrado
+            if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
+                filtrarPorCorredor(categoriaSelecionadaFiltro);
+            }
         }, 300);
 
     } catch (err) {
-        console.error("Erro ao carregar lista:", err);
+        console.error("Erro fatal ao processar e renderizar a lista de compras:", err);
     }
 }
-
 /**
  * Atualiza os 4 boxes de digitação de preços (Carrefour, Assaí, Atacadão, Sams)
  * e também o ranking no elemento 'totalizador-estimado'.
  */
+/**
+ * Atualiza os 4 boxes de preço injetando os valores históricos do banco caso não haja digitação.
+ */
 async function atualizarPrecosEPilulas() {
     try {
-        // Obtém os dados atualizados de precificação
         const respPrecos = await fetch('/api/CompararPrecos');
         const data = await respPrecos.json();
         window.dadosOriginaisDicionario = data;
 
-        // Para cada item da lista, recria os inputs de preço dos 4 mercados
-        const cards = document.querySelectorAll('#lista-ativa > div[data-produto]');
-        for (const card of cards) {
+        // Pega todos os cards visíveis ou invisíveis da lista ativa
+        const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
+        
+        cards.forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
-            const idFormatado = nomeProduto.replace(/\s+/g, '-');
-            const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
-            if (!containerPreco) continue;
+            if (!nomeProduto) return;
 
-            // Obtém os preços históricos da API para este produto
-            const precosPorLoja = (data.precosPorLojaCompleto && data.precosPorLojaCompleto[nomeProduto]) || {};
+            // 🔥 CORREÇÃO DO ID: Usa exatamente o mesmo padrão de Regex da carregarLista()
+            // Buscando o nome original a partir do cache ou tratando a string de forma idêntica
+            const dadosLista = window.dadosOriginaisDicionario?.precosPorLojaCompleto || {};
+            
+            // Encontra a chave original correspondente no banco (com acentos/caixa alta)
+            const nomeReal = Object.keys(dadosLista).find(k => k.trim().toUpperCase() === nomeProduto) || nomeProduto;
+            const idFormatado = nomeReal.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
+            if (!containerPreco) return;
+
+            // Busca preços históricos do banco
+            const precosPorLoja = dadosLista[nomeReal] || {};
             const precoCRF = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
             const precoASA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
             const precoATA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ATACADAO"))] || null;
-            const precoSAM = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S"))] || null;
+            const precoSAM = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S") || k.toUpperCase().includes("CLUB"))] || null;
 
-            // Pega valores já digitados pelo usuário (localStorage)
-            const digitados = window.precosDigitadosNoMercado[nomeProduto] || {};
-            const valorCRF = digitados['CARREFOUR'] !== undefined ? digitados['CARREFOUR'] : (precoCRF || '');
-            const valorASA = digitados['ASSAI'] !== undefined ? digitados['ASSAI'] : (precoASA || '');
-            const valorATA = digitados['ATACADAO'] !== undefined ? digitados['ATACADAO'] : (precoATA || '');
-            const valorSAM = digitados['SAMS CLUB'] !== undefined ? digitados['SAMS CLUB'] : (precoSAM || '');
+            // Busca os digitados da sessão atual (MongoDB Temp)
+            const digitados = window.precosDigitadosNoMercado?.[nomeReal.trim().toUpperCase()] || {};
 
-            // Gera o HTML dos quatro inputs
+            // Injeta o HTML renderizando os inputs com indicador inteligente
             containerPreco.innerHTML = `
                 <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                    ${renderInputMercado('Carrefour', valorCRF, 'bg-green-50 text-green-700 border-green-200', nomeProduto, 'CARREFOUR')}
-                    ${renderInputMercado('Assaí', valorASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeProduto, 'ASSAI')}
-                    ${renderInputMercado('Atacadão', valorATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeProduto, 'ATACADAO')}
-                    ${renderInputMercado('Sams Club', valorSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeProduto, 'SAMS CLUB')}
+                    ${renderInputMercado('Carrefour', digitados['CARREFOUR'], precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeReal, 'CARREFOUR')}
+                    ${renderInputMercado('Assaí', digitados['ASSAI'], precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeReal, 'ASSAI')}
+                    ${renderInputMercado('Atacadão', digitados['ATACADAO'], precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeReal, 'ATACADAO')}
+                    ${renderInputMercado('Sams Club', digitados['SAMS CLUB'], precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeReal, 'SAMS CLUB')}
                 </div>
                 <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
-                    <span>💡 Menor Preço Histórico: ${data.precosIndividuais?.[nomeProduto]?.loja || 'N/A'}</span>
-                    <span class="font-black">R$ ${data.precosIndividuais?.[nomeProduto]?.valor?.toFixed(2) || '--'}</span>
+                    <span>💡 Menor Preço Histórico: ${data.precosIndividuais?.[nomeReal]?.loja || 'N/A'}</span>
+                    <span class="font-black">R$ ${data.precosIndividuais?.[nomeReal]?.valor?.toFixed(2) || '--'}</span>
                 </div>`;
-        }
+        });
 
-        // Atualiza o ranking (melhor mercado baseado nos preços digitados)
         recalcularRankingLive(data.ranking || []);
     } catch (e) {
-        console.error("Erro ao atualizar preços e pílulas:", e);
+        console.error("Erro ao sincronizar pílulas de mercados:", e);
     }
 }
-
 /**
- * Gera o HTML de um input para um mercado específico.
- * @param {string} label - Nome curto (Carrefour, Assaí, etc.)
- * @param {number|string} valor - Valor atual (histórico ou digitado)
- * @param {string} classes - Classes CSS para estilo
- * @param {string} nomeItem - Nome do produto
- * @param {string} rede - Identificador da rede (CARREFOUR, ASSAI, ...)
- * @returns {string}
+ * Componente do Input com inteligência visual (Diferencia estimativa de preço real).
  */
-function renderInputMercado(label, valor, classes, nomeItem, rede) {
+function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProduto, rede) {
+    // Se o usuário já digitou algo, prioriza. Caso contrário, assume o valor estável do banco
+    const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
+    const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
+    
+    // Configura o indicador visual (✍️ para manual, 🏦 para histórico do MongoDB)
+    const indicador = temDigitado ? '✍️' : (valorBanco ? '🏦' : '---');
+    const estiloTexto = temDigitado ? 'font-black text-gray-900' : 'font-medium text-gray-400/90 italic';
+
     return `
-        <div class="min-w-[75px] flex-1 flex flex-col items-center p-1 rounded-md border ${classes} shadow-sm focus-within:ring-2 focus-within:ring-blue-400 transition-all">
-            <span class="text-[7px] font-black uppercase opacity-70">${label}</span>
-            <div class="flex items-center w-full justify-center">
-                <span class="text-[8px] mr-0.5">R$</span>
-                <input type="number" step="0.01" value="${valor !== null ? valor : ''}" placeholder="---"
-                    class="w-full max-w-[45px] bg-transparent text-[10px] font-bold outline-none text-center"
-                    oninput="registrarPrecoLive('${nomeItem}', '${rede}', this.value)">
+        <div class="flex-1 min-w-[78px] p-1 rounded-lg border ${classes} text-center shadow-sm relative">
+            <div class="flex justify-between items-center px-0.5 mb-0.5">
+                <span class="text-[7px] uppercase font-black tracking-wider opacity-75">${label}</span>
+                <span class="text-[6px] opacity-75">${indicador}</span>
             </div>
-        </div>`;
+            <input type="number" step="0.01" value="${valorExibido}" placeholder="---"
+                class="input-preco-mercado w-full bg-transparent border-none text-center outline-none text-[10px] p-0 m-0 ${estiloTexto}"
+                oninput="registrarPrecoLive('${nomeProduto.replace(/'/g, "\\'")}', '${rede}', this.value)">
+        </div>
+    `;
 }
 
 /**
@@ -375,22 +422,30 @@ function renderInputMercado(label, valor, classes, nomeItem, rede) {
  */
 async function registrarPrecoLive(nome, rede, valor) {
     const numValor = parseFloat(valor);
-    if (isNaN(numValor)) return;
+    
+    // Agora aceitamos o 0 de forma intencional
+    const valorValido = !isNaN(numValor) && numValor >= 0;
 
-    // 1. Atualiza localmente para resposta imediata na UI
-    if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
-    window.precosDigitadosNoMercado[nome][rede] = numValor;
-
-    // 2. Persiste no MongoDB para outros dispositivos
-    try {
-        await fetch('/api/GerenciarPrecosTemp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item: nome, loja: rede, preco: numValor })
-        });
-    } catch (e) { console.error("Erro ao sincronizar com nuvem", e); }
-
+    if (!window.precosDigitadosNoMercado[nome]) {
+        window.precosDigitadosNoMercado[nome] = {};
+    }
+    
+    // Se o usuário digitou 0 ou limpou o campo, definimos explicitamente como 0
+    window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
+    
+    // Recalcula o ranking imediatamente na tela
     recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
+
+    // Persiste no Banco de Dados Temporário
+    if (valorValido) {
+        try {
+            await fetch('/api/GerenciarPrecosTemp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item: nome.toUpperCase(), loja: rede.toUpperCase(), preco: numValor })
+            });
+        } catch (e) { console.error("Erro ao sincronizar preço temporário:", e); }
+    }
 }
 
 /**
@@ -399,6 +454,9 @@ async function registrarPrecoLive(nome, rede, valor) {
  */
 /**
  * Recalcula o ranking somando Preços Digitados + Preços do Banco (onde não houver digitação).
+ */
+/**
+ * Soma dinamicamente os valores reais digitados + estimativas históricas para atualizar o topo.
  */
 function recalcularRankingLive(rankingBase) {
     const containerRanking = document.getElementById('totalizador-estimado');
@@ -409,34 +467,37 @@ function recalcularRankingLive(rankingBase) {
     const totais = {};
     lojas.forEach(loja => { totais[loja] = 0; });
 
-    // Percorremos todos os cards da lista ativa
+    // Percorremos todos os cards de produtos visíveis na tela
     const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
-
+    
     cards.forEach(card => {
         const nomeProduto = card.getAttribute('data-produto');
         const inputQtd = card.querySelector('.input-qtd-real');
-        const qtd = parseFloat(inputQtd.value) || 1;
+        const qtd = parseFloat(inputQtd ? inputQtd.value : 1) || 1;
 
         lojas.forEach(loja => {
-            // 1. Tenta pegar o preço que você acabou de digitar
-            let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
+            // 1. Tenta pegar o preço que você digitou temporariamente nesta sessão
+            // Dentro do laço lojas.forEach na função recalcularRankingLive:
+let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
 
-            // 2. Se não digitou nada (null ou vazio), tenta pegar o que veio do Banco
-            if (!precoParaSomar || precoParaSomar === 0) {
-                const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-                // Busca a chave que contém o nome da loja (ex: "CARREFOUR OSASCO")
-                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
-                precoParaSomar = dadosBanco ? dadosBanco[chaveLojaBanco] : 0;
-            }
+// Se for exatamente 0, significa que o usuário anulou manualmente o valor histórico
+if (precoParaSomar === 0) {
+    precoParaSomar = 0; // Mantém zero e não pega o do banco
+} 
+// Se estiver vazio ou nulo (undefined), aí sim busca o histórico do banco
+else if (precoParaSomar === undefined || precoParaSomar === null) {
+    const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
+    const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+    precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
+}
 
-            // Soma ao total daquela loja
             if (precoParaSomar > 0) {
                 totais[loja] += precoParaSomar * qtd;
             }
         });
     });
 
-    // Converte para o formato do ranking e ordena pelo menor preço
+    // Converte para formato de array e ordena do mais barato para o mais caro
     const rankingCalculado = Object.entries(totais)
         .filter(([_, total]) => total > 0)
         .map(([loja, total]) => ({ nome: loja, total }))
@@ -447,6 +508,8 @@ function recalcularRankingLive(rankingBase) {
         return;
     }
 
+    // Remove o hidden e renderiza o layout fixo no topo
+    containerRanking.classList.remove('hidden');
     exibirRanking(rankingCalculado);
 }
 /**
@@ -1096,6 +1159,115 @@ setInterval(() => {
         hidratarPrecosTemporarios();
     }
 }, 5000);
+
+/**
+ * Gera as pílulas de filtros de categoria com base nos itens presentes na lista.
+ */
+function renderizarFiltrosCategorias(itensOrdenados) {
+    const secaoFiltros = document.getElementById('secao-filtros-categorias');
+    const container = document.getElementById('container-categorias-filtro');
+    if (!container || !secaoFiltros) return;
+
+    if (!itensOrdenados || itensOrdenados.length === 0) {
+        secaoFiltros.classList.add('hidden');
+        return;
+    }
+
+    // Extrai categorias únicas presentes na lista atual
+    const categoriasPresentes = [...new Set(itensOrdenados.map(i => i.categoria))].sort();
+    
+    secaoFiltros.classList.remove('hidden');
+    container.innerHTML = '';
+
+    // Cria o botão principal "TUDO"
+    const btnTudo = criarBotaoPilula("TUDO", "📍 TUDO");
+    container.appendChild(btnTudo);
+
+    // Cria um botão para cada corredor/categoria
+    categoriasPresentes.forEach(cat => {
+        const btn = criarBotaoPilula(cat, cat);
+        container.appendChild(btn);
+    });
+}
+
+function criarBotaoPilula(idCategoria, label) {
+    const botao = document.createElement('button');
+    const isActive = categoriaSelecionadaFiltro === idCategoria;
+    
+    botao.className = `px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border transition-all ${
+        isActive 
+        ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+    }`;
+    botao.innerText = label;
+    botao.onclick = () => filtrarPorCorredor(idCategoria);
+    return botao;
+}
+
+/**
+ * Filtra visualmente os elementos da lista sem precisar recarregar dados do banco.
+ * Atualiza o ranking do topo para somar apenas o corredor visível.
+ */
+/**
+ * Filtra visualmente os elementos da Lista Ativa E do Dicionário
+ * sem precisar recarregar dados do banco.
+ */
+function filtrarPorCorredor(idCategoria) {
+    categoriaSelecionadaFiltro = idCategoria;
+    
+    // 1. Atualiza visual dos botões do filtro
+    const botoes = document.querySelectorAll('#container-categorias-filtro button');
+    botoes.forEach(btn => {
+        const text = btn.innerText.replace('📍 ', '').trim().toUpperCase();
+        if (text === idCategoria.toUpperCase()) {
+            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-blue-600 text-white border-blue-600 shadow-sm";
+        } else {
+            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
+        }
+    });
+
+    // 2. Filtra divisórias de corredores na Lista Ativa
+    const headers = document.querySelectorAll('#lista-ativa .header-corredor');
+    headers.forEach(h => {
+        const catHeader = h.getAttribute('data-categoria');
+        if (idCategoria === "TUDO" || catHeader === idCategoria.toUpperCase()) {
+            h.classList.remove('hidden');
+        } else {
+            h.classList.add('hidden');
+        }
+    });
+
+    // 3. Filtra os cards dos produtos na Lista Ativa
+    const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
+    cards.forEach(card => {
+        const catCard = card.getAttribute('data-categoria-produto');
+        if (idCategoria === "TUDO" || catCard === idCategoria.toUpperCase()) {
+            card.classList.remove('hidden');
+        } else {
+            card.classList.add('hidden');
+        }
+    });
+
+    // ==========================================
+    // 🔥 NOVO: FILTRO PARA O DICIONÁRIO
+    // ==========================================
+    // Garanta que os itens renderizados na tabela/lista do dicionário possuam 
+    // a classe '.item-dicionario-lista' e o atributo 'data-categoria-dict'
+    const itensDict = document.querySelectorAll('#container-dicionario .item-dicionario-lista, #tabela-dicionario tr[data-categoria-dict]');
+    itensDict.forEach(item => {
+        const catDict = item.getAttribute('data-categoria-dict');
+        if (idCategoria === "TUDO" || (catDict && catDict.toUpperCase() === idCategoria.toUpperCase())) {
+            item.classList.remove('hidden');
+        } else {
+            item.classList.add('hidden');
+        }
+    });
+
+    // Força o topo a recalcular o ranking levando em conta apenas os itens visíveis
+    if (window.dadosOriginaisDicionario) {
+        atualizarPrecosEPilulas();
+    }
+}
 
 // ================== INICIALIZAÇÃO ==================
 carregarLista();

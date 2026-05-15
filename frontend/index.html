@@ -25,17 +25,19 @@
 
         <div id="totalizador-estimado" class="px-4 pb-3 hidden bg-blue-700/30 backdrop-blur-md">
         </div>
-    </div>
+</div>
 
     <div class="flex justify-center border-b border-gray-200 bg-white sticky top-[94px] z-20 shadow-sm transition-all">
         <div class="flex w-full max-w-md md:max-w-3xl lg:max-w-5xl">
-            <button onclick="alternarAba('lista')" id="btn-aba-lista"
-                class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
-            <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
-                class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
-            <button onclick="alternarAba('relatorios')" id="btn-aba-rel"
-                class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
+            <button onclick="alternarAba('lista')" id="btn-aba-lista" class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
+            <button onclick="alternarAba('dicionario')" id="btn-aba-dict" class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
+            <button onclick="alternarAba('relatorios')" id="btn-aba-rel" class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
         </div>
+    </div>
+
+    <div id="secao-filtros-categorias" class="bg-gray-50 p-2 sticky top-[145px] z-20 shadow-sm border-b border-gray-100 hidden">
+        <div id="container-categorias-filtro" class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar scroll-smooth max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-2">
+            </div>
     </div>
 
     <main class="p-4 w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto transition-all duration-300">

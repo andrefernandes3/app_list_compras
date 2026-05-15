@@ -44,3 +44,17 @@ main {
 .sticky.top-\[94px\] {
     top: auto !important; /* Reseta o valor fixo do Tailwind se necessário */
 }
+
+/* Remove a barra de scroll visual nas pílulas de categorias */
+#container-categorias-filtro::-webkit-scrollbar {
+    display: none;
+}
+#container-categorias-filtro {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Animação suave para quando os itens forem filtrados */
+.card-produto-lista {
+    transition: all 0.2s ease-in-out;
+}
