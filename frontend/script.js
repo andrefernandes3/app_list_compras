@@ -1072,9 +1072,7 @@ async function hidratarPrecosTemporarios() {
         const dados = await response.json();
 
         if (dados && dados.length > 0) {
-            // Reinicia o objeto para garantir sincronia total
             window.precosDigitadosNoMercado = {};
-
             dados.forEach(reg => {
                 if (!window.precosDigitadosNoMercado[reg.item]) {
                     window.precosDigitadosNoMercado[reg.item] = {};
@@ -1082,19 +1080,23 @@ async function hidratarPrecosTemporarios() {
                 window.precosDigitadosNoMercado[reg.item][reg.loja] = reg.preco;
             });
 
-            // Salva no localStorage como backup local (opcional)
-            localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+            // IMPORTANTE: Atualiza o Ranking e os inputs na tela
+            recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
             
-            // Se estiver na aba de lista, atualiza a visualização
-            if (!document.getElementById('secao-lista').classList.contains('hidden')) {
-                await atualizarPrecosEPilulas();
-                calcularTotalReal();
-            }
+            // Opcional: Atualizar os campos visíveis se o usuário não estiver digitando neles
+            const inputs = document.querySelectorAll('.input-preco-mercado');
+            // ... lógica para atualizar valores nos inputs ...
         }
-    } catch (e) {
-        console.error("Erro ao sincronizar preços da nuvem:", e);
-    }
+    } catch (e) { console.error("Erro na sincronização:", e); }
 }
+
+// Verifica novos preços no banco a cada 5 segundos
+setInterval(() => {
+    // Só busca se a página não estiver oculta (economiza bateria/dados)
+    if (!document.hidden) {
+        hidratarPrecosTemporarios();
+    }
+}, 5000);
 
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
