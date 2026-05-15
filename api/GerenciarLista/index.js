@@ -2,15 +2,22 @@ const { MongoClient } = require('mongodb');
 const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
+let dbPromise = null;
+
+async function getDb() {
+    if (!dbPromise) {
+        dbPromise = client.connect().then(() => client.db('app_compras'));
+    }
+    return dbPromise;
+}
+
 module.exports = async function (context, req) {
     const metodo = req.method;
-    await client.connect();
-    const db = client.db('app_compras');
-    const colecao = db.collection('lista_compras');
-
     try {
+        const db = await getDb(); // Conexão eficiente
+        const colecao = db.collection('lista_compras');
+
         if (metodo === 'GET') {
-            // Agora buscamos todos os itens da lista para manter o Caminho B
             const lista = await colecao.find({}).toArray();
             context.res = { status: 200, body: lista };
         }

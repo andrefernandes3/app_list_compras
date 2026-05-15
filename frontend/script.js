@@ -459,17 +459,17 @@ function exibirRanking(ranking) {
     if (!containerRanking) return;
     containerRanking.classList.remove('hidden');
 
-    let html = `<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-3 text-center">📊 Comparativo em Tempo Real</p>
-                <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">`;
+    // Mudamos o texto para branco para contrastar com o fundo azul do header
+    let html = `<p class="text-[9px] font-black text-blue-100 uppercase tracking-widest mb-2 text-center">📊 Melhor Mercado Atual</p>
+                <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">`;
 
     ranking.forEach((loja, idx) => {
-        const cor = obterCorMercado(loja.nome);
         const isVencedor = idx === 0;
+        // Cards levemente translúcidos ou sólidos dependendo da vitória
         html += `
-            <div class="min-w-[100px] p-2 rounded-xl border-l-4 ${isVencedor ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'} shadow-sm transition-all">
-                <p class="text-[7px] font-black text-gray-400 uppercase truncate">${loja.nome}</p>
-                <p class="text-sm font-black text-gray-800">R$ ${loja.total.toFixed(2)}</p>
-                <p class="text-[6px] font-bold text-gray-500">${isVencedor ? 'Mais barato' : ''}</p>
+            <div class="min-w-[110px] p-2 rounded-xl border-l-4 ${isVencedor ? 'border-green-400 bg-white' : 'border-blue-400 bg-blue-500/50'} shadow-md transition-all">
+                <p class="text-[7px] font-black ${isVencedor ? 'text-gray-500' : 'text-blue-100'} uppercase truncate">${loja.nome}</p>
+                <p class="text-sm font-black ${isVencedor ? 'text-gray-800' : 'text-white'}">R$ ${loja.total.toFixed(2)}</p>
             </div>`;
     });
 
@@ -1099,4 +1099,3 @@ async function hidratarPrecosTemporarios() {
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
 carregarSugestoes();
-hidratarPrecosTemporarios();
