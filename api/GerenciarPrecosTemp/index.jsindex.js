@@ -19,16 +19,23 @@ module.exports = async function (context, req) {
             const dados = await colecao.find({}).toArray();
             context.res = { status: 200, body: dados };
         } 
-        else if (req.method === 'POST') {
-            const { item, loja, preco } = req.body;
-            // Usa updateOne com upsert para salvar ou atualizar o preço do item naquela loja
-            await colecao.updateOne(
-                { item: item.toUpperCase(), loja: loja.toUpperCase() },
-                { $set: { preco: parseFloat(preco), atualizado_em: new Date() } },
-                { upsert: true }
-            );
-            context.res = { status: 200, body: "Preço persistido!" };
-        } 
+       else if (req.method === 'POST') {
+    const { item, loja, preco } = req.body;
+    
+    // Mudança: agora aceita o preço se ele for exatamente 0
+    if (!item || !loja || isNaN(parseFloat(preco)) || parseFloat(preco) < 0) {
+        context.res = { status: 400, body: "Dados inválidos para persistência." };
+        return;
+    }
+
+    await colecao.updateOne(
+        { item: item.toUpperCase(), loja: loja.toUpperCase() },
+        { $set: { preco: parseFloat(preco), atualizado_em: new Date() } },
+        { upsert: true }
+    );
+    
+    context.res = { status: 200, body: "Preço persistido com sucesso!" };
+}
         else if (req.method === 'DELETE') {
             await colecao.deleteMany({});
             context.res = { status: 200, body: "Sessão de preços limpa!" };
