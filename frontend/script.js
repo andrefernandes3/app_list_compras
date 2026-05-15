@@ -1099,3 +1099,4 @@ async function hidratarPrecosTemporarios() {
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
 carregarSugestoes();
+hidratarPrecosTemporarios();
