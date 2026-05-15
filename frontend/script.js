@@ -1213,6 +1213,7 @@ function criarBotaoPilula(idCategoria, label) {
 
 /**
  * Filtra visualmente os elementos da lista sem precisar recarregar dados do banco.
+ * Atualiza o ranking do topo para somar apenas o corredor visível.
  */
 function filtrarPorCorredor(idCategoria) {
     categoriaSelecionadaFiltro = idCategoria;
@@ -1249,6 +1250,14 @@ function filtrarPorCorredor(idCategoria) {
             card.classList.add('hidden');
         }
     });
+
+    // ======================================================
+    // 🔥 CORREÇÃO: Força o topo a recalcular o ranking 
+    // levando em conta apenas os itens que ficaram visíveis!
+    // ======================================================
+    if (window.dadosOriginaisDicionario) {
+        recalcularRankingLive(window.dadosOriginaisDicionario.ranking || []);
+    }
 }
 
 // ================== INICIALIZAÇÃO ==================
