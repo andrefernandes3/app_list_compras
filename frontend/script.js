@@ -397,46 +397,46 @@ async function registrarPrecoLive(nome, rede, valor) {
  * Recalcula e exibe o ranking das lojas com base nos preços digitados pelo usuário.
  * @param {Array} rankingBase - Ranking original vindo da API (opcional)
  */
+/**
+ * Recalcula o ranking somando Preços Digitados + Preços do Banco (onde não houver digitação).
+ */
 function recalcularRankingLive(rankingBase) {
     const containerRanking = document.getElementById('totalizador-estimado');
     if (!containerRanking) return;
 
-    // Verifica se existem preços digitados
-    const produtosDigitados = Object.keys(window.precosDigitadosNoMercado).filter(p => {
-        const precoObj = window.precosDigitadosNoMercado[p];
-        return precoObj && Object.values(precoObj).some(v => v !== null && v > 0);
-    });
-
-    if (produtosDigitados.length === 0) {
-        // Se não há preços digitados, exibe o ranking original da API (se existir)
-        if (rankingBase && rankingBase.length) {
-            exibirRanking(rankingBase);
-        } else {
-            containerRanking.classList.add('hidden');
-        }
-        return;
-    }
-
-    // Calcula total por loja considerando os preços digitados
+    // Redes que vamos comparar
     const lojas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
     const totais = {};
     lojas.forEach(loja => { totais[loja] = 0; });
 
-    for (const [produto, precos] of Object.entries(window.precosDigitadosNoMercado)) {
-        for (const [loja, preco] of Object.entries(precos)) {
-            if (preco && preco > 0) {
-                // Busca a quantidade do produto na lista (pode ser obtida do DOM)
-                const card = document.querySelector(`#lista-ativa div[data-produto="${produto}"]`);
-                let qtd = 1;
-                if (card) {
-                    const inputQtd = card.querySelector('.input-qtd-real');
-                    if (inputQtd) qtd = parseFloat(inputQtd.value) || 1;
-                }
-                totais[loja] += preco * qtd;
-            }
-        }
-    }
+    // Percorremos todos os cards da lista ativa
+    const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
+    
+    cards.forEach(card => {
+        const nomeProduto = card.getAttribute('data-produto');
+        const inputQtd = card.querySelector('.input-qtd-real');
+        const qtd = parseFloat(inputQtd.value) || 1;
 
+        lojas.forEach(loja => {
+            // 1. Tenta pegar o preço que você acabou de digitar
+            let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
+
+            // 2. Se não digitou nada (null ou vazio), tenta pegar o que veio do Banco
+            if (!precoParaSomar || precoParaSomar === 0) {
+                const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
+                // Busca a chave que contém o nome da loja (ex: "CARREFOUR OSASCO")
+                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+                precoParaSomar = dadosBanco ? dadosBanco[chaveLojaBanco] : 0;
+            }
+
+            // Soma ao total daquela loja
+            if (precoParaSomar > 0) {
+                totais[loja] += precoParaSomar * qtd;
+            }
+        });
+    });
+
+    // Converte para o formato do ranking e ordena pelo menor preço
     const rankingCalculado = Object.entries(totais)
         .filter(([_, total]) => total > 0)
         .map(([loja, total]) => ({ nome: loja, total }))
@@ -449,7 +449,6 @@ function recalcularRankingLive(rankingBase) {
 
     exibirRanking(rankingCalculado);
 }
-
 /**
  * Renderiza os cards do ranking dentro do elemento 'totalizador-estimado'.
  * @param {Array} ranking - Array de objetos { nome, total }
