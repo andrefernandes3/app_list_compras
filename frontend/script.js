@@ -1213,18 +1213,36 @@ function criarBotaoPilula(idCategoria, label) {
  * Filtra visualmente os elementos da lista sem precisar recarregar dados do banco.
  * Atualiza o ranking do topo para somar apenas o corredor visível.
  */
+/**
+ * Filtra visualmente os elementos da Lista Ativa E do Dicionário
+ * sem precisar recarregar dados do banco.
+ */
 function filtrarPorCorredor(idCategoria) {
     categoriaSelecionadaFiltro = idCategoria;
     
-    // 1. Código existente que altera as classes dos botões do filtro...
+    // 1. Atualiza visual dos botões do filtro
     const botoes = document.querySelectorAll('#container-categorias-filtro button');
-    botoes.forEach(btn => { /* ... sua lógica de cores dos botões ... */ });
+    botoes.forEach(btn => {
+        const text = btn.innerText.replace('📍 ', '').trim().toUpperCase();
+        if (text === idCategoria.toUpperCase()) {
+            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-blue-600 text-white border-blue-600 shadow-sm";
+        } else {
+            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
+        }
+    });
 
-    // 2. Filtra divisórias de corredores (.header-corredor)...
+    // 2. Filtra divisórias de corredores na Lista Ativa
     const headers = document.querySelectorAll('#lista-ativa .header-corredor');
-    headers.forEach(h => { /* ... remove/adiciona hidden ... */ });
+    headers.forEach(h => {
+        const catHeader = h.getAttribute('data-categoria');
+        if (idCategoria === "TUDO" || catHeader === idCategoria.toUpperCase()) {
+            h.classList.remove('hidden');
+        } else {
+            h.classList.add('hidden');
+        }
+    });
 
-    // 3. Filtra os cards dos produtos (.card-produto-lista)...
+    // 3. Filtra os cards dos produtos na Lista Ativa
     const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
     cards.forEach(card => {
         const catCard = card.getAttribute('data-categoria-produto');
@@ -1235,9 +1253,25 @@ function filtrarPorCorredor(idCategoria) {
         }
     });
 
-    // 🔥 EXECUÇÃO OBRIGATÓRIA AQUI:
-    // Força o preenchimento de todas as caixinhas e atualiza o ranking do topo
-    atualizarPrecosEPilulas();
+    // ==========================================
+    // 🔥 NOVO: FILTRO PARA O DICIONÁRIO
+    // ==========================================
+    // Garanta que os itens renderizados na tabela/lista do dicionário possuam 
+    // a classe '.item-dicionario-lista' e o atributo 'data-categoria-dict'
+    const itensDict = document.querySelectorAll('#container-dicionario .item-dicionario-lista, #tabela-dicionario tr[data-categoria-dict]');
+    itensDict.forEach(item => {
+        const catDict = item.getAttribute('data-categoria-dict');
+        if (idCategoria === "TUDO" || (catDict && catDict.toUpperCase() === idCategoria.toUpperCase())) {
+            item.classList.remove('hidden');
+        } else {
+            item.classList.add('hidden');
+        }
+    });
+
+    // Força o topo a recalcular o ranking levando em conta apenas os itens visíveis
+    if (window.dadosOriginaisDicionario) {
+        atualizarPrecosEPilulas();
+    }
 }
 
 // ================== INICIALIZAÇÃO ==================
