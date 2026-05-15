@@ -244,33 +244,43 @@ async function carregarLista() {
             itemElement.className = `bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
 
-            itemElement.innerHTML = `
-                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
+            // Localize onde o itemElement.innerHTML é definido dentro de itensOrdenados.forEach em carregarLista()
+itemElement.innerHTML = `
+    <div class="flex flex-col w-full gap-2">
+        <div class="flex items-center gap-2 w-full justify-between">
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+                <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
                      onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
                     <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
                 </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex justify-between items-start">
-                        <span class="nome-item font-bold text-gray-700 uppercase text-[10px] break-words cursor-pointer hover:text-blue-600" onclick="abrirGrafico('${nomeSeguro}')">
-                            ${item.item_nome}
-                        </span>
-                        <div class="relative flex items-center gap-1 bg-blue-50/50 p-1 rounded-lg">
-                            <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
-                            <input type="number" min="1" value="${qtd}" 
-                                class="input-qtd-real w-8 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
-                                oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
-                            <span class="text-[8px] text-blue-400">x</span>
-                            <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
-                                oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
-                                class="input-preco-real w-14 p-1 text-[10px] border border-blue-200 rounded text-center outline-none focus:ring-1 focus:ring-blue-500">
-                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-lg ml-1 active:scale-90 transition-transform">
-                                ${isComprado ? '🔄' : '✅'}
-                            </button>
-                            <button onclick="deletarItem('${nomeSeguro}')" class="text-xs ml-1 hover:bg-red-100 rounded p-1">🗑️</button>
-                        </div>
-                    </div>
-                    <div id="preco-lista-${idFormatado}"></div>
-                </div>`;
+                <span class="nome-item font-bold text-gray-700 uppercase text-[11px] leading-tight truncate hover:text-blue-600 cursor-pointer flex-1" 
+                      title="${item.item_nome}" onclick="abrirGrafico('${nomeSeguro}')">
+                    ${item.item_nome}
+                </span>
+            </div>
+
+            <div class="relative flex items-center gap-1 bg-blue-50/40 p-1 rounded-lg shrink-0">
+                <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
+                
+                <input type="number" min="1" value="${qtd}" 
+                    class="input-qtd-real w-7 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
+                    oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
+                
+                <span class="text-[8px] text-blue-400">x</span>
+                
+                <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
+                    oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
+                    class="input-preco-real w-12 p-1 text-[10px] border border-blue-200 rounded text-center outline-none bg-white focus:ring-1 focus:ring-blue-500">
+                
+                <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-0.5 active:scale-90 transition-transform">
+                    ${isComprado ? '🔄' : '✅'}
+                </button>
+                <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
+            </div>
+        </div>
+
+        <div id="preco-lista-${idFormatado}" class="w-full"></div>
+    </div>`;
 
             listaDiv.appendChild(itemElement);
 
