@@ -373,13 +373,23 @@ function renderInputMercado(label, valor, classes, nomeItem, rede) {
  * @param {string} rede - Rede (CARREFOUR, ASSAI, ...)
  * @param {number} valor - Preço digitado
  */
-function registrarPrecoLive(nome, rede, valor) {
-    if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
+async function registrarPrecoLive(nome, rede, valor) {
     const numValor = parseFloat(valor);
-    window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
-    localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+    if (isNaN(numValor)) return;
 
-    // Recalcula o ranking com os novos valores
+    // 1. Atualiza localmente para resposta imediata na UI
+    if (!window.precosDigitadosNoMercado[nome]) window.precosDigitadosNoMercado[nome] = {};
+    window.precosDigitadosNoMercado[nome][rede] = numValor;
+
+    // 2. Persiste no MongoDB para outros dispositivos
+    try {
+        await fetch('/api/GerenciarPrecosTemp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item: nome, loja: rede, preco: numValor })
+        });
+    } catch (e) { console.error("Erro ao sincronizar com nuvem", e); }
+
     recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
 }
 
@@ -822,15 +832,23 @@ async function deletarItem(nome) {
 async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
-        await fetch('/api/GerenciarLista', { method: 'DELETE' });
+        // Limpa lista ativa e preços temporários no MongoDB
+        await Promise.all([
+            fetch('/api/GerenciarLista', { method: 'DELETE' }),
+            fetch('/api/GerenciarPrecosTemp', { method: 'DELETE' })
+        ]);
+
         window.precosDigitadosNoMercado = {};
         localStorage.removeItem('precosLive');
+        
+        // Recarrega a interface
+        carregarLista();
         const display = document.getElementById('total-real-dinamico');
         if (display) display.innerText = "R$ 0,00";
-        const rankingDiv = document.getElementById('totalizador-estimado');
-        if (rankingDiv) rankingDiv.classList.add('hidden');
-        carregarLista();
-    } catch (e) { console.error(e); }
+        
+    } catch (e) {
+        console.error("Erro ao finalizar compra:", e);
+    }
 }
 
 // ================== NOTA FISCAL ==================
@@ -1044,6 +1062,41 @@ async function carregarSugestoes() {
     } catch (e) { }
 }
 
+/**
+ * Busca os preços temporários salvos no MongoDB e popula a interface.
+ * Garante que os dados sejam os mesmos em qualquer dispositivo.
+ */
+async function hidratarPrecosTemporarios() {
+    try {
+        const response = await fetch('/api/GerenciarPrecosTemp');
+        const dados = await response.json();
+
+        if (dados && dados.length > 0) {
+            // Reinicia o objeto para garantir sincronia total
+            window.precosDigitadosNoMercado = {};
+
+            dados.forEach(reg => {
+                if (!window.precosDigitadosNoMercado[reg.item]) {
+                    window.precosDigitadosNoMercado[reg.item] = {};
+                }
+                window.precosDigitadosNoMercado[reg.item][reg.loja] = reg.preco;
+            });
+
+            // Salva no localStorage como backup local (opcional)
+            localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+            
+            // Se estiver na aba de lista, atualiza a visualização
+            if (!document.getElementById('secao-lista').classList.contains('hidden')) {
+                await atualizarPrecosEPilulas();
+                calcularTotalReal();
+            }
+        }
+    } catch (e) {
+        console.error("Erro ao sincronizar preços da nuvem:", e);
+    }
+}
+
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
 carregarSugestoes();
+hidratarPrecosTemporarios();
