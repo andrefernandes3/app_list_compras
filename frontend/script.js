@@ -411,7 +411,7 @@ function recalcularRankingLive(rankingBase) {
 
     // Percorremos todos os cards da lista ativa
     const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
-    
+
     cards.forEach(card => {
         const nomeProduto = card.getAttribute('data-produto');
         const inputQtd = card.querySelector('.input-qtd-real');
@@ -839,12 +839,12 @@ async function finalizarCompra() {
 
         window.precosDigitadosNoMercado = {};
         localStorage.removeItem('precosLive');
-        
+
         // Recarrega a interface
         carregarLista();
         const display = document.getElementById('total-real-dinamico');
         if (display) display.innerText = "R$ 0,00";
-        
+
     } catch (e) {
         console.error("Erro ao finalizar compra:", e);
     }
@@ -1081,7 +1081,7 @@ async function hidratarPrecosTemporarios() {
 
             // IMPORTANTE: Atualiza o Ranking e os inputs na tela
             recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
-            
+
             // Opcional: Atualizar os campos visíveis se o usuário não estiver digitando neles
             const inputs = document.querySelectorAll('.input-preco-mercado');
             // ... lógica para atualizar valores nos inputs ...
