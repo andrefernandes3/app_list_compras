@@ -3,6 +3,7 @@ let totaisPorMercado = {};           // Dados de preços por loja (vindos da API
 let itensSelecionados = new Set();    // IDs dos produtos selecionados no dicionário
 let meuGraficoRelatorio = null;       // Instância do gráfico de gastos
 let timeoutPreco, timeoutQtd;         // Debouncers para salvar preço e quantidade
+let categoriaSelecionadaFiltro = "TUDO";
 
 // Armazena os preços digitados pelo usuário em tempo real (persistidos no localStorage)
 window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
@@ -1138,6 +1139,98 @@ setInterval(() => {
         hidratarPrecosTemporarios();
     }
 }, 5000);
+
+/**
+ * Gera as pílulas de filtros de categoria com base nos itens presentes na lista.
+ */
+function renderizarFiltrosCategorias(itensOrdenados) {
+    const secaoFiltros = document.getElementById('secao-filtros-categorias');
+    const container = document.getElementById('container-categorias-filtro');
+    if (!container || !secaoFiltros) return;
+
+    if (!itensOrdenados || itensOrdenados.length === 0) {
+        secaoFiltros.classList.add('hidden');
+        return;
+    }
+
+    // Extrai categorias únicas presentes na lista atual
+    const categoriasPresentes = [...new Set(itensOrdenados.map(i => i.categoria))].sort();
+    
+    secaoFiltros.classList.remove('hidden');
+    container.innerHTML = '';
+
+    // Cria o botão principal "TUDO"
+    const btnTudo = criarBotaoPilula("TUDO", "📍 TUDO");
+    container.appendChild(btnTudo);
+
+    // Cria um botão para cada corredor/categoria
+    categoriasPresentes.forEach(cat => {
+        const btn = criarBotaoPilula(cat, cat);
+        container.appendChild(btn);
+    });
+}
+
+function criarBotaoPilula(idCategoria, label) {
+    const botao = document.createElement('button');
+    const isActive = categoriaSelecionadaFiltro === idCategoria;
+    
+    botao.className = `px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border transition-all ${
+        isActive 
+        ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+    }`;
+    botao.innerText = label;
+    botao.onclick = () => filtrarPorCorredor(idCategoria);
+    return botao;
+}
+
+/**
+ * Filtra visualmente os elementos da lista sem precisar recarregar dados do banco.
+ */
+function filtrarPorCorredor(idCategoria) {
+    categoriaSelecionadaFiltro = idCategoria;
+    
+    // Atualiza o estado visual dos botões
+    const botoes = document.querySelectorAll('#container-categorias-filtro button');
+    botoes.forEach(btn => {
+        const text = btn.innerText.replace('📍 ', '');
+        if (text === idCategoria) {
+            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-blue-600 text-white border-blue-600 shadow-sm";
+        } else {
+            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
+        }
+    });
+
+    // Filtra os elementos reais do DOM (Separadores de Corredor e Cards)
+    const elementosLista = document.getElementById('lista-ativa').children;
+    let currentCategoryMatch = true;
+
+    for (let el of elementosLista) {
+        // Se for uma div de cabeçalho de corredor (📍 Corredor: NOMECATEGORIA)
+        if (el.innerText.includes("📍 CORREDOR:")) {
+            const nomeCategoriaHeader = el.innerText.replace("📍 CORREDOR: ", "").trim().toUpperCase();
+            if (idCategoria === "TUDO" || nomeCategoriaHeader === idCategoria.toUpperCase()) {
+                el.classList.remove('hidden');
+                currentCategoryMatch = true;
+            } else {
+                el.classList.add('hidden');
+                currentCategoryMatch = false;
+            }
+        } 
+        // Se for o card do produto
+        else if (el.hasAttribute('data-produto')) {
+            const nomeProduto = el.getAttribute('data-produto');
+            // Procura a categoria real do produto no dicionário mapeado globalmente
+            const itemOriginal = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
+            
+            if (idCategoria === "TUDO" || currentCategoryMatch) {
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+    }
+}
 
 // ================== INICIALIZAÇÃO ==================
 carregarLista();
