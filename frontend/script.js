@@ -1309,6 +1309,15 @@ blocosDict.forEach(bloco => {
     }
 });
 
+// Exemplo de função que alterna para o Dicionário
+function irParaAbaDicionario() {
+    document.getElementById('secao-lista').classList.add('hidden');
+    document.getElementById('secao-dicionario').classList.remove('hidden');
+    
+    // Força o filtro a voltar para o estado padrão ao mudar de aba, evitando confusão
+    filtrarPorCorredor("TUDO");
+}
+
 // Força a atualização do ranking no topo para os itens visíveis
 if (window.dadosOriginaisDicionario) {
     atualizarPrecosEPilulas();
