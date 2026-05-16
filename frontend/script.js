@@ -215,7 +215,6 @@ async function carregarLista() {
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             document.getElementById('totalizador-estimado').classList.add('hidden');
-            document.getElementById('secao-filtros-categorias').classList.add('hidden'); // Oculta barra de filtros vazia
             return;
         }
 
@@ -1163,29 +1162,33 @@ setInterval(() => {
 /**
  * Gera as pílulas de filtros de categoria com base nos itens presentes na lista.
  */
-function renderizarFiltrosCategorias(itensOrdenados) {
+function renderizarFiltrosCategorias() {
     const secaoFiltros = document.getElementById('secao-filtros-categorias');
     const container = document.getElementById('container-categorias-filtro');
     if (!container || !secaoFiltros) return;
 
-    if (!itensOrdenados || itensOrdenados.length === 0) {
-        secaoFiltros.classList.add('hidden');
-        return;
-    }
-
-    // Extrai categorias únicas presentes na lista atual
-    const categoriasPresentes = [...new Set(itensOrdenados.map(i => i.categoria))].sort();
+    // Relação fixa de todos os seus corredores do mercado
+    const todosOsCorredores = [
+        "TUDO", 
+        "HORTIFRUTI", 
+        "FRIOS E CONGELADOS", 
+        "MERCEARIA", 
+        "AÇOUGUE E PEXARIA", 
+        "BEBIDAS", 
+        "LIMPEZA", 
+        "HIGIENE E PERFUMARIA",
+        "PADARIA E MATINAIS",
+        "DESCARTÁVEIS E EMBALAGENS",
+        "OUTROS"
+    ];
     
     secaoFiltros.classList.remove('hidden');
     container.innerHTML = '';
 
-    // Cria o botão principal "TUDO"
-    const btnTudo = criarBotaoPilula("TUDO", "📍 TUDO");
-    container.appendChild(btnTudo);
-
-    // Cria um botão para cada corredor/categoria
-    categoriasPresentes.forEach(cat => {
-        const btn = criarBotaoPilula(cat, cat);
+    // Cria as pílulas na tela de forma estável
+    todosOsCorredores.forEach(corredor => {
+        const label = corredor === "TUDO" ? "📍 TUDO" : corredor;
+        const btn = criarBotaoPilula(corredor, label);
         container.appendChild(btn);
     });
 }
@@ -1270,6 +1273,7 @@ function filtrarPorCorredor(idCategoria) {
 }
 
 // ================== INICIALIZAÇÃO ==================
+renderizarFiltrosCategorias();
 carregarLista();
 carregarSugestoes();
 hidratarPrecosTemporarios();
