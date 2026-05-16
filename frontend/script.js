@@ -742,31 +742,54 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
 /**
  * Renderiza a lista de produtos do dicionário, agrupados por categoria.
  */
+// 🔥 Se você for usar módulos de cara, adicione este import no topo do script.js:
+// import { buscarVinculosDicionario } from './api.js';
+
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
+    if (!container) return;
+
     container.innerHTML = '<p class="text-center text-gray-400 p-4">Carregando catálogo...</p>';
     itensSelecionados.clear();
-    document.getElementById('btn-adicionar-multiplos').classList.add('hidden');
-    document.getElementById('select-all-dict').checked = false;
+    
+    const btnMultiplos = document.getElementById('btn-adicionar-multiplos');
+    if (btnMultiplos) btnMultiplos.classList.add('hidden');
+    
+    const selectAllCheck = document.getElementById('select-all-dict');
+    if (selectAllCheck) selectAllCheck.checked = false;
+
     try {
-        const response = await fetch('/api/VincularProdutos');
-        const produtos = await response.json();
+        // Usa o nosso novo módulo isolado ou o fetch nativo existente se preferir migrar depois
+        const produtos = typeof buscarVinculosDicionario === 'function' 
+            ? await buscarVinculosDicionario() 
+            : await fetch('/api/VincularProdutos').then(r => r.json());
+
         const categorias = {};
         produtos.forEach(p => {
-            const cat = p.categoria || "OUTROS";
+            const cat = (p.categoria || "OUTROS").toUpperCase();
             if (!categorias[cat]) categorias[cat] = [];
             categorias[cat].push(p);
         });
+
         container.innerHTML = '';
+
         for (const [cat, itens] of Object.entries(categorias)) {
+            // Criamos a div do bloco da categoria
             const div = document.createElement('div');
-            div.className = "mb-4";
+            div.className = "mb-4 block-categoria-dicionario";
+            // 🔥 MARCAÇÃO 1: Coloca o atributo de categoria na div pai para o filtro controlar o bloco todo
+            div.setAttribute('data-categoria-dict', cat);
+            
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
+
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
+                
+                // 🔥 MARCAÇÃO 2: Adiciona a classe e o atributo individual em cada card de produto
                 div.innerHTML += `
-                    <div class="bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3">
+                    <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
+                         data-categoria-dict="${cat}">
                         <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600">
                         <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
                             <img src="${fotoUrl}" class="w-full h-full object-cover">
@@ -777,9 +800,16 @@ async function renderizarDicionario() {
             });
             container.appendChild(div);
         }
-    } catch (e) { console.error(e); }
-}
 
+        // Se o usuário já tiver um filtro de corredor selecionado lá no topo, aplica ele imediatamente
+        if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
+            filtrarPorCorredor(categoriaSelecionadaFiltro);
+        }
+
+    } catch (e) { 
+        console.error("Erro ao renderizar o dicionário:", e); 
+    }
+}
 function selecionarTudoDicionario(checked) {
     const checkboxes = document.querySelectorAll('#lista-dicionario input[type="checkbox"]');
     checkboxes.forEach(cb => {
@@ -1266,10 +1296,23 @@ function filtrarPorCorredor(idCategoria) {
         }
     });
 
-    // Força o topo a recalcular o ranking levando em conta apenas os itens visíveis
-    if (window.dadosOriginaisDicionario) {
-        atualizarPrecosEPilulas();
+    // Localize o final da sua função filtrarPorCorredor(idCategoria) no script.js e substitua a parte do dicionário por esta:
+
+// 4. Filtra os blocos de categorias na aba do Dicionário
+const blocosDict = document.querySelectorAll('.block-categoria-dicionario');
+blocosDict.forEach(bloco => {
+    const catBloco = bloco.getAttribute('data-categoria-dict');
+    if (idCategoria === "TUDO" || (catBloco && catBloco.toUpperCase() === idCategoria.toUpperCase())) {
+        bloco.classList.remove('hidden'); // Reexibe o bloco inteiro
+    } else {
+        bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden'); // Oculta o bloco completo
     }
+});
+
+// Força a atualização do ranking no topo para os itens visíveis
+if (window.dadosOriginaisDicionario) {
+    atualizarPrecosEPilulas();
+}
 }
 
 // ================== INICIALIZAÇÃO ==================
