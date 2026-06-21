@@ -1214,7 +1214,7 @@ function renderizarFiltrosCategorias() {
         "HORTIFRUTI", 
         "FRIOS E CONGELADOS", 
         "MERCEARIA", 
-        "AÇOUGUE E PEXARIA", 
+        "AÇOUGUE E PEIXARIA", 
         "BEBIDAS", 
         "LIMPEZA", 
         "HIGIENE E PERFUMARIA",
