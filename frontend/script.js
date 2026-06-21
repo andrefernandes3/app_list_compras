@@ -743,7 +743,7 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
  * Renderiza a lista de produtos do dicionário, agrupados por categoria.
  */
 // 🔥 Se você for usar módulos de cara, adicione este import no topo do script.js:
-// import { buscarVinculosDicionario } from './api.js';
+// import { buscarVinculosDicionariop } from './api.js';
 
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
