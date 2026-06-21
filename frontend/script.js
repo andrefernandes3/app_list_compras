@@ -764,20 +764,20 @@ async function renderizarDicionario() {
             ? await buscarVinculosDicionario() 
             : await fetch('/api/VincularProdutos').then(r => r.json());
 
-        const categorias = {};
+        const categories = {};
         produtos.forEach(p => {
             const cat = (p.categoria || "OUTROS").toUpperCase();
-            if (!categorias[cat]) categorias[cat] = [];
-            categorias[cat].push(p);
+            if (!categories[cat]) categories[cat] = [];
+            categories[cat].push(p);
         });
 
         container.innerHTML = '';
 
-        for (const [cat, itens] of Object.entries(categorias)) {
-            // Criamos a div do bloco da categoria
+        for (const [cat, itens] of Object.entries(categories)) {
+            // Criamos a div do bloco da categoria[cite: 2]
             const div = document.createElement('div');
             div.className = "mb-4 block-categoria-dicionario";
-            // 🔥 MARCAÇÃO 1: Coloca o atributo de categoria na div pai para o filtro controlar o bloco todo
+            // 🔥 MARCAÇÃO 1: Coloca o atributo de categoria na div pai para o filtro controlar o bloco todo[cite: 2]
             div.setAttribute('data-categoria-dict', cat);
             
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
@@ -786,7 +786,7 @@ async function renderizarDicionario() {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
                 
-                // 🔥 MARCAÇÃO 2: Adiciona a classe e o atributo individual em cada card de produto
+                // 🔥 MARCAÇÃO 2: Adiciona o flex layout no container do nome + o botão do gráfico herdando a abertura[cite: 2]
                 div.innerHTML += `
                     <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
                          data-categoria-dict="${cat}">
@@ -794,14 +794,24 @@ async function renderizarDicionario() {
                         <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
                             <img src="${fotoUrl}" class="w-full h-full object-cover">
                         </div>
-                        <div class="flex-1"><p class="text-[10px] font-bold text-gray-800 uppercase">${prod.nome_comum}</p></div>
+                        
+                        <!-- SEÇÃO DO NOME REESTRUTURADA COM O ÍCONE GRÁFICO -->
+                        <div class="flex-1 flex items-center gap-1.5 min-w-0">
+                            <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
+                            <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" 
+                                    class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all shrink-0 p-0.5" 
+                                    title="Ver histórico de preços">
+                                📊
+                            </button>
+                        </div>
+                        
                         <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
                     </div>`;
             });
             container.appendChild(div);
         }
 
-        // Se o usuário já tiver um filtro de corredor selecionado lá no topo, aplica ele imediatamente
+        // Se o usuário já tiver um filtro de corredor selecionado lá no topo, aplica ele imediatamente[cite: 2]
         if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
             filtrarPorCorredor(categoriaSelecionadaFiltro);
         }
@@ -810,6 +820,7 @@ async function renderizarDicionario() {
         console.error("Erro ao renderizar o dicionário:", e); 
     }
 }
+
 function selecionarTudoDicionario(checked) {
     const checkboxes = document.querySelectorAll('#lista-dicionario input[type="checkbox"]');
     checkboxes.forEach(cb => {
