@@ -1,29 +1,61 @@
 const { MongoClient } = require('mongodb');
 
-const client = new MongoClient(process.env.MONGODB_URI);
-
 module.exports = async function (context, req) {
-    context.log('🔮 Forçando execução manual do Crawler Sam\'s Club...');
+    // Diário de bordo para sabermos exatamente onde ele para
+    let relatorio = { 
+        passos: [], 
+        resultados: [], 
+        erro_fatal: null 
+    };
     
-    let resultados = [];
+    let client = null;
 
     try {
+        relatorio.passos.push("1. Iniciou a Função TestarCrawler.");
+        
+        const uri = process.env["MONGODB_URI"];
+        if (!uri) {
+            throw new Error("MONGODB_URI não encontrado nas variáveis de ambiente!");
+        }
+        relatorio.passos.push("2. MONGODB_URI carregado com sucesso.");
+
+        client = new MongoClient(uri);
         await client.connect();
+        relatorio.passos.push("3. Conectado ao Servidor MongoDB.");
+
         const db = client.db('app_compras');
+        const colecao = db.collection('dicionario_produtos');
+        relatorio.passos.push("4. Acessou o banco 'app_compras' e a coleção 'dicionario_produtos'.");
 
-        // 1. Busca os produtos que você ativou o sininho 🔔
-        const produtosParaMonitorar = await db.collection('dicionario_produtos').find({ monitorar: true }).toArray();
+        const total = await colecao.countDocuments();
+        relatorio.passos.push(`5. Total de itens cadastrados no banco: ${total}`);
 
-        if (produtosParaMonitorar.length === 0) {
-            return context.res = {
-                status: 200,
-                body: { mensagem: "Nenhum produto está com o sininho ativado no Dicionário ainda! Ative um para testar." }
-            };
+        const monitorados = await colecao.find({ monitorar: true }).toArray();
+        relatorio.passos.push(`6. Itens com monitorar=true encontrados: ${monitorados.length}`);
+
+        if (monitorados.length === 0) {
+            relatorio.passos.push("7. PARADA: Nenhum item marcado para monitorar.");
+            
+            // Pega 1 item aleatório do banco para vermos como o "monitorar" está salvo nele
+            const amostra = await colecao.findOne({});
+            if (amostra) {
+                relatorio.amostra_de_item_no_banco = {
+                    nome: amostra.nome_comum,
+                    status_monitorar: amostra.monitorar !== undefined ? amostra.monitorar : "Campo não existe"
+                };
+            }
+            
+            context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: relatorio };
+            return;
         }
 
-        for (const produto of produtosParaMonitorar) {
-            const nomeBusca = encodeURIComponent(produto.nome_comum);
-            const urlSams = `https://www.samsclub.com.br/api/v1/products/search?term=${nomeBusca}`;
+        relatorio.passos.push("7. Iniciando varredura no site do Sam's Club (VTEX API)...");
+
+        // Loop nos produtos
+        for (const prod of monitorados) {
+            const termoBusca = encodeURIComponent(prod.nome_comum);
+            // URL oficial da infraestrutura VTEX usada pelo Sam's Club Brasil e Carrefour
+            const urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${termoBusca}`;
             
             try {
                 const response = await fetch(urlSams, {
@@ -34,71 +66,49 @@ module.exports = async function (context, req) {
                 });
 
                 if (!response.ok) {
-                    resultados.push({ produto: produto.nome_comum, status: `Erro na API do Sam's: ${response.status}` });
+                    relatorio.resultados.push({ item: prod.nome_comum, status: `HTTP Bloqueado: ${response.status}` });
                     continue;
                 }
                 
                 const data = await response.json();
-                const produtoEncontrado = data.products?.[0];
                 
-                if (!produtoEncontrado) {
-                    resultados.push({ produto: produto.nome_comum, status: "Não encontrado no e-commerce do Sam's" });
-                    continue;
+                // O VTEX retorna um Array de produtos. Pegamos o primeiro.
+                if (data && data.length > 0) {
+                    // Navega pela árvore do VTEX para pegar o preço comercial
+                    const precoCapturado = data[0].items[0].sellers[0].commertialOffer.Price;
+                    const linkProduto = data[0].link || '';
+                    
+                    relatorio.resultados.push({ 
+                        item: prod.nome_comum, 
+                        preco_sams: precoCapturado, 
+                        link: linkProduto 
+                    });
+                } else {
+                    relatorio.resultados.push({ item: prod.nome_comum, status: "Não encontrado no catálogo do site" });
                 }
-
-                const precoAtualSams = produtoEncontrado.price?.value || null;
-                const linkProduto = produtoEncontrado.link || '';
-                const menorHistorico = produto.menor_preco_historico || Infinity;
-
-                // 2. Compara com o banco
-                let mudou = false;
-                if (precoAtualSams && precoAtualSams < menorHistorico) {
-                    mudou = true;
-                    // Grava o alerta na coleção para o app consumir
-                    await db.collection('alertas_preco').updateOne(
-                        { produto_id: produto._id },
-                        {
-                            $set: {
-                                nome: produto.nome_comum,
-                                preco_antigo: menorHistorico,
-                                preco_novo: precoAtualSams,
-                                loja: "SAMS CLUB",
-                                link: `https://www.samsclub.com.br${linkProduto}`,
-                                data: new Date()
-                            }
-                        },
-                        { upsert: true }
-                    );
-                }
-
-                resultados.push({
-                    produto: produto.nome_comum,
-                    preco_no_site: precoAtualSams,
-                    seu_menor_historico: menorHistorico,
-                    gerou_alerta_preco_baixo: mudou
-                });
 
             } catch (err) {
-                resultados.push({ produto: produto.nome_comum, erro: err.message });
+                relatorio.resultados.push({ item: prod.nome_comum, erro_no_fetch: err.message });
             }
         }
 
-        context.res = {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-            body: { 
-                sucesso: true, 
-                mensagem: "Crawler executado com sucesso!", 
-                relatorio: resultados 
-            }
+        context.res = { 
+            status: 200, 
+            headers: { "Content-Type": "application/json" }, 
+            body: relatorio 
         };
 
     } catch (error) {
-        context.res = {
-            status: 500,
-            body: { erro: "Erro fatal no banco de dados", detalhes: error.message }
+        relatorio.erro_fatal = error.message;
+        // Mesmo se der erro grave, ele devolve o que conseguiu anotar
+        context.res = { 
+            status: 500, 
+            headers: { "Content-Type": "application/json" }, 
+            body: relatorio 
         };
     } finally {
-        await client.close();
+        if (client) {
+            await client.close();
+        }
     }
 };
