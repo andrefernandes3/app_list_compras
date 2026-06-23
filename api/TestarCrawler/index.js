@@ -9,10 +9,10 @@ module.exports = async function (context, req) {
 
     try {
         await client.connect();
-        const db = client.db('app_list_compras');
+        const db = client.db('app_compras');
 
         // 1. Busca os produtos que você ativou o sininho 🔔
-        const produtosParaMonitorar = await db.collection('dicionario').find({ monitorar: true }).toArray();
+        const produtosParaMonitorar = await db.collection('dicionario_produtos').find({ monitorar: true }).toArray();
 
         if (produtosParaMonitorar.length === 0) {
             return context.res = {

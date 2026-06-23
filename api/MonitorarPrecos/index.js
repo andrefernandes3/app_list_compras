@@ -7,9 +7,9 @@ module.exports = async function (context, req) {
 
     try {
         await client.connect();
-        const db = client.db('app_list_compras');
+        const db = client.db('app_compras');
 
-        const produtosParaMonitorar = await db.collection('dicionario').find({ monitorar: true }).toArray();
+        const produtosParaMonitorar = await db.collection('dicionario_produtos').find({ monitorar: true }).toArray();
 
         if (produtosParaMonitorar.length === 0) {
             context.res = { status: 200, body: { mensagem: "Nenhum produto monitorado." } };
