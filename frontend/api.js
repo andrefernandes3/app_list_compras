@@ -1,5 +1,3 @@
-// frontend/api.js
-
 export async function buscarListaAtiva() {
     const res = await fetch('/api/GerenciarLista');
     return res.json();
@@ -33,4 +31,15 @@ export async function limparSessaoCompras() {
         fetch('/api/GerenciarLista', { method: 'DELETE' }),
         fetch('/api/GerenciarPrecosTemp', { method: 'DELETE' })
     ]);
+}
+
+/**
+ * Ativa ou desativa o monitoramento de preço baixo para um produto do dicionário.
+ */
+export async function alternarMonitoramentoProduto(nomeProduto, monitorarStatus) {
+    return fetch('/api/VincularProdutos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: nomeProduto.toUpperCase(), monitorar: monitorarStatus })
+    });
 }

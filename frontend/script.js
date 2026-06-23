@@ -759,7 +759,6 @@ async function renderizarDicionario() {
     if (selectAllCheck) selectAllCheck.checked = false;
 
     try {
-        // Usa o nosso novo módulo isolado ou o fetch nativo existente se preferir migrar depois
         const produtos = typeof buscarVinculosDicionario === 'function' 
             ? await buscarVinculosDicionario() 
             : await fetch('/api/VincularProdutos').then(r => r.json());
@@ -774,10 +773,8 @@ async function renderizarDicionario() {
         container.innerHTML = '';
 
         for (const [cat, itens] of Object.entries(categories)) {
-            // Criamos a div do bloco da categoria[cite: 2]
             const div = document.createElement('div');
             div.className = "mb-4 block-categoria-dicionario";
-            // 🔥 MARCAÇÃO 1: Coloca o atributo de categoria na div pai para o filtro controlar o bloco todo[cite: 2]
             div.setAttribute('data-categoria-dict', cat);
             
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
@@ -786,7 +783,10 @@ async function renderizarDicionario() {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
                 
-                // 🔥 MARCAÇÃO 2: Adiciona o flex layout no container do nome + o botão do gráfico herdando a abertura[cite: 2]
+                // Verifica se o produto já está sendo monitorado pelo crawler
+                const isMonitorado = prod.monitorar === true;
+                const classeSino = isMonitorado ? 'text-blue-600 opacity-100 font-bold scale-110' : 'text-gray-400 opacity-40 hover:opacity-80';
+
                 div.innerHTML += `
                     <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
                          data-categoria-dict="${cat}">
@@ -795,14 +795,25 @@ async function renderizarDicionario() {
                             <img src="${fotoUrl}" class="w-full h-full object-cover">
                         </div>
                         
-                        <!-- SEÇÃO DO NOME REESTRUTURADA COM O ÍCONE GRÁFICO -->
-                        <div class="flex-1 flex items-center gap-1.5 min-w-0">
+                        <!-- SEÇÃO COMPACTA COM NOME, GRÁFICO E AGORA O SINO DE MONITORAMENTO -->
+                        <div class="flex-1 flex items-center gap-2 min-w-0">
                             <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
-                            <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" 
-                                    class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all shrink-0 p-0.5" 
-                                    title="Ver histórico de preços">
-                                📊
-                            </button>
+                            
+                            <div class="flex items-center gap-1 shrink-0">
+                                <!-- Botão Gráfico -->
+                                <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" 
+                                        class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all p-0.5" 
+                                        title="Ver histórico de preços">
+                                    📊
+                                </button>
+                                
+                                <!-- Botão do Sino de Alerta do Crawler -->
+                                <button onclick="toggleMonitoramentoWeb('${nomeSeguro.replace(/'/g, "\\'")}', ${!isMonitorado}, this)" 
+                                        class="text-[11px] transition-all p-0.5 active:scale-90 ${classeSino}" 
+                                        title="${isMonitorado ? 'Monitorando preço baixo' : 'Ativar alerta de preço baixo'}">
+                                    🔔
+                                </button>
+                            </div>
                         </div>
                         
                         <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
@@ -811,13 +822,35 @@ async function renderizarDicionario() {
             container.appendChild(div);
         }
 
-        // Se o usuário já tiver um filtro de corredor selecionado lá no topo, aplica ele imediatamente[cite: 2]
         if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
             filtrarPorCorredor(categoriaSelecionadaFiltro);
         }
 
     } catch (e) { 
         console.error("Erro ao renderizar o dicionário:", e); 
+    }
+}
+
+/**
+ * Dispara a ativação/desativação do monitoramento do crawler pelo botão do sino
+ */
+async function toggleMonitoramentoWeb(nomeProduto, ativar, elementoBotao) {
+    try {
+        // Dispara a chamada para a nossa API modular
+        await alternarMonitoramentoProduto(nomeProduto, ativar);
+        
+        // Altera o visual do sino imediatamente para dar feedback rápido
+        if (ativar) {
+            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-blue-600 opacity-100 font-bold scale-110";
+            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeProduto.replace(/'/g, "\\'")}', false, this)`);
+            elementoBotao.title = "Monitorando preço baixo";
+        } else {
+            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-gray-400 opacity-40 hover:opacity-80";
+            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeProduto.replace(/'/g, "\\'")}', true, this)`);
+            elementoBotao.title = "Ativar alerta de preço baixo";
+        }
+    } catch (err) {
+        console.error("Erro ao alternar monitoramento do robô:", err);
     }
 }
 
