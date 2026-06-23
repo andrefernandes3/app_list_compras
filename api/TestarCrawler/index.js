@@ -29,22 +29,35 @@ module.exports = async function (context, req) {
                 let response = await fetch(urlSams, { headers: { 'User-Agent': 'Mozilla/5.0' } });
                 let data = response.ok ? await response.json() : [];
 
-                // TENTATIVA 2: Busca Ampla (Apenas as 2 primeiras palavras do produto)
+                // TENTATIVA 2: Busca Curta (2 palavras)
                 if (data.length === 0) {
-                    const nomeCurto = prod.nome_comum.split(' ').slice(0, 2).join(' '); // Ex: Pega só "QUEIJO MUÇARELA"
+                    const nomeCurto = prod.nome_comum.split(' ').slice(0, 2).join(' ');
                     urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${encodeURIComponent(nomeCurto)}`;
                     response = await fetch(urlSams, { headers: { 'User-Agent': 'Mozilla/5.0' } });
                     data = response.ok ? await response.json() : [];
                 }
                 
                 if (data && data.length > 0) {
-                    const precoCapturado = data[0].items[0].sellers[0].commertialOffer.Price;
-                    relatorio.resultados.push({ item: prod.nome_comum, preco_site: precoCapturado, status: 'ENCONTRADO' });
+                    // Pega os dados brutos oficiais que o site devolveu
+                    const produtoSite = data[0];
+                    const nomeOficialSite = produtoSite.productName;
+                    const oferta = produtoSite.items[0].sellers[0].commertialOffer;
+                    const precoCapturado = oferta.Price;
+                    const estoque = oferta.AvailableQuantity;
+                    
+                    // Compara se o que ele achou tem a ver com o que procuramos
+                    relatorio.resultados.push({ 
+                        seu_item: prod.nome_comum, 
+                        item_que_o_robo_achou: nomeOficialSite,
+                        preco_site: precoCapturado, 
+                        estoque_site: estoque,
+                        status: precoCapturado === 0 ? 'SEM ESTOQUE' : 'ENCONTRADO' 
+                    });
                 } else {
-                    relatorio.resultados.push({ item: prod.nome_comum, status: "Não encontrado nem com busca curta" });
+                    relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Não encontrado na API VTEX" });
                 }
             } catch (err) {
-                relatorio.resultados.push({ item: prod.nome_comum, erro: err.message });
+                relatorio.resultados.push({ seu_item: prod.nome_comum, erro: err.message });
             }
         }
 
