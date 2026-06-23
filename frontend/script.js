@@ -1406,13 +1406,19 @@ export async function salvarUrlMercado(nomeProduto, loja, url) {
 async function inserirLinkLoja(nomeProduto, loja) {
     const url = prompt(`Cole o link exato do produto "${nomeProduto}" no site do ${loja === 'SAMS' ? "Sam's Club" : loja}:`);
     
-    if (url === null) return; // Usuário cancelou
+    if (!url) return; // Se o usuário cancelar ou deixar em branco, não faz nada
 
     try {
-        const response = await salvarUrlMercado(nomeProduto, loja, url.trim());
+        // Usa o fetch direto para evitar erros de escopo/importação
+        const response = await fetch('/api/VincularProdutos', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item: nomeProduto.toUpperCase(), loja: loja, url: url.trim() })
+        });
+
         if (response.ok) {
             alert(`Link do ${loja} salvo com sucesso para o robô!`);
-            renderizarDicionario(); // Recarrega a tela para a corrente ficar azul 🔗
+            renderizarDicionario(); // Recarrega a tela para a corrente acender 🔗
         } else {
             alert("Erro ao salvar o link no banco de dados.");
         }
