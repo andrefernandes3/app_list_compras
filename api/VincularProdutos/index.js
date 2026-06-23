@@ -26,37 +26,32 @@ module.exports = async function (context, req) {
         }
 
         else if (metodo === 'PATCH') {
-
-            const { item, monitorar } = req.body;
+            const { item, monitorar, loja, url } = req.body;
 
             if (!item) {
-                context.res = {
-                    status: 400,
-                    body: {
-                        erro: "Nome do item é obrigatório."
-                    }
-                };
+                context.res = { status: 400, body: { erro: "Nome do item é obrigatório." } };
                 return;
             }
 
+            // Monta dinamicamente o que vai ser atualizado
+            let camposParaAtualizar = {};
+
+            // Se veio a ordem de ligar/desligar o sininho
+            if (monitorar !== undefined) {
+                camposParaAtualizar.monitorar = monitorar === true;
+            }
+
+            // Se veio a URL do mercado (Ex: loja = 'SAMS')
+            if (loja === 'SAMS' && url !== undefined) {
+                camposParaAtualizar.url_sams = url;
+            }
+
             const resultado = await colecao.updateOne(
-                {
-                    nome_comum: item.trim().toUpperCase()
-                },
-                {
-                    $set: {
-                        monitorar: monitorar === true
-                    }
-                }
+                { nome_comum: item.trim().toUpperCase() },
+                { $set: camposParaAtualizar }
             );
 
-            context.res = {
-                status: 200,
-                body: {
-                    sucesso: true,
-                    modificado: resultado.modifiedCount
-                }
-            };
+            context.res = { status: 200, body: { sucesso: true, modificado: resultado.modifiedCount } };
         }
 
         else if (metodo === 'POST') {
