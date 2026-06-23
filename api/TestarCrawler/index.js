@@ -44,30 +44,39 @@ module.exports = async function (context, req) {
                 // 🔥 ESTRATÉGIA 1: TIRO DE SNIPER (URL EXATA)
                 // ==========================================
                 if (prod.url_sams && prod.url_sams.includes('samsclub.com.br')) {
-                    // Extrai o "slug" da URL (Ex: tira "iogurte-nestle" de www.samsclub.../iogurte-nestle/p)
-                    const match = prod.url_sams.match(/samsclub\.com\.br\/([^\/]+)/);
-                    
-                    if (match && match[1]) {
-                        const slug = match[1];
-                        const urlApiExata = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${slug}`;
+                    try {
+                        const urlObj = new URL(prod.url_sams);
                         
-                        const response = await fetch(urlApiExata, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                        const data = response.ok ? await response.json() : [];
+                        // Divide a URL pelas barras '/' e joga fora palavras inúteis como 'p' ou 'produto'
+                        const partesCaminho = urlObj.pathname.split('/').filter(p => p && p.toLowerCase() !== 'p' && p.toLowerCase() !== 'produto');
                         
-                        if (data && data.length > 0) {
-                            const produtoSite = data[0];
-                            const oferta = produtoSite.items[0].sellers[0].commertialOffer;
-                            const precoCapturado = oferta.Price;
+                        if (partesCaminho.length > 0) {
+                            // O slug real (nome descritivo do produto no link) sempre será a última parte restante
+                            const slug = partesCaminho[partesCaminho.length - 1];
                             
-                            relatorio.resultados.push({ 
-                                seu_item: prod.nome_comum, 
-                                estrategia_usada: "LINK EXATO 🎯",
-                                item_oficial: produtoSite.productName,
-                                preco_site: precoCapturado,
-                                status: precoCapturado === 0 ? 'SEM ESTOQUE' : 'ENCONTRADO' 
-                            });
-                            resolveuComSniper = true;
+                            // Dispara a busca usando o slug exato do produto
+                            const urlApiExata = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${slug}`;
+                            
+                            const response = await fetch(urlApiExata, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                            const data = response.ok ? await response.json() : [];
+                            
+                            if (data && data.length > 0) {
+                                const produtoSite = data[0];
+                                const oferta = produtoSite.items[0].sellers[0].commertialOffer;
+                                const precoCapturado = oferta.Price;
+                                
+                                relatorio.resultados.push({ 
+                                    seu_item: prod.nome_comum, 
+                                    estrategia_usada: "LINK EXATO 🎯",
+                                    item_oficial: produtoSite.productName,
+                                    preco_site: precoCapturado,
+                                    status: precoCapturado === 0 ? 'SEM ESTOQUE' : 'ENCONTRADO' 
+                                });
+                                resolveuComSniper = true;
+                            }
                         }
+                    } catch (e) {
+                        relatorio.passos.push(`Erro ao tentar ler a URL do item: ${prod.nome_comum}`);
                     }
                 }
 
