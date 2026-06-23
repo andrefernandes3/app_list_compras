@@ -782,13 +782,19 @@ async function renderizarDicionario() {
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
-
-                // 🔥 LÓGICA DE CORES E EMOJIS:
+                
+                // Lógica do Sininho
                 const isMonitorado = prod.monitorar === true;
-                const classeSino = isMonitorado
-                    ? 'bg-green-100 rounded-full shadow-sm border border-green-300 scale-110 p-1'
+                const classeSino = isMonitorado 
+                    ? 'bg-green-100 rounded-full shadow-sm border border-green-300 scale-110 p-1' 
                     : 'grayscale opacity-40 hover:opacity-80 bg-gray-50 rounded-full p-1';
                 const iconeSino = isMonitorado ? '🔔' : '🔕';
+
+                // Lógica da Corrente (Link SAMS)
+                const temLinkSams = prod.url_sams && prod.url_sams.trim() !== '';
+                const classeCorrente = temLinkSams
+                    ? 'opacity-100 bg-blue-100 border border-blue-300 rounded-md'
+                    : 'opacity-50 hover:opacity-100';
 
                 div.innerHTML += `
                     <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
@@ -802,21 +808,21 @@ async function renderizarDicionario() {
                             <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
                             
                             <div class="flex items-center gap-1 shrink-0">
-                                <!-- Botão de Gráfico -->
+                                <!-- Botão Gráfico -->
                                 <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" 
                                         class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all p-0.5" 
                                         title="Ver histórico de preços">
                                     📊
                                 </button>
                                 
-                                <!-- NOVO: Botão de Inserir Link do Site -->
+                                <!-- Botão de Inserir Link do Site -->
                                 <button onclick="inserirLinkLoja('${nomeSeguro.replace(/'/g, "\\'")}', 'SAMS')" 
-                                        class="text-[11px] opacity-50 hover:opacity-100 active:scale-90 transition-all p-0.5" 
-                                        title="${prod.url_sams ? 'Link do Sam\'s Club já salvo! Clique para alterar.' : 'Adicionar link exato do Sam\'s Club'}">
-                                    ${prod.url_sams ? '🔗' : '⛓️‍💥'}
+                                        class="text-[11px] transition-all p-0.5 active:scale-90 ${classeCorrente}" 
+                                        title="${temLinkSams ? 'Link do Sam\\'s Club já salvo! Clique para alterar.' : 'Adicionar link exato do Sam\\'s Club'}">
+                                    ${temLinkSams ? '🔗' : '⛓️‍💥'}
                                 </button>
                                 
-                                <!-- Botão do Sino -->
+                                <!-- Botão do Sino de Alerta do Crawler -->
                                 <button onclick="toggleMonitoramentoWeb('${nomeSeguro.replace(/'/g, "\\'")}', ${!isMonitorado}, this)" 
                                         class="text-[11px] transition-all active:scale-90 ${classeSino}" 
                                         title="${isMonitorado ? 'Monitorando preço baixo' : 'Ativar alerta de preço baixo'}">
