@@ -783,11 +783,12 @@ async function renderizarDicionario() {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
 
-                // 🔥 NOVA LÓGICA DE CORES: Verifica se o produto está sendo monitorado
+               // 🔥 LÓGICA DE CORES E EMOJIS:
                 const isMonitorado = prod.monitorar === true;
-                const classeSino = isMonitorado
-                    ? 'text-green-600 opacity-100 font-bold scale-125'
-                    : 'text-red-500 opacity-70 hover:opacity-100 scale-100';
+                const classeSino = isMonitorado 
+                    ? 'bg-green-100 rounded-full shadow-sm border border-green-300 scale-110 p-1' 
+                    : 'grayscale opacity-40 hover:opacity-80 bg-gray-50 rounded-full p-1';
+                const iconeSino = isMonitorado ? '🔔' : '🔕';
 
                 div.innerHTML += `
                     <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
@@ -808,9 +809,9 @@ async function renderizarDicionario() {
                                 </button>
                                 
                                 <button onclick="toggleMonitoramentoWeb('${nomeSeguro.replace(/'/g, "\\'")}', ${!isMonitorado}, this)" 
-                                        class="text-[11px] transition-all p-0.5 active:scale-90 ${classeSino}" 
+                                        class="text-[11px] transition-all active:scale-90 ${classeSino}" 
                                         title="${isMonitorado ? 'Monitorando preço baixo' : 'Ativar alerta de preço baixo'}">
-                                    🔔
+                                    ${iconeSino}
                                 </button>
                             </div>
                         </div>
@@ -833,31 +834,36 @@ async function renderizarDicionario() {
 /**
  * Dispara a ativação/desativação do monitoramento do crawler pelo botão do sino
  */
+/**
+ * Dispara a ativação/desativação do monitoramento do crawler pelo botão do sino
+ */
 async function toggleMonitoramentoWeb(nomeProduto, ativar, elementoBotao) {
     try {
-        // Dispara a chamada para a API
-        const response = await alternarMonitoramentoProduto(nomeProduto, ativar);
+        // Usa o fetch direto para evitar erros de importação do api.js
+        const response = await fetch('/api/VincularProdutos', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item: nomeProduto.toUpperCase(), monitorar: ativar })
+        });
 
-        if (!response.ok) {
-            console.error("A API recusou a atualização do sininho.");
-            return;
-        }
+        if (!response.ok) throw new Error("A API recusou a atualização");
 
-        // Escapa aspas simples para reinjetar o onclick
         const nomeEscapado = nomeProduto.replace(/'/g, "\\'");
 
-        // Altera o visual do sino: Verde para Ativado, Vermelho para Desativado
+        // Altera visualmente o botão (Muda o Emoji e aplica fundo/filtros)
         if (ativar) {
-            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-green-600 opacity-100 font-bold scale-125";
+            elementoBotao.className = "text-[11px] transition-all p-1 active:scale-90 bg-green-100 rounded-full shadow-sm border border-green-300 scale-110";
+            elementoBotao.innerHTML = "🔔"; // Emoji normal (Sino ligado)
             elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', false, this)`);
             elementoBotao.title = "Monitorando preço baixo";
         } else {
-            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-red-500 opacity-70 hover:opacity-100 scale-100";
+            elementoBotao.className = "text-[11px] transition-all p-1 active:scale-90 grayscale opacity-40 hover:opacity-80 bg-gray-50 rounded-full";
+            elementoBotao.innerHTML = "🔕"; // Sino cortado e em preto e branco
             elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', true, this)`);
             elementoBotao.title = "Ativar alerta de preço baixo";
         }
     } catch (err) {
-        console.error("Erro ao alternar monitoramento do robô:", err);
+        console.error("Erro ao alternar monitoramento:", err);
     }
 }
 
