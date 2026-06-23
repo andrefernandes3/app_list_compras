@@ -1,19 +1,19 @@
 const { MongoClient } = require('mongodb');
 
-// 🛠️ Função auxiliar 1: Remove pesos e medidas que atrapalham a busca na VTEX
+// 🛠️ Função 1: Tira pesos e medidas (1KG, 500G) que bugam o site
 function limparTermoBusca(nome) {
     return nome.replace(/[0-9]+(,[0-9]+)?\s*(KG|G|ML|L)\b/gi, '').trim();
 }
 
-// 🛠️ Função auxiliar 2: Conta quantas palavras o produto do site tem em comum com o seu
+// 🛠️ Função 2: O Robô Juiz (Dá nota para o produto da loja)
 function calcularScoreDeMatch(nomeBanco, nomeSite) {
-    // Pega palavras maiores que 2 letras
+    // Pega as palavras importantes do seu dicionário
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
-    const palavrasSite = nomeSite.toUpperCase().split(' ');
+    const textoSite = nomeSite.toUpperCase(); // Texto corrido do site
     
     let score = 0;
     palavrasBanco.forEach(palavra => {
-        if (palavrasSite.includes(palavra)) {
+        if (textoSite.includes(palavra)) {
             score++;
         }
     });
@@ -41,52 +41,46 @@ module.exports = async function (context, req) {
         }
 
         for (const prod of monitorados) {
-            let data = [];
-            
             try {
-                // TENTATIVA 1: Nome limpo (sem pesos e medidas)
                 let termoBusca = limparTermoBusca(prod.nome_comum);
-                let urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${encodeURIComponent(termoBusca)}`;
+                
+                // 1. A REDE DE ARRASTO: Pega só as 2 primeiras palavras para vir de tudo
+                let nomeCurto = termoBusca.split(' ').slice(0, 2).join(' ');
+                
+                // 2. FORÇA A LOJA A TRAZER 50 ITENS (_from=0&_to=49)
+                let urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${encodeURIComponent(nomeCurto)}?_from=0&_to=49`;
                 
                 let response = await fetch(urlSams, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                data = response.ok ? await response.json() : [];
-
-                // TENTATIVA 2: Busca Cirúrgica (3 primeiras palavras apenas) se a primeira falhar
-                if (data.length === 0) {
-                    const nomeCurto = termoBusca.split(' ').slice(0, 3).join(' '); // Ex: "SUCO INTEGRAL MAÇÃ"
-                    urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${encodeURIComponent(nomeCurto)}`;
-                    response = await fetch(urlSams, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                    data = response.ok ? await response.json() : [];
-                }
+                let data = response.ok ? await response.json() : [];
                 
                 if (data && data.length > 0) {
-                    // 🧠 LÓGICA DO MELHOR MATCH: Analisa todos os retornos do Sam's Club
                     let melhorProduto = null;
                     let maiorScore = -1;
 
+                    // 3. JULGAMENTO: Lê os 50 produtos e acha o gêmeo exato do seu banco
                     for (const itemSite of data) {
-                        const scoreAtual = calcularScoreDeMatch(prod.nome_comum, itemSite.productName);
+                        const scoreAtual = calcularScoreDeMatch(termoBusca, itemSite.productName);
                         if (scoreAtual > maiorScore) {
                             maiorScore = scoreAtual;
                             melhorProduto = itemSite;
                         }
                     }
 
-                    const nomeOficialSite = melhorProduto.productName;
-                    const oferta = melhorProduto.items[0].sellers[0].commertialOffer;
-                    const precoCapturado = oferta.Price;
-                    const estoque = oferta.AvailableQuantity;
-                    
-                    relatorio.resultados.push({ 
-                        seu_item: prod.nome_comum, 
-                        item_que_o_robo_achou: nomeOficialSite,
-                        score_de_precisao: maiorScore,
-                        preco_site: precoCapturado, 
-                        estoque_site: estoque,
-                        status: precoCapturado === 0 ? 'SEM ESTOQUE' : 'ENCONTRADO' 
-                    });
+                    if (melhorProduto) {
+                        const nomeOficialSite = melhorProduto.productName;
+                        const oferta = melhorProduto.items[0].sellers[0].commertialOffer;
+                        const precoCapturado = oferta.Price;
+                        
+                        relatorio.resultados.push({ 
+                            seu_item: prod.nome_comum, 
+                            item_que_o_robo_achou: nomeOficialSite,
+                            nota_de_precisao: maiorScore,
+                            preco_site: precoCapturado,
+                            status: precoCapturado === 0 ? 'SEM ESTOQUE (ou só físico)' : 'ENCONTRADO' 
+                        });
+                    }
                 } else {
-                    relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Não encontrado no catálogo" });
+                    relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Não encontrado no catálogo VTEX" });
                 }
             } catch (err) {
                 relatorio.resultados.push({ seu_item: prod.nome_comum, erro: err.message });
