@@ -839,14 +839,17 @@ async function toggleMonitoramentoWeb(nomeProduto, ativar, elementoBotao) {
         // Dispara a chamada para a nossa API modular
         await alternarMonitoramentoProduto(nomeProduto, ativar);
         
+        // Escapa aspas simples para reinjetar o onclick sem quebrar o HTML da string
+        const nomeEscapado = nomeProduto.replace(/'/g, "\\'");
+        
         // Altera o visual do sino imediatamente para dar feedback rápido
         if (ativar) {
             elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-blue-600 opacity-100 font-bold scale-110";
-            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeProduto.replace(/'/g, "\\'")}', false, this)`);
+            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', false, this)`);
             elementoBotao.title = "Monitorando preço baixo";
         } else {
             elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-gray-400 opacity-40 hover:opacity-80";
-            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeProduto.replace(/'/g, "\\'")}', true, this)`);
+            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', true, this)`);
             elementoBotao.title = "Ativar alerta de preço baixo";
         }
     } catch (err) {
