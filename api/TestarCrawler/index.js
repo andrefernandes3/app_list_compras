@@ -41,9 +41,7 @@ module.exports = async function (context, req) {
                         });
                         encontrado = true;
                     }
-                } catch (e) {
-                    context.log("Erro no link:", e.message);
-                }
+                } catch (e) { context.log("Erro no link:", e.message); }
             }
 
             // 2. TENTATIVA BUSCA (Fallback com Validação de Nome)
@@ -60,17 +58,17 @@ module.exports = async function (context, req) {
                     const data = res.ok ? await res.json() : [];
                     
                     if (data && data.length > 0) {
-                        // VALIDAÇÃO: Só aceita se o nome do produto contiver pelo menos uma parte do nome que você cadastrou
                         const termoParaValidar = prod.nome_comum.toUpperCase();
+                        const partesNome = termoParaValidar.split(' ');
 
+                        // 🔥 CORREÇÃO: usamos 'melhorMatch' aqui agora
                         const melhorMatch = data.find(item =>
-                            item.productName.toUpperCase().includes(termoParaValidar.split(' ')[0]) &&
-                            item.productName.toUpperCase().includes(termoParaValidar.split(' ')[1] || "")
+                            item.productName.toUpperCase().includes(partesNome[0]) &&
+                            (partesNome[1] ? item.productName.toUpperCase().includes(partesNome[1]) : true)
                         );
 
-                        if (melhorProduto) {
-                            const oferta = melhorProduto.items[0].sellers[0].commertialOffer;
-
+                        if (melhorMatch) {
+                            const oferta = melhorMatch.items[0].sellers[0].commertialOffer;
                             relatorio.resultados.push({
                                 seu_item: prod.nome_comum,
                                 estrategia: "BUSCA VALIDADA ✅",
@@ -98,18 +96,9 @@ module.exports = async function (context, req) {
             }
         }
 
-        context.res = {
-            status: 200,
-            body: relatorio
-        };
-
+        context.res = { status: 200, body: relatorio };
     } catch (e) {
-        context.res = {
-            status: 500,
-            body: {
-                erro: e.message
-            }
-        };
+        context.res = { status: 500, body: { erro: e.message } };
     } finally {
         if (client) await client.close();
     }
