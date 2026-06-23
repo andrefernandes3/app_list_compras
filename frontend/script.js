@@ -207,7 +207,7 @@ async function carregarLista() {
 
         // Armazena em cache global a estrutura de preços por loja vinda do histórico do banco
         window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
-        
+
         // Guarda o dicionário e ranking base na janela global para uso de outras funções (como o recalcularRankingLive)
         window.dadosOriginaisDicionario = dataPrecos;
 
@@ -223,7 +223,7 @@ async function carregarLista() {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: (info.categoria || "OUTROS").toUpperCase() };
         });
-        
+
         // Ordena alfabeticamente pelas categorias para agrupar os itens por corredor
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
 
@@ -236,12 +236,12 @@ async function carregarLista() {
         // Renderiza cada item agrupando-os visualmente por blocos de corredores
         itensOrdenados.forEach(item => {
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            
+
             // Tratamentos de strings seguras para evitar quebras em atributos HTML e ID do DOM
             const idFormatado = item.item_nome.replace(/[^a-zA-Z0-9]/g, '_');
             const nomeSeguro = escapeHTML(item.item_nome).replace(/'/g, "\\'");
             const nomeBusca = item.item_nome.trim().toUpperCase();
-            
+
             const isComprado = item.comprado === true;
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
@@ -250,7 +250,7 @@ async function carregarLista() {
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
                 const separador = document.createElement('div');
-                
+
                 // Adicionadas classes e atributos essenciais para a inteligência da função 'filtrarPorCorredor'
                 separador.className = "header-corredor text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-50 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
                 separador.setAttribute('data-categoria', categoriaAtual);
@@ -260,7 +260,7 @@ async function carregarLista() {
 
             // Instancia o container principal do Card do Produto
             const itemElement = document.createElement('div');
-            
+
             // Adicionados atributos estruturais 'card-produto-lista' e 'data-categoria-produto' para o filtro funcionar
             itemElement.className = `card-produto-lista bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
@@ -317,7 +317,7 @@ async function carregarLista() {
             pintarBordasDeCobertura(window.totaisPorMercado); // Colore bordas esquerdas conforme menor preço histórico
             atualizarPrecosEPilulas();                        // Popula os carrosséis inferiores e o ranking superior inteligente
             calcularTotalReal();                              // Calcula e fixa o total planejado/carrinho no header
-            
+
             // [NOVO] Garante que, se a página atualizar, o corredor selecionado anteriormente permaneça ativo e filtrado
             if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
                 filtrarPorCorredor(categoriaSelecionadaFiltro);
@@ -343,7 +343,7 @@ async function atualizarPrecosEPilulas() {
 
         // Pega todos os cards visíveis ou invisíveis da lista ativa
         const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
-        
+
         cards.forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
             if (!nomeProduto) return;
@@ -351,11 +351,11 @@ async function atualizarPrecosEPilulas() {
             // 🔥 CORREÇÃO DO ID: Usa exatamente o mesmo padrão de Regex da carregarLista()
             // Buscando o nome original a partir do cache ou tratando a string de forma idêntica
             const dadosLista = window.dadosOriginaisDicionario?.precosPorLojaCompleto || {};
-            
+
             // Encontra a chave original correspondente no banco (com acentos/caixa alta)
             const nomeReal = Object.keys(dadosLista).find(k => k.trim().toUpperCase() === nomeProduto) || nomeProduto;
             const idFormatado = nomeReal.replace(/[^a-zA-Z0-9]/g, '_');
-            
+
             const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
             if (!containerPreco) return;
 
@@ -395,7 +395,7 @@ function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProdu
     // Se o usuário já digitou algo, prioriza. Caso contrário, assume o valor estável do banco
     const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
     const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
-    
+
     // Configura o indicador visual (✍️ para manual, 🏦 para histórico do MongoDB)
     const indicador = temDigitado ? '✍️' : (valorBanco ? '🏦' : '---');
     const estiloTexto = temDigitado ? 'font-black text-gray-900' : 'font-medium text-gray-400/90 italic';
@@ -421,17 +421,17 @@ function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProdu
  */
 async function registrarPrecoLive(nome, rede, valor) {
     const numValor = parseFloat(valor);
-    
+
     // Agora aceitamos o 0 de forma intencional
     const valorValido = !isNaN(numValor) && numValor >= 0;
 
     if (!window.precosDigitadosNoMercado[nome]) {
         window.precosDigitadosNoMercado[nome] = {};
     }
-    
+
     // Se o usuário digitou 0 ou limpou o campo, definimos explicitamente como 0
     window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
-    
+
     // Recalcula o ranking imediatamente na tela
     recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
 
@@ -468,7 +468,7 @@ function recalcularRankingLive(rankingBase) {
 
     // Percorremos todos os cards de produtos visíveis na tela
     const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
-    
+
     cards.forEach(card => {
         const nomeProduto = card.getAttribute('data-produto');
         const inputQtd = card.querySelector('.input-qtd-real');
@@ -477,18 +477,18 @@ function recalcularRankingLive(rankingBase) {
         lojas.forEach(loja => {
             // 1. Tenta pegar o preço que você digitou temporariamente nesta sessão
             // Dentro do laço lojas.forEach na função recalcularRankingLive:
-let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
+            let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
 
-// Se for exatamente 0, significa que o usuário anulou manualmente o valor histórico
-if (precoParaSomar === 0) {
-    precoParaSomar = 0; // Mantém zero e não pega o do banco
-} 
-// Se estiver vazio ou nulo (undefined), aí sim busca o histórico do banco
-else if (precoParaSomar === undefined || precoParaSomar === null) {
-    const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-    const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
-    precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
-}
+            // Se for exatamente 0, significa que o usuário anulou manualmente o valor histórico
+            if (precoParaSomar === 0) {
+                precoParaSomar = 0; // Mantém zero e não pega o do banco
+            }
+            // Se estiver vazio ou nulo (undefined), aí sim busca o histórico do banco
+            else if (precoParaSomar === undefined || precoParaSomar === null) {
+                const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
+                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+                precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
+            }
 
             if (precoParaSomar > 0) {
                 totais[loja] += precoParaSomar * qtd;
@@ -751,16 +751,16 @@ async function renderizarDicionario() {
 
     container.innerHTML = '<p class="text-center text-gray-400 p-4">Carregando catálogo...</p>';
     itensSelecionados.clear();
-    
+
     const btnMultiplos = document.getElementById('btn-adicionar-multiplos');
     if (btnMultiplos) btnMultiplos.classList.add('hidden');
-    
+
     const selectAllCheck = document.getElementById('select-all-dict');
     if (selectAllCheck) selectAllCheck.checked = false;
 
     try {
-        const produtos = typeof buscarVinculosDicionario === 'function' 
-            ? await buscarVinculosDicionario() 
+        const produtos = typeof buscarVinculosDicionario === 'function'
+            ? await buscarVinculosDicionario()
             : await fetch('/api/VincularProdutos').then(r => r.json());
 
         const categories = {};
@@ -776,16 +776,18 @@ async function renderizarDicionario() {
             const div = document.createElement('div');
             div.className = "mb-4 block-categoria-dicionario";
             div.setAttribute('data-categoria-dict', cat);
-            
+
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
 
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
-                
-                // Verifica se o produto já está sendo monitorado pelo crawler
+
+                // 🔥 NOVA LÓGICA DE CORES: Verifica se o produto está sendo monitorado
                 const isMonitorado = prod.monitorar === true;
-                const classeSino = isMonitorado ? 'text-blue-600 opacity-100 font-bold scale-110' : 'text-gray-400 opacity-40 hover:opacity-80';
+                const classeSino = isMonitorado
+                    ? 'text-green-600 opacity-100 font-bold scale-125'
+                    : 'text-red-500 opacity-70 hover:opacity-100 scale-100';
 
                 div.innerHTML += `
                     <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
@@ -795,19 +797,16 @@ async function renderizarDicionario() {
                             <img src="${fotoUrl}" class="w-full h-full object-cover">
                         </div>
                         
-                        <!-- SEÇÃO COMPACTA COM NOME, GRÁFICO E AGORA O SINO DE MONITORAMENTO -->
                         <div class="flex-1 flex items-center gap-2 min-w-0">
                             <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
                             
                             <div class="flex items-center gap-1 shrink-0">
-                                <!-- Botão Gráfico -->
                                 <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" 
                                         class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all p-0.5" 
                                         title="Ver histórico de preços">
                                     📊
                                 </button>
                                 
-                                <!-- Botão do Sino de Alerta do Crawler -->
                                 <button onclick="toggleMonitoramentoWeb('${nomeSeguro.replace(/'/g, "\\'")}', ${!isMonitorado}, this)" 
                                         class="text-[11px] transition-all p-0.5 active:scale-90 ${classeSino}" 
                                         title="${isMonitorado ? 'Monitorando preço baixo' : 'Ativar alerta de preço baixo'}">
@@ -826,8 +825,8 @@ async function renderizarDicionario() {
             filtrarPorCorredor(categoriaSelecionadaFiltro);
         }
 
-    } catch (e) { 
-        console.error("Erro ao renderizar o dicionário:", e); 
+    } catch (e) {
+        console.error("Erro ao renderizar o dicionário:", e);
     }
 }
 
@@ -836,19 +835,24 @@ async function renderizarDicionario() {
  */
 async function toggleMonitoramentoWeb(nomeProduto, ativar, elementoBotao) {
     try {
-        // Dispara a chamada para a nossa API modular
-        await alternarMonitoramentoProduto(nomeProduto, ativar);
-        
-        // Escapa aspas simples para reinjetar o onclick sem quebrar o HTML da string
+        // Dispara a chamada para a API
+        const response = await alternarMonitoramentoProduto(nomeProduto, ativar);
+
+        if (!response.ok) {
+            console.error("A API recusou a atualização do sininho.");
+            return;
+        }
+
+        // Escapa aspas simples para reinjetar o onclick
         const nomeEscapado = nomeProduto.replace(/'/g, "\\'");
-        
-        // Altera o visual do sino imediatamente para dar feedback rápido
+
+        // Altera o visual do sino: Verde para Ativado, Vermelho para Desativado
         if (ativar) {
-            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-blue-600 opacity-100 font-bold scale-110";
+            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-green-600 opacity-100 font-bold scale-125";
             elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', false, this)`);
             elementoBotao.title = "Monitorando preço baixo";
         } else {
-            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-gray-400 opacity-40 hover:opacity-80";
+            elementoBotao.className = "text-[11px] transition-all p-0.5 active:scale-90 text-red-500 opacity-70 hover:opacity-100 scale-100";
             elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', true, this)`);
             elementoBotao.title = "Ativar alerta de preço baixo";
         }
@@ -1246,19 +1250,19 @@ function renderizarFiltrosCategorias() {
 
     // Relação fixa de todos os seus corredores do mercado
     const todosOsCorredores = [
-        "TUDO", 
-        "HORTIFRUTI", 
-        "FRIOS E CONGELADOS", 
-        "MERCEARIA", 
-        "AÇOUGUE E PEIXARIA", 
-        "BEBIDAS", 
-        "LIMPEZA", 
+        "TUDO",
+        "HORTIFRUTI",
+        "FRIOS E CONGELADOS",
+        "MERCEARIA",
+        "AÇOUGUE E PEIXARIA",
+        "BEBIDAS",
+        "LIMPEZA",
         "HIGIENE E PERFUMARIA",
         "PADARIA E MATINAIS",
         "DESCARTÁVEIS E EMBALAGENS",
         "OUTROS"
     ];
-    
+
     secaoFiltros.classList.remove('hidden');
     container.innerHTML = '';
 
@@ -1273,12 +1277,11 @@ function renderizarFiltrosCategorias() {
 function criarBotaoPilula(idCategoria, label) {
     const botao = document.createElement('button');
     const isActive = categoriaSelecionadaFiltro === idCategoria;
-    
-    botao.className = `px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border transition-all ${
-        isActive 
-        ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-    }`;
+
+    botao.className = `px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border transition-all ${isActive
+            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+        }`;
     botao.innerText = label;
     botao.onclick = () => filtrarPorCorredor(idCategoria);
     return botao;
@@ -1294,7 +1297,7 @@ function criarBotaoPilula(idCategoria, label) {
  */
 function filtrarPorCorredor(idCategoria) {
     categoriaSelecionadaFiltro = idCategoria;
-    
+
     // 1. Atualiza visual dos botões do filtro
     const botoes = document.querySelectorAll('#container-categorias-filtro button');
     botoes.forEach(btn => {
@@ -1345,30 +1348,30 @@ function filtrarPorCorredor(idCategoria) {
 
     // Localize o final da sua função filtrarPorCorredor(idCategoria) no script.js e substitua a parte do dicionário por esta:
 
-// 4. Filtra os blocos de categorias na aba do Dicionário
-const blocosDict = document.querySelectorAll('.block-categoria-dicionario');
-blocosDict.forEach(bloco => {
-    const catBloco = bloco.getAttribute('data-categoria-dict');
-    if (idCategoria === "TUDO" || (catBloco && catBloco.toUpperCase() === idCategoria.toUpperCase())) {
-        bloco.classList.remove('hidden'); // Reexibe o bloco inteiro
-    } else {
-        bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden'); // Oculta o bloco completo
+    // 4. Filtra os blocos de categorias na aba do Dicionário
+    const blocosDict = document.querySelectorAll('.block-categoria-dicionario');
+    blocosDict.forEach(bloco => {
+        const catBloco = bloco.getAttribute('data-categoria-dict');
+        if (idCategoria === "TUDO" || (catBloco && catBloco.toUpperCase() === idCategoria.toUpperCase())) {
+            bloco.classList.remove('hidden'); // Reexibe o bloco inteiro
+        } else {
+            bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden'); // Oculta o bloco completo
+        }
+    });
+
+    // Exemplo de função que alterna para o Dicionário
+    function irParaAbaDicionario() {
+        document.getElementById('secao-lista').classList.add('hidden');
+        document.getElementById('secao-dicionario').classList.remove('hidden');
+
+        // Força o filtro a voltar para o estado padrão ao mudar de aba, evitando confusão
+        filtrarPorCorredor("TUDO");
     }
-});
 
-// Exemplo de função que alterna para o Dicionário
-function irParaAbaDicionario() {
-    document.getElementById('secao-lista').classList.add('hidden');
-    document.getElementById('secao-dicionario').classList.remove('hidden');
-    
-    // Força o filtro a voltar para o estado padrão ao mudar de aba, evitando confusão
-    filtrarPorCorredor("TUDO");
-}
-
-// Força a atualização do ranking no topo para os itens visíveis
-if (window.dadosOriginaisDicionario) {
-    atualizarPrecosEPilulas();
-}
+    // Força a atualização do ranking no topo para os itens visíveis
+    if (window.dadosOriginaisDicionario) {
+        atualizarPrecosEPilulas();
+    }
 }
 
 // ================== INICIALIZAÇÃO ==================
