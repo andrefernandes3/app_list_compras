@@ -67,17 +67,16 @@ module.exports = async function (context, req) {
     }
 };
 
-// --- Funções de Apoio (Ficam no mesmo arquivo para você não se perder) ---
-
+// --- Função de Apoio Corrigida ---
 async function obterMenorPrecoHistorico(db, ids) {
-    const notas = await db.collection("notas_fiscais").find({ "itens.id_interno": { $in: ids } }).toArray();
-    let min = Infinity;
-    for (const n of notas) {
-        for (const i of n.itens) {
-            if (ids.includes(i.id_interno) && i.preco_unitario < min) min = i.preco_unitario;
-        }
-    }
-    return min;
+    // Agora apontamos para a coleção correta: historico_precos
+    const cursor = await db.collection("historico_precos").aggregate([
+        { $unwind: "$itens" },
+        { $match: { "itens.id_interno": { $in: ids } } },
+        { $group: { _id: null, menorPreco: { $min: "$itens.preco_unitario" } } }
+    ]).toArray();
+
+    return cursor.length > 0 ? cursor[0].menorPreco : Infinity;
 }
 
 async function buscarPrecoSams(p) {
