@@ -1,95 +1,71 @@
 const { MongoClient } = require('mongodb');
 
-// 🛠️ Função 1: Tira pesos e medidas (1KG, 500G) que bugam o site
-function limparTermoBusca(nome) {
-    return nome.replace(/[0-9]+(,[0-9]+)?\s*(KG|G|ML|L)\b/gi, '').trim();
-}
-
-// 🛠️ Função 2: O Robô Juiz (Dá nota para o produto da loja)
-function calcularScoreDeMatch(nomeBanco, nomeSite) {
-    // Pega as palavras importantes do seu dicionário
-    const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
-    const textoSite = nomeSite.toUpperCase(); // Texto corrido do site
-    
-    let score = 0;
-    palavrasBanco.forEach(palavra => {
-        if (textoSite.includes(palavra)) {
-            score++;
-        }
-    });
-    return score;
-}
-
 module.exports = async function (context, req) {
     let relatorio = { passos: [], resultados: [] };
     let client = null;
 
     try {
-        const uri = process.env["MONGODB_URI"];
-        client = new MongoClient(uri);
+        client = new MongoClient(process.env["MONGODB_URI"]);
         await client.connect();
-
         const db = client.db('app_compras');
         const colecao = db.collection('dicionario_produtos');
 
         const monitorados = await colecao.find({ monitorar: true }).toArray();
-        relatorio.passos.push(`Itens com monitorar=true encontrados: ${monitorados.length}`);
-
-        if (monitorados.length === 0) {
-            context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { erro: "Nenhum item marcado para monitorar." } };
-            return;
-        }
-
+        
         for (const prod of monitorados) {
-            try {
-                let termoBusca = limparTermoBusca(prod.nome_comum);
-                let nomeCurto = termoBusca.split(' ').slice(0, 2).join(' ');
-                
-                let urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${encodeURIComponent(nomeCurto)}?_from=0&_to=49`;
-                let response = await fetch(urlSams, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                let data = response.ok ? await response.json() : [];
-                
-                if (data && data.length > 0) {
-                    let melhorProduto = null;
-                    let maiorScore = -1;
+            let resultadoFinal = null;
+            let usadoSniper = false;
 
-                    for (const itemSite of data) {
-                        const scoreAtual = calcularScoreDeMatch(termoBusca, itemSite.productName);
-                        
-                        // 🔥 MELHORIA: Só consideramos o produto se ele bater pelo menos 2 palavras
-                        // E se o preço for maior que zero
-                        const preco = itemSite.items[0].sellers[0].commertialOffer.Price;
-                        
-                        if (scoreAtual > maiorScore && preco > 0) {
-                            maiorScore = scoreAtual;
-                            melhorProduto = itemSite;
-                        }
-                    }
-
-                    // Se a precisão for muito baixa (score < 1), descartamos para não dar erro de produto errado
-                    if (melhorProduto && maiorScore >= 1) {
-                        const oferta = melhorProduto.items[0].sellers[0].commertialOffer;
-                        relatorio.resultados.push({ 
+            // 1. TENTATIVA SNIPER (URL EXATA) - PRIORIDADE MÁXIMA
+            if (prod.url_sams && prod.url_sams.includes('samsclub.com.br')) {
+                try {
+                    const urlObj = new URL(prod.url_sams);
+                    const partes = urlObj.pathname.split('/').filter(p => p && !['p', 'produto'].includes(p.toLowerCase()));
+                    const slug = partes[partes.length - 1];
+                    
+                    const res = await fetch(`https://www.samsclub.com.br/api/catalog_system/pub/products/search/${slug}`);
+                    const data = res.ok ? await res.json() : [];
+                    
+                    if (data && data.length > 0) {
+                        const oferta = data[0].items[0].sellers[0].commertialOffer;
+                        resultadoFinal = { 
                             seu_item: prod.nome_comum, 
-                            item_que_o_robo_achou: melhorProduto.productName,
-                            nota_de_precisao: maiorScore,
-                            preco_site: oferta.Price,
-                            status: "ENCONTRADO" 
-                        });
-                    } else {
-                        relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Nenhum match preciso encontrado" });
+                            estrategia: "LINK EXATO 🎯", 
+                            preco_site: oferta.Price, 
+                            status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE" 
+                        };
+                        usadoSniper = true;
                     }
-                } else {
-                    relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Sem resultados na busca" });
-                }
-            } catch (err) {
-                relatorio.resultados.push({ seu_item: prod.nome_comum, erro: err.message });
+                } catch (e) { context.log("Erro no link Sniper:", e.message); }
             }
+
+            // 2. TENTATIVA BUSCA (Fallback) - SÓ RODA SE O SNIPER FALHAR
+            if (!usadoSniper) {
+                try {
+                    const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
+                    const res = await fetch(`https://www.samsclub.com.br/api/catalog_system/pub/products/search/${termo}?_from=0&_to=10`);
+                    const data = res.ok ? await res.json() : [];
+                    
+                    if (data && data.length > 0) {
+                        const oferta = data[0].items[0].sellers[0].commertialOffer;
+                        resultadoFinal = { 
+                            seu_item: prod.nome_comum, 
+                            estrategia: "BUSCA 🔍", 
+                            preco_site: oferta.Price, 
+                            status: "ENCONTRADO" 
+                        };
+                    } else {
+                        resultadoFinal = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
+                    }
+                } catch (e) { resultadoFinal = { seu_item: prod.nome_comum, erro: e.message }; }
+            }
+
+            relatorio.resultados.push(resultadoFinal);
         }
 
-        context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: relatorio };
-    } catch (error) {
-        context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { erro: error.message } };
+        context.res = { status: 200, body: relatorio };
+    } catch (e) {
+        context.res = { status: 500, body: { erro: e.message } };
     } finally {
         if (client) await client.close();
     }
