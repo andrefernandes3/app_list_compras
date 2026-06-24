@@ -9,13 +9,13 @@ function calcularScore(nomeBanco, nomeSite) {
 module.exports = async function (context, req) {
     const uri = process.env.MONGODB_URI;
     const client = new MongoClient(uri);
-    
+
     try {
         await client.connect();
         const db = client.db('app_compras');
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
-        
+
         const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
         let totalAlertas = 0;
 
@@ -28,13 +28,13 @@ module.exports = async function (context, req) {
             // 1. Define preço de referência (Alvo manual > Histórico > Infinity)
             const menorPrecoHistorico = await obterMenorPrecoHistorico(db, prod.nome_comum);
             const precoReferencia = prod.preco_alvo || menorPrecoHistorico;
-            
+
             if (precoReferencia === Infinity) continue;
 
             for (const loja of lojas) {
                 const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
                 const url = `${loja.host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
-                
+
                 const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
                 const data = res.ok ? await res.json() : [];
 
@@ -44,19 +44,17 @@ module.exports = async function (context, req) {
                 data.forEach(item => {
                     const nomeSite = item.productName.toUpperCase();
                     const nomeBanco = prod.nome_comum.toUpperCase();
-                    
-                    const volumeRegex = /(\d+[\.,]?\d*\s?[L|G|ML])/i;
-                    const vBusca = nomeBanco.match(volumeRegex);
-                    const vSite = nomeSite.match(volumeRegex);
-                    const volumeBate = vBusca && vSite ? vBusca[0].replace(',', '.') === vSite[0].replace(',', '.') : true;
+
+                    // Trava Simplificada: Checa apenas a unidade (L ou ML)
+                    const temL = (n) => n.includes('L') && !n.includes('ML');
+                    const temML = (n) => n.includes('ML');
+
+                    const unidadeBate = (temL(nomeSite) === temL(nomeBanco)) && (temML(nomeSite) === temML(nomeBanco));
 
                     const score = calcularScore(nomeBanco, nomeSite);
-                    
-                    // LOGS DE DEBUG
-                    if (score < loja.minScore) context.log(`DEBUG: Reprovado no Score (Score: ${score}) - ${nomeSite}`);
-                    if (!volumeBate) context.log(`DEBUG: Reprovado no Volume (Buscado: ${vBusca ? vBusca[0] : 'n/a'} / Site: ${vSite ? vSite[0] : 'n/a'})`);
 
-                    if (score >= loja.minScore && volumeBate && score > maiorScore) {
+                    // Se o score for bom E a unidade for a mesma, aceita
+                    if (score >= loja.minScore && unidadeBate && score > maiorScore) {
                         maiorScore = score;
                         melhorMatch = item;
                     }
@@ -64,7 +62,7 @@ module.exports = async function (context, req) {
 
                 if (melhorMatch) {
                     const precoAtual = melhorMatch.items[0].sellers[0].commertialOffer.Price;
-                    
+
                     if (precoAtual < precoReferencia && precoAtual > 0) {
                         await alertasCol.insertOne({
                             produto_nome: prod.nome_comum,
@@ -91,16 +89,16 @@ module.exports = async function (context, req) {
 async function obterMenorPrecoHistorico(db, nomeProduto) {
     const volume = nomeProduto.match(/(\d+[\.,]?\d*\s?[L|G|ML])/i);
     const volumeRegex = volume ? volume[0] : "";
-    
+
     const pipeline = [
         { $unwind: "$itens" },
         { $match: { "itens.descricao": { $regex: nomeProduto.split(' ')[0], $options: 'i' } } }
     ];
-    
+
     if (volumeRegex) {
         pipeline.push({ $match: { "itens.descricao": { $regex: volumeRegex, $options: 'i' } } });
     }
-    
+
     pipeline.push({ $group: { _id: null, menorPreco: { $min: "$itens.preco_unitario" } } });
 
     const cursor = await db.collection("historico_precos").aggregate(pipeline).toArray();
