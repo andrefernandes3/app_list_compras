@@ -1,52 +1,53 @@
 const { MongoClient } = require('mongodb');
 
+// Função Juiz: Mais rigorosa
+function calcularScore(nomeBanco, nomeSite) {
+    const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
+    const textoSite = nomeSite.toUpperCase();
+    return palavrasBanco.reduce((score, palavra) => textoSite.includes(palavra) ? score + 1 : score, 0);
+}
+
 module.exports = async function (context, req) {
-    let relatorio = { passos: [], resultados: [] };
+    let relatorio = { loja: "CARREFOUR", resultados: [] };
     let client = null;
 
     try {
         client = new MongoClient(process.env["MONGODB_URI"]);
         await client.connect();
-        const db = client.db('app_compras');
-        const colecao = db.collection('dicionario_produtos');
-
-        // Busca produtos com sininho ativado
+        const colecao = client.db('app_compras').collection('dicionario_produtos');
         const monitorados = await colecao.find({ monitorar: true }).toArray();
         
         for (const prod of monitorados) {
-            // Se o Carrefour tiver link salvo, usamos ele. Se não, tentamos a busca pelo nome.
-            const urlCarrefour = prod.url_carrefour; 
+            let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
             
             try {
-                let preco = null;
-                let status = "NÃO ENCONTRADO";
+                // 🔥 MELHORIA: Busca segmentada (forçando a VTEX do Carrefour a ser mais específica)
+                const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 3).join(' '));
+                const url = `https://www.carrefour.com.br/api/catalog_system/pub/products/search/${termo}?_from=0&_to=15&O=OrderByScoreDESC`;
+                
+                const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                const data = res.ok ? await res.json() : [];
+                
+                if (data && data.length > 0) {
+                    // 🔥 FILTRO DE SEGURANÇA: Só aceita se o nome do item no site contiver pelo menos 2 palavras-chave
+                    const palvChave = prod.nome_comum.split(' ').filter(p => p.length > 3);
+                    const melhorMatch = data.find(item => 
+                        palvChave.every(p => item.productName.toUpperCase().includes(p.toUpperCase()))
+                    );
 
-                if (urlCarrefour) {
-                    // Sniper: Busca direta pelo slug da URL do Carrefour
-                    const slug = urlCarrefour.split('/').filter(p => p).pop();
-                    const res = await fetch(`https://www.carrefour.com.br/api/catalog_system/pub/products/search/${slug}`);
-                    const data = res.ok ? await res.json() : [];
-                    
-                    if (data.length > 0) {
-                        preco = data[0].items[0].sellers[0].commertialOffer.Price;
-                        status = preco > 0 ? "ENCONTRADO" : "SEM ESTOQUE";
-                    }
-                } else {
-                    // Busca Ampla
-                    const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
-                    const res = await fetch(`https://www.carrefour.com.br/api/catalog_system/pub/products/search/${termo}?_from=0&_to=5`);
-                    const data = res.ok ? await res.json() : [];
-                    
-                    if (data.length > 0) {
-                        preco = data[0].items[0].sellers[0].commertialOffer.Price;
-                        status = "ENCONTRADO (VIA BUSCA)";
+                    if (melhorMatch) {
+                        const oferta = melhorMatch.items[0].sellers[0].commertialOffer;
+                        resultado = { 
+                            seu_item: prod.nome_comum, 
+                            item_oficial_site: melhorMatch.productName,
+                            preco_site: oferta.Price, 
+                            status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE" 
+                        };
                     }
                 }
-
-                relatorio.resultados.push({ item: prod.nome_comum, preco, status });
-            } catch (err) {
-                relatorio.resultados.push({ item: prod.nome_comum, erro: err.message });
-            }
+            } catch (e) { context.log(`Erro Carrefour ${prod.nome_comum}:`, e.message); }
+            
+            relatorio.resultados.push(resultado);
         }
         context.res = { status: 200, body: relatorio };
     } catch (e) {
