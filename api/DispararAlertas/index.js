@@ -4,6 +4,10 @@ const nodemailer = require('nodemailer');
 module.exports = async function (context, req) {
     let client = new MongoClient(process.env["MONGODB_URI"]);
     
+    context.log("DEBUG CONFIGURAÇÃO:", {
+    user: process.env.EMAIL_USER ? "DEFINIDO" : "VAZIO",
+    pass: process.env.EMAIL_PASS ? "DEFINIDO" : "VAZIO"
+});
     // Configuração do Nodemailer usando as variáveis de ambiente do Azure
     const transporter = nodemailer.createTransport({
         host: process.env.EMAIL_HOST,
