@@ -45,7 +45,6 @@ module.exports = async function (context, req) {
                     const nomeSite = item.productName.toUpperCase();
                     const nomeBanco = prod.nome_comum.toUpperCase();
                     
-                    // Trava de Volume: Extrai padrão 1,7L, 500G, 300ML, etc.
                     const volumeRegex = /(\d+[\.,]?\d*\s?[L|G|ML])/i;
                     const vBusca = nomeBanco.match(volumeRegex);
                     const vSite = nomeSite.match(volumeRegex);
@@ -53,6 +52,10 @@ module.exports = async function (context, req) {
 
                     const score = calcularScore(nomeBanco, nomeSite);
                     
+                    // LOGS DE DEBUG
+                    if (score < loja.minScore) context.log(`DEBUG: Reprovado no Score (Score: ${score}) - ${nomeSite}`);
+                    if (!volumeBate) context.log(`DEBUG: Reprovado no Volume (Buscado: ${vBusca ? vBusca[0] : 'n/a'} / Site: ${vSite ? vSite[0] : 'n/a'})`);
+
                     if (score >= loja.minScore && volumeBate && score > maiorScore) {
                         maiorScore = score;
                         melhorMatch = item;
