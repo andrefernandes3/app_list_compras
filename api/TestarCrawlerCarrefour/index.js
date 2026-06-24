@@ -11,46 +11,60 @@ module.exports = async function (context, req) {
 
         for (const prod of monitorados) {
             let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
-            
-            // 1. TENTATIVA POR ID (Sempre a prioridade para evitar erros)
+            let encontrado = null;
+
+            // --- PLANO A: Busca por ID (Prioridade) ---
             if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
                 for (let id of prod.ids_vinculados) {
-                    try {
-                        const url = `https://carrefourbr.vtexcommercestable.com.br/api/catalog_system/pub/products/search?fq=productId:${id}`;
-                        const res = await fetch(url);
-                        const data = await res.json();
-                        
-                        // Verifica se existe o produto e a estrutura de vendedor
-                        if (Array.isArray(data) && data.length > 0) {
-                            const item = data[0];
-                            
-                            // 2. FILTRO DE VENDEDOR: Só aceita se for vendido pelo Carrefour
-                            const vendedorOficial = item.items[0].sellers.find(s => 
-                                s.sellerName.toLowerCase().includes("carrefour")
-                            );
-
-                            if (vendedorOficial) {
-                                const oferta = vendedorOficial.commertialOffer;
-                                resultado = { 
-                                    seu_item: prod.nome_comum, 
-                                    item_oficial: item.productName,
-                                    preco_site: oferta.Price,
-                                    // link correto fornecido pela API
-                                    link_site: item.link, 
-                                    status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE"
-                                };
-                                break; // Sai do loop de IDs se achou o oficial
-                            }
-                        }
-                    } catch (e) { continue; }
+                    encontrado = await buscarPorId(id);
+                    if (encontrado) break;
                 }
             }
-            
+
+            // --- PLANO B: Busca por Nome (Apenas se o ID falhou) ---
+            if (!encontrado) {
+                encontrado = await buscarPorNomeSeguro(prod.nome_comum);
+            }
+
+            // --- Montagem do resultado ---
+            if (encontrado) {
+                resultado = { 
+                    seu_item: prod.nome_comum, 
+                    item_oficial: encontrado.productName,
+                    preco_site: encontrado.items[0].sellers[0].commertialOffer.Price,
+                    link_site: encontrado.link,
+                    status: "ENCONTRADO"
+                };
+            }
             relatorio.resultados.push(resultado);
         }
         context.res = { body: relatorio };
-    } catch (e) { 
-        context.res = { status: 500, body: e.message }; 
-    }
+    } catch (e) { context.res = { status: 500, body: e.message }; }
     finally { await client.close(); }
 };
+
+// Função de Busca por ID
+async function buscarPorId(id) {
+    const url = `https://carrefourbr.vtexcommercestable.com.br/api/catalog_system/pub/products/search?fq=productId:${id}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return (data.length > 0) ? data[0] : null;
+}
+
+// Função de Busca por Nome com FILTRO DE SEGURANÇA
+async function buscarPorNomeSeguro(nome) {
+    const termo = encodeURIComponent(nome);
+    const url = `https://www.carrefour.com.br/api/catalog_system/pub/products/search?ft=${termo}&_from=0&_to=0`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const data = await res.json();
+
+    if (data.length > 0) {
+        const item = data[0];
+        // SEGURANÇA: Só aceita se o nome do site contiver pelo menos 2 palavras do seu nome original
+        const palavrasChave = nome.toUpperCase().split(' ').slice(0, 2);
+        const ehValido = palavrasChave.every(p => item.productName.toUpperCase().includes(p));
+        
+        return ehValido ? item : null;
+    }
+    return null;
+}
