@@ -1,6 +1,6 @@
 const { MongoClient } = require('mongodb');
 
-// Função Juiz: Avalia a similaridade entre o que você busca e o que o site entrega
+// Função Juiz: Score de similaridade
 function calcularScore(nomeBanco, nomeSite) {
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
     const textoSite = nomeSite.toUpperCase();
@@ -8,7 +8,6 @@ function calcularScore(nomeBanco, nomeSite) {
 }
 
 module.exports = async function (context, req) {
-    // Define qual mercado buscar (padrão é SAMS se não informado)
     const loja = (req.query.loja || 'SAMS').toUpperCase();
     const configs = {
         'SAMS': { host: 'https://www.samsclub.com.br' },
@@ -16,55 +15,62 @@ module.exports = async function (context, req) {
     };
 
     if (!configs[loja]) {
-        context.res = { status: 400, body: { erro: "Loja não suportada. Use SAMS ou CARREFOUR." } };
+        context.res = { status: 400, body: { erro: "Loja não suportada." } };
         return;
     }
 
-    let relatorio = { loja, resultados: [] };
     let client = null;
+    let relatorio = { loja, resultados: [] };
 
     try {
         client = new MongoClient(process.env["MONGODB_URI"]);
         await client.connect();
-        const colecao = client.db('app_compras').collection('dicionario_produtos');
+        const db = client.db('app_compras');
+        const colecao = db.collection('dicionario_produtos');
         const monitorados = await colecao.find({ monitorar: true }).toArray();
-        
+
         for (const prod of monitorados) {
             let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
-            
-            try {
-                // Motor de Busca Universal VTEX
+            let produtoEncontrado = null;
+
+            // 1. TENTATIVA POR ID (SE JÁ APRENDEMOS)
+            if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
+                const id = prod.ids_vinculados[0];
+                const res = await fetch(`${configs[loja].host}/api/catalog_system/pub/products/search?fq=productId:${id}`);
+                const data = res.ok ? await res.json() : [];
+                if (data && data.length > 0) produtoEncontrado = data[0];
+            }
+
+            // 2. TENTATIVA POR BUSCA INTELIGENTE (SE NÃO ACHOU POR ID)
+            if (!produtoEncontrado) {
                 const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
-                const url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
-                
-                const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                const res = await fetch(`${configs[loja].host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`);
                 const data = res.ok ? await res.json() : [];
                 
                 if (data && data.length > 0) {
-                    let melhorMatch = null;
-                    let maiorScore = -1;
-
-                    data.forEach(item => {
-                        const score = calcularScore(prod.nome_comum, item.productName);
-                        if (score > maiorScore) {
-                            maiorScore = score;
-                            melhorMatch = item;
-                        }
-                    });
-
-                    if (melhorMatch && maiorScore >= 1) {
-                        const oferta = melhorMatch.items[0].sellers[0].commertialOffer;
-                        resultado = { 
-                            seu_item: prod.nome_comum, 
-                            item_oficial_site: melhorMatch.productName,
-                            nota_de_precisao: maiorScore,
-                            preco_site: oferta.Price, 
-                            status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE" 
-                        };
+                    const melhorMatch = data.find(item => calcularScore(prod.nome_comum, item.productName) >= 3);
+                    if (melhorMatch) {
+                        produtoEncontrado = melhorMatch;
+                        // 🔥 APRENDIZADO: Se achamos pela busca, salvamos o ID para nunca mais errar!
+                        await colecao.updateOne(
+                            { _id: prod._id },
+                            { $addToSet: { ids_vinculados: String(melhorMatch.productId) } }
+                        );
                     }
                 }
-            } catch (e) { context.log(`Erro em ${prod.nome_comum}:`, e.message); }
-            
+            }
+
+            // Finaliza o processamento do resultado encontrado
+            if (produtoEncontrado) {
+                const oferta = produtoEncontrado.items[0].sellers[0].commertialOffer;
+                resultado = { 
+                    seu_item: prod.nome_comum, 
+                    item_oficial: produtoEncontrado.productName,
+                    id_usado: produtoEncontrado.productId,
+                    preco_site: oferta.Price, 
+                    status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE" 
+                };
+            }
             relatorio.resultados.push(resultado);
         }
         context.res = { status: 200, body: relatorio };
