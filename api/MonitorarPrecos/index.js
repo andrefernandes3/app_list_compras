@@ -1,6 +1,5 @@
 const { MongoClient } = require('mongodb');
 
-// Função Juiz: Mantemos a mesma lógica que já funciona bem
 function calcularScore(nomeBanco, nomeSite) {
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
     const textoSite = nomeSite.toUpperCase();
@@ -20,18 +19,18 @@ module.exports = async function (context, req) {
         const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
         let totalAlertas = 0;
 
-        // Configuração das lojas
         const lojas = [
             { nome: "CARREFOUR", host: "https://www.carrefour.com.br", minScore: 2 },
             { nome: "SAMS", host: "https://www.samsclub.com.br", minScore: 1 }
         ];
 
         for (const prod of monitorados) {
-            // 1. Busca Histórico
+            // 1. Define preço de referência (Alvo manual > Histórico > Infinity)
             const menorPrecoHistorico = await obterMenorPrecoHistorico(db, prod.nome_comum);
-            if (menorPrecoHistorico === Infinity) continue;
+            const precoReferencia = prod.preco_alvo || menorPrecoHistorico;
+            
+            if (precoReferencia === Infinity) continue;
 
-            // 2. Tenta encontrar em cada loja
             for (const loja of lojas) {
                 const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
                 const url = `${loja.host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
@@ -43,22 +42,31 @@ module.exports = async function (context, req) {
                 let maiorScore = -1;
 
                 data.forEach(item => {
-                    const score = calcularScore(prod.nome_comum, item.productName);
-                    if (score > maiorScore) {
+                    const nomeSite = item.productName.toUpperCase();
+                    const nomeBanco = prod.nome_comum.toUpperCase();
+                    
+                    // Trava de Volume: Extrai padrão 1,7L, 500G, 300ML, etc.
+                    const volumeRegex = /(\d+[\.,]?\d*\s?[L|G|ML])/i;
+                    const vBusca = nomeBanco.match(volumeRegex);
+                    const vSite = nomeSite.match(volumeRegex);
+                    const volumeBate = vBusca && vSite ? vBusca[0].replace(',', '.') === vSite[0].replace(',', '.') : true;
+
+                    const score = calcularScore(nomeBanco, nomeSite);
+                    
+                    if (score >= loja.minScore && volumeBate && score > maiorScore) {
                         maiorScore = score;
                         melhorMatch = item;
                     }
                 });
 
-                // 3. Valida se achou e se o preço é vantajoso
-                if (melhorMatch && maiorScore >= loja.minScore) {
+                if (melhorMatch) {
                     const precoAtual = melhorMatch.items[0].sellers[0].commertialOffer.Price;
                     
-                    if (precoAtual < menorPrecoHistorico && precoAtual > 0) {
+                    if (precoAtual < precoReferencia && precoAtual > 0) {
                         await alertasCol.insertOne({
                             produto_nome: prod.nome_comum,
                             loja: loja.nome,
-                            preco_historico: menorPrecoHistorico,
+                            preco_historico: precoReferencia,
                             preco_atual: precoAtual,
                             link_compra: melhorMatch.link,
                             data_alerta: new Date(),
@@ -77,12 +85,21 @@ module.exports = async function (context, req) {
     }
 };
 
-// Função que busca no historico_precos usando o NOME do produto
 async function obterMenorPrecoHistorico(db, nomeProduto) {
-    const cursor = await db.collection("historico_precos").aggregate([
+    const volume = nomeProduto.match(/(\d+[\.,]?\d*\s?[L|G|ML])/i);
+    const volumeRegex = volume ? volume[0] : "";
+    
+    const pipeline = [
         { $unwind: "$itens" },
-        { $match: { "itens.descricao": { $regex: nomeProduto.split(' ')[0], $options: 'i' } } },
-        { $group: { _id: null, menorPreco: { $min: "$itens.preco_unitario" } } }
-    ]).toArray();
+        { $match: { "itens.descricao": { $regex: nomeProduto.split(' ')[0], $options: 'i' } } }
+    ];
+    
+    if (volumeRegex) {
+        pipeline.push({ $match: { "itens.descricao": { $regex: volumeRegex, $options: 'i' } } });
+    }
+    
+    pipeline.push({ $group: { _id: null, menorPreco: { $min: "$itens.preco_unitario" } } });
+
+    const cursor = await db.collection("historico_precos").aggregate(pipeline).toArray();
     return cursor.length > 0 ? cursor[0].menorPreco : Infinity;
 }
