@@ -1,163 +1,102 @@
-api/MonitorarPrecos/index.jsconst { MongoClient } = require("mongodb");
+const { MongoClient } = require("mongodb");
 const axios = require("axios");
 
 const uri = process.env.MONGODB_URI;
-let dbClientPromise = null;
-
-async function getDb() {
-    if (!dbClientPromise) {
-        const client = new MongoClient(uri);
-        dbClientPromise = client.connect().then(c => c.db("app_compras"));
-    }
-    return dbClientPromise;
-}
 
 module.exports = async function (context, req) {
-    context.log("Iniciando engine de monitoramento de preços completa...");
+    context.log("Iniciando monitoramento de preços...");
+    let client;
 
     try {
-        const db = await getDb();
+        client = new MongoClient(uri);
+        await client.connect();
+        const db = client.db("app_compras");
         const dicionarioCol = db.collection("dicionario_produtos");
         const alertasCol = db.collection("alertas_preco");
 
-        const produtos = await dicionarioCol.find({}).toArray();
+        // Busca apenas itens que você marcou para monitorar
+        const produtos = await dicionarioCol.find({ monitorar: true }).toArray();
         let totalAlertas = 0;
 
         for (const produto of produtos) {
+            // Se não tiver ID, não tem como buscar no site, então pula
             if (!produto.ids_vinculados || produto.ids_vinculados.length === 0) continue;
 
             const menorPrecoHistorico = await obterMenorPrecoHistorico(db, produto.ids_vinculados);
             if (menorPrecoHistorico === Infinity) continue;
 
-            const resultados = await Promise.allSettled([
-                buscarPrecoSams(produto, context),
-                buscarPrecoCarrefour(produto, context),
-                buscarPrecoAtacadao(produto, context)
-            ]);
+            // Aguarda 2 segundos entre cada produto para não ser bloqueado
+            await new Promise(r => setTimeout(r, 2000));
 
-            for (const resultado of resultados) {
-                if (resultado.status === "fulfilled" && resultado.value) {
-                    const { loja, precoAtual, link } = resultado.value;
+            // Tenta buscar nas 3 lojas sequencialmente
+            const lojas = [
+                { nome: "Sam's Club", func: buscarPrecoSams },
+                { nome: "Carrefour", func: buscarPrecoCarrefour },
+                { nome: "Atacadão", func: buscarPrecoAtacadao }
+            ];
 
-                    if (precoAtual < menorPrecoHistorico) {
+            for (const lojaObj of lojas) {
+                const resultado = await lojaObj.func(produto);
+                if (resultado && resultado.precoAtual > 0) {
+                    // Verifica se o preço atual é menor que o histórico
+                    if (resultado.precoAtual < menorPrecoHistorico) {
                         const novoAlerta = {
                             produto_nome: produto.nome_comum,
-                            ids_vinculados: produto.ids_vinculados,
-                            loja: loja,
+                            loja: lojaObj.nome,
                             preco_historico: menorPrecoHistorico,
-                            preco_atual: precoAtual,
-                            link_compra: link,
+                            preco_atual: resultado.precoAtual,
+                            link_compra: resultado.link,
                             data_alerta: new Date(),
                             status_notificacao: "pendente"
                         };
                         
-                        const insertResult = await alertasCol.insertOne(novoAlerta);
-                        novoAlerta._id = insertResult.insertedId;
-                        
-                        context.log(`[ALERTA] ${produto.nome_comum} baixou para R$${precoAtual} no ${loja}`);
-                        await enviarEmailAlerta(novoAlerta, db, context);
+                        await alertasCol.insertOne(novoAlerta);
+                        context.log(`[ALERTA] ${produto.nome_comum} está barato no ${lojaObj.nome}!`);
                         totalAlertas++;
                     }
                 }
             }
         }
 
-        context.res = {
-            status: 200,
-            body: { message: "Monitoramento executado com sucesso.", alertas_gerados: totalAlertas }
-        };
-
+        context.res = { status: 200, body: { message: "Monitoramento concluído.", total_alertas: totalAlertas } };
     } catch (error) {
         context.log.error("Erro no monitoramento:", error);
-        context.res = {
-            status: 500,
-            body: { error: "Erro interno na engine." }
-        };
+        context.res = { status: 500, body: { error: "Erro interno no sistema." } };
+    } finally {
+        if (client) await client.close();
     }
 };
 
-async function obterMenorPrecoHistorico(db, idsVinculados) {
-    const historicoCol = db.collection("notas_fiscais");
-    const notas = await historicoCol.find({
-        "itens.id_interno": { $in: idsVinculados }
-    }).toArray();
+// --- Funções de Apoio (Ficam no mesmo arquivo para você não se perder) ---
 
-    let menorPreco = Infinity;
-    for (const nota of notas) {
-        for (const item of nota.itens) {
-            if (idsVinculados.includes(item.id_interno) && item.preco_unitario < menorPreco) {
-                menorPreco = item.preco_unitario;
-            }
+async function obterMenorPrecoHistorico(db, ids) {
+    const notas = await db.collection("notas_fiscais").find({ "itens.id_interno": { $in: ids } }).toArray();
+    let min = Infinity;
+    for (const n of notas) {
+        for (const i of n.itens) {
+            if (ids.includes(i.id_interno) && i.preco_unitario < min) min = i.preco_unitario;
         }
     }
-    return menorPreco;
+    return min;
 }
 
-async function buscarPrecoSams(produto, context) {
+async function buscarPrecoSams(p) {
     try {
-        const urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search?fq=productId:${produto.ids_vinculados[0]}`;
-        const response = await axios.get(urlSams, { timeout: 10000 });
-        
-        if (response.data && response.data.length > 0) {
-            const item = response.data[0].items[0];
-            const preco = item.sellers[0].commertialOffer.Price;
-            return { loja: "Sam's Club", precoAtual: preco, link: response.data[0].link };
-        }
-    } catch (error) {
-        context.log.warn(`[Sams] Falha ao buscar ${produto.nome_comum}`);
-    }
-    return null;
+        const res = await axios.get(`https://www.samsclub.com.br/api/catalog_system/pub/products/search?fq=productId:${p.ids_vinculados[0]}`);
+        return { precoAtual: res.data[0].items[0].sellers[0].commertialOffer.Price, link: res.data[0].link };
+    } catch { return null; }
 }
 
-async function buscarPrecoCarrefour(produto, context) {
+async function buscarPrecoCarrefour(p) {
     try {
-        const urlCarrefour = `https://carrefourbr.vtexcommercestable.com.br/api/catalog_system/pub/products/search?fq=productId:${produto.ids_vinculados[0]}`;
-        const response = await axios.get(urlCarrefour, { timeout: 10000 });
-        
-        if (response.data && response.data.length > 0) {
-            const item = response.data[0].items[0];
-            const preco = item.sellers[0].commertialOffer.Price;
-            return { loja: "Carrefour", precoAtual: preco, link: response.data[0].link };
-        }
-    } catch (error) {
-        context.log.warn(`[Carrefour] Falha ao buscar ${produto.nome_comum}`);
-    }
-    return null;
+        const res = await axios.get(`https://carrefourbr.vtexcommercestable.com.br/api/catalog_system/pub/products/search?fq=productId:${p.ids_vinculados[0]}`);
+        return { precoAtual: res.data[0].items[0].sellers[0].commertialOffer.Price, link: res.data[0].link };
+    } catch { return null; }
 }
 
-async function buscarPrecoAtacadao(produto, context) {
+async function buscarPrecoAtacadao(p) {
     try {
-        const urlAtacadao = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=productId:${produto.ids_vinculados[0]}`;
-        const response = await axios.get(urlAtacadao, { timeout: 10000 });
-        
-        if (response.data && response.data.length > 0) {
-            const item = response.data[0].items[0];
-            const preco = item.sellers[0].commertialOffer.Price;
-            return { loja: "Atacadão", precoAtual: preco, link: response.data[0].link };
-        }
-    } catch (error) {
-        context.log.warn(`[Atacadao] Falha ao buscar ${produto.nome_comum}`);
-    }
-    return null;
-}
-
-async function enviarEmailAlerta(alerta, db, context) {
-    try {
-        /* LÓGICA DO NODEMAILER 
-        const nodemailer = require("nodemailer");
-        const transporter = nodemailer.createTransport({ ... });
-        await transporter.sendMail({
-            from: '"App Compras" <app@exemplo.com>',
-            to: "seuemail@exemplo.com",
-            subject: `🚨 Oferta: ${alerta.produto_nome}`,
-            text: `R$${alerta.preco_atual} no ${alerta.loja}`
-        });
-        */
-        await db.collection("alertas_preco").updateOne(
-            { _id: alerta._id },
-            { $set: { status_notificacao: "marcado_para_envio" } }
-        );
-    } catch (error) {
-        context.log.error("Erro ao gerenciar notificação:", error);
-    }
+        const res = await axios.get(`https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=productId:${p.ids_vinculados[0]}`);
+        return { precoAtual: res.data[0].items[0].sellers[0].commertialOffer.Price, link: res.data[0].link };
+    } catch { return null; }
 }
