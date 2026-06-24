@@ -33,7 +33,7 @@ module.exports = async function (context, req) {
             let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
             let produtoEncontrado = null;
 
-            // 1. TENTATIVA POR ID (SE JÁ APRENDEMOS)
+            // 1. TENTATIVA POR ID (SÓ USA O QUE VOCÊ CADASTROU MANUALMENTE)
             if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
                 const id = prod.ids_vinculados[0];
                 const res = await fetch(`${configs[loja].host}/api/catalog_system/pub/products/search?fq=productId:${id}`);
@@ -41,7 +41,7 @@ module.exports = async function (context, req) {
                 if (data && data.length > 0) produtoEncontrado = data[0];
             }
 
-            // 2. TENTATIVA POR BUSCA INTELIGENTE (SE NÃO ACHOU POR ID)
+            // 2. TENTATIVA POR BUSCA INTELIGENTE (APENAS LEITURA, NUNCA GRAVA NO BANCO)
             if (!produtoEncontrado) {
                 const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
                 const res = await fetch(`${configs[loja].host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`);
@@ -51,16 +51,13 @@ module.exports = async function (context, req) {
                     const melhorMatch = data.find(item => calcularScore(prod.nome_comum, item.productName) >= 3);
                     if (melhorMatch) {
                         produtoEncontrado = melhorMatch;
-                        // 🔥 APRENDIZADO: Se achamos pela busca, salvamos o ID para nunca mais errar!
-                        await colecao.updateOne(
-                            { _id: prod._id },
-                            { $addToSet: { ids_vinculados: String(melhorMatch.productId) } }
-                        );
+                        // Log de Auditoria: Ele te avisa o que achou, mas NÃO mexe no seu banco.
+                        context.log(`[AUDITORIA] Item: ${prod.nome_comum} encontrado via busca com ID: ${melhorMatch.productId}. Verifique se é correto.`);
                     }
                 }
             }
 
-            // Finaliza o processamento do resultado encontrado
+            // Finaliza o processamento
             if (produtoEncontrado) {
                 const oferta = produtoEncontrado.items[0].sellers[0].commertialOffer;
                 resultado = { 
