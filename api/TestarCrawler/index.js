@@ -26,18 +26,28 @@ module.exports = async function (context, req) {
             // 1. TENTATIVA SNIPER (URL EXATA)
             if (prod.url_sams && typeof prod.url_sams === 'string' && prod.url_sams.includes('samsclub.com.br')) {
                 try {
-                    const slug = prod.url_sams.split('/').filter(p => p && !['p', 'produto'].includes(p.toLowerCase())).pop();
+                    const urlObj = new URL(prod.url_sams);
+                    const partes = urlObj.pathname.split('/').filter(p => p && !['p', 'produto'].includes(p.toLowerCase()));
+                    const slug = partes[partes.length - 1];
+                    
                     const res = await fetch(`https://www.samsclub.com.br/api/catalog_system/pub/products/search/${slug}`);
                     const data = res.ok ? await res.json() : [];
+                    
                     if (data && data.length > 0) {
                         const oferta = data[0].items[0].sellers[0].commertialOffer;
-                        resultado = { seu_item: prod.nome_comum, estrategia: "LINK EXATO 🎯", preco_site: oferta.Price, status: "ENCONTRADO" };
+                        resultado = { 
+                            seu_item: prod.nome_comum, 
+                            item_oficial_site: data[0].productName,
+                            estrategia: "LINK EXATO 🎯", 
+                            preco_site: oferta.Price, 
+                            status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE" 
+                        };
                         usadoSniper = true;
                     }
-                } catch (e) { context.log("Erro no link:", e.message); }
+                } catch (e) { context.log("Erro no link Sniper:", e.message); }
             }
 
-            // 2. TENTATIVA SCORE (A VERSÃO QUE VOCÊ GOSTAVA)
+            // 2. TENTATIVA SCORE (ROBÔ JUIZ)
             if (!usadoSniper) {
                 try {
                     const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
@@ -60,13 +70,15 @@ module.exports = async function (context, req) {
                             const oferta = melhorMatch.items[0].sellers[0].commertialOffer;
                             resultado = { 
                                 seu_item: prod.nome_comum, 
+                                item_oficial_site: melhorMatch.productName,
+                                nota_de_precisao: maiorScore,
                                 estrategia: "BUSCA/SCORE 🔍", 
                                 preco_site: oferta.Price, 
-                                status: "ENCONTRADO" 
+                                status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE" 
                             };
                         }
                     }
-                } catch (e) { context.log("Erro busca:", e.message); }
+                } catch (e) { context.log("Erro na busca:", e.message); }
             }
             relatorio.resultados.push(resultado);
         }
