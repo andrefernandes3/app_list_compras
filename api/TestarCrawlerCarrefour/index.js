@@ -38,6 +38,7 @@ module.exports = async function (context, req) {
                         seu_item: prod.nome_comum, 
                         item_oficial: itemSite.productName,
                         preco_site: oferta.Price,
+                        link_site: `https://www.carrefour.com.br${itemSite.link}`,
                         status: "ENCONTRADO"
                     };
                 }
