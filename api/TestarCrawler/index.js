@@ -43,13 +43,9 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             try {
                 let termoBusca = limparTermoBusca(prod.nome_comum);
-                
-                // 1. A REDE DE ARRASTO: Pega só as 2 primeiras palavras para vir de tudo
                 let nomeCurto = termoBusca.split(' ').slice(0, 2).join(' ');
                 
-                // 2. FORÇA A LOJA A TRAZER 50 ITENS (_from=0&_to=49)
                 let urlSams = `https://www.samsclub.com.br/api/catalog_system/pub/products/search/${encodeURIComponent(nomeCurto)}?_from=0&_to=49`;
-                
                 let response = await fetch(urlSams, { headers: { 'User-Agent': 'Mozilla/5.0' } });
                 let data = response.ok ? await response.json() : [];
                 
@@ -57,30 +53,34 @@ module.exports = async function (context, req) {
                     let melhorProduto = null;
                     let maiorScore = -1;
 
-                    // 3. JULGAMENTO: Lê os 50 produtos e acha o gêmeo exato do seu banco
                     for (const itemSite of data) {
                         const scoreAtual = calcularScoreDeMatch(termoBusca, itemSite.productName);
-                        if (scoreAtual > maiorScore) {
+                        
+                        // 🔥 MELHORIA: Só consideramos o produto se ele bater pelo menos 2 palavras
+                        // E se o preço for maior que zero
+                        const preco = itemSite.items[0].sellers[0].commertialOffer.Price;
+                        
+                        if (scoreAtual > maiorScore && preco > 0) {
                             maiorScore = scoreAtual;
                             melhorProduto = itemSite;
                         }
                     }
 
-                    if (melhorProduto) {
-                        const nomeOficialSite = melhorProduto.productName;
+                    // Se a precisão for muito baixa (score < 1), descartamos para não dar erro de produto errado
+                    if (melhorProduto && maiorScore >= 1) {
                         const oferta = melhorProduto.items[0].sellers[0].commertialOffer;
-                        const precoCapturado = oferta.Price;
-                        
                         relatorio.resultados.push({ 
                             seu_item: prod.nome_comum, 
-                            item_que_o_robo_achou: nomeOficialSite,
+                            item_que_o_robo_achou: melhorProduto.productName,
                             nota_de_precisao: maiorScore,
-                            preco_site: precoCapturado,
-                            status: precoCapturado === 0 ? 'SEM ESTOQUE (ou só físico)' : 'ENCONTRADO' 
+                            preco_site: oferta.Price,
+                            status: "ENCONTRADO" 
                         });
+                    } else {
+                        relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Nenhum match preciso encontrado" });
                     }
                 } else {
-                    relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Não encontrado no catálogo VTEX" });
+                    relatorio.resultados.push({ seu_item: prod.nome_comum, status: "Sem resultados na busca" });
                 }
             } catch (err) {
                 relatorio.resultados.push({ seu_item: prod.nome_comum, erro: err.message });
