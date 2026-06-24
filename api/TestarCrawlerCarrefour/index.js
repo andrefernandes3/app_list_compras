@@ -12,35 +12,39 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
             
-            // 1. TENTATIVA POR ID (MUITO MAIS PRECISO)
-            if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
-                // Tenta buscar usando os IDs que você já vinculou no banco
-                for (let id of prod.ids_vinculados) {
-                    try {
-                        const url = `https://carrefourbr.vtexcommercestable.com.br/api/catalog_system/pub/products/search?fq=productId:${id}`;
-                        const res = await fetch(url);
-                        const data = await res.json();
-                        
-                        // Verifica se a API retornou algo válido e se tem a estrutura de itens
-                        if (Array.isArray(data) && data.length > 0 && data[0].items && data[0].items[0]) {
-                            const oferta = data[0].items[0].sellers[0].commertialOffer;
-                            resultado = { 
-                                seu_item: prod.nome_comum, 
-                                item_oficial: data[0].productName,
-                                preco_site: oferta.Price,
-                                status: oferta.Price > 0 ? "ENCONTRADO" : "SEM ESTOQUE"
-                            };
-                            break; // Se achou com um ID, para de procurar pelos outros
-                        }
-                    } catch (e) { continue; }
+            // 1. Limpa o nome para busca (remove peso extra)
+            const termoBusca = encodeURIComponent(prod.nome_comum);
+            
+            // 2. Busca usando o termo completo + ordenação por relevância
+            // O O=OrderByScoreDESC garante que o Carrefour tente te dar o item mais parecido primeiro
+            const url = `https://carrefourbr.vtexcommercestable.com.br/api/catalog_system/pub/products/search?ft=${termoBusca}&_from=0&_to=0&O=OrderByScoreDESC`;
+            
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            // 3. Validação Rígida: Só aceita se o nome for MUITO parecido
+            if (data.length > 0) {
+                const itemSite = data[0];
+                const nomeSite = itemSite.productName.toUpperCase();
+                const nomeSeu = prod.nome_comum.toUpperCase();
+
+                // Verifica se pelo menos as 2 primeiras palavras (ex: "COCA COLA") batem
+                const palavrasSeu = nomeSeu.split(' ').slice(0, 2);
+                const bateu = palavrasSeu.every(palavra => nomeSite.includes(palavra));
+
+                if (bateu) {
+                    const oferta = itemSite.items[0].sellers[0].commertialOffer;
+                    resultado = { 
+                        seu_item: prod.nome_comum, 
+                        item_oficial: itemSite.productName,
+                        preco_site: oferta.Price,
+                        status: "ENCONTRADO"
+                    };
                 }
             }
-            
             relatorio.resultados.push(resultado);
         }
         context.res = { body: relatorio };
-    } catch (e) { 
-        context.res = { status: 500, body: e.message }; 
-    }
+    } catch (e) { context.res = { status: 500, body: e.message }; }
     finally { await client.close(); }
 };
