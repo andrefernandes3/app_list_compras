@@ -766,13 +766,12 @@ async function renderizarDicionario() {
             if (!categories[cat]) categories[cat] = [];
             categories[cat].push(p);
         });
-
-        // NOVO: Adiciona o botão "Desmarcar Todos" fixo no topo do Dicionário
+        // NOVO: Adiciona o botão fixo no topo do Dicionário
         container.innerHTML = `
             <div class="flex justify-between items-center mb-4 px-2 mt-2">
                 <h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2>
                 <button onclick="limparTodaMonitoracao()" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black active:scale-90 transition-transform shadow-sm border border-red-100 hover:bg-red-100 flex items-center gap-1">
-                    ⚠️ DESMARCAR TUDO
+                    🔕 DESLIGAR ROBÔ (TUDO)
                 </button>
             </div>
         `;
@@ -1406,34 +1405,54 @@ async function inserirLinkLoja(nomeProduto, loja) {
     }
 }
 
-// Função chamada ao clicar no botão "Desmarcar Todos"
-window.limparTodaMonitoracao = async () => {
-    if(confirm("Tem certeza que deseja desativar o monitoramento de TODOS os itens do robô?")) {
-        
-        // 1. Manda a ordem pro Banco de Dados
-        await desmarcarTodosDicionario();
-        
-        // 2. DESLIGA TODAS AS CHAVINHAS VISUALMENTE NA HORA!
-        const todasChavinhas = document.querySelectorAll('.toggle-monitorar');
-        todasChavinhas.forEach(chavinha => {
-            chavinha.checked = false; // Tira o verde e deixa cinza na hora
-        });
+// ==============================================================
+// FUNÇÕES DO ROBÔ DE PREÇOS (Comunicação Direta com o Backend)
+// ==============================================================
 
-        alert("Pronto! Todos os itens foram desmarcados com sucesso.");
-    }
-};
-
-// Função chamada sempre que você digita no "Preço Alvo" ou clica no "Sininho/Toggle"
+// 1. Função que salva o Preço Alvo e liga/desliga o item individualmente
 window.salvarAlteracoesItem = async (id, elemento) => {
-    // Pega a linha (div) atual para buscar os valores exatos dela
     const container = elemento.closest('.controles-item'); 
-    
-    // ATENÇÃO: Ajuste a classe '.toggle-monitorar' e '.input-alvo' conforme o seu HTML
     const monitorar = container.querySelector('.toggle-monitorar').checked;
     const preco_alvo = container.querySelector('.input-alvo').value;
     
-    await atualizarItemDicionario(id, monitorar, preco_alvo);
-    console.log(`Item ${id} atualizado: Monitorar=${monitorar}, Alvo=${preco_alvo}`);
+    try {
+        // Faz a comunicação direta com a API (Ignorando o api.js)
+        await fetch('/api/GerenciarDicionario', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, monitorar, preco_alvo })
+        });
+        
+        console.log(`✅ Salvo no banco! Item: ${id} | Monitorar: ${monitorar} | Alvo: ${preco_alvo}`);
+    } catch (e) {
+        console.error("Erro ao salvar no banco:", e);
+        alert("Erro de conexão! O preço não foi salvo.");
+    }
+};
+
+// 2. Função que desliga o robô para todos os itens da lista
+window.limparTodaMonitoracao = async () => {
+    if(confirm("Tem certeza que deseja DESLIGAR O ROBÔ para todos os itens do catálogo?")) {
+        try {
+            // Manda a ordem pro banco apagar tudo
+            await fetch('/api/GerenciarDicionario', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'desmarcar_todos' })
+            });
+
+            // Desliga todas as chavinhas verdes na sua tela na mesma hora
+            const todasChavinhas = document.querySelectorAll('.toggle-monitorar');
+            todasChavinhas.forEach(chavinha => {
+                chavinha.checked = false; 
+            });
+
+            alert("Pronto! O robô foi desligado para todos os itens.");
+        } catch (e) {
+            console.error("Erro ao desligar tudo:", e);
+            alert("Erro de conexão ao tentar desligar o robô!");
+        }
+    }
 };
 
 // ================== INICIALIZAÇÃO ==================
