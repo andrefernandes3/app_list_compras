@@ -1,19 +1,21 @@
 const { MongoClient } = require('mongodb');
 
-// ==================== FUNÇÕES AUXILIARES ====================
+// ============================================================
+// 1. FUNÇÕES AUXILIARES DE NORMALIZAÇÃO E EXTRAÇÃO
+// ============================================================
 
-// Normalização de texto: remove acentos, caracteres especiais, espaços extras
+// Normaliza texto: maiúsculas, remove acentos, caracteres especiais e espaços extras
 function normalizarTexto(texto) {
     return texto
         .toUpperCase()
-        .normalize('NFD') // separa acentos
-        .replace(/[\u0300-\u036f]/g, '') // remove diacríticos
-        .replace(/[^A-Z0-9\s]/g, ' ') // troca caracteres especiais por espaço
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Z0-9\s]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }
 
-// Extração de volume com suporte a diferentes formatos
+// Extrai volume com suporte a várias grafias (1,5kg, 1500ML, 1.5 L, 1.5 litros)
 function extrairVolume(texto) {
     const normalizado = normalizarTexto(texto);
     // Padrão: número (com vírgula ou ponto) + possível espaço + unidade (kg, g, l, ml, litro, grama)
@@ -34,29 +36,29 @@ function extrairVolume(texto) {
     return `${Math.round(valor)}${unidade}`; // arredonda para evitar floats
 }
 
-// Comparação de volumes com tolerância de 5%
-function volumesCompatíveis(volBanco, volSite) {
-    if (!volBanco || !volSite) return true; // se algum não tem, deixa passar (comportamento antigo)
+// Compara volumes com tolerância de 5%
+function volumesCompativeis(volBanco, volSite) {
+    if (!volBanco || !volSite) return true; // se algum não tem, deixa passar
     const numBanco = parseFloat(volBanco);
     const numSite = parseFloat(volSite);
     const unidadeBanco = volBanco.replace(/[\d.]/g, '');
     const unidadeSite = volSite.replace(/[\d.]/g, '');
-    if (unidadeBanco !== unidadeSite) return false; // unidades diferentes (ex: G vs ML) não batem
+    if (unidadeBanco !== unidadeSite) return false; // unidades diferentes
     const tolerancia = 0.05; // 5%
     const diff = Math.abs(numBanco - numSite);
     return diff <= (numBanco * tolerancia);
 }
 
-// Detecta se o texto indica multipack (ex: 2 unidades, pacote com 2, kit)
+// Detecta se o produto é um multipack (kit, caixa com, unidades, etc.)
 function isMultipack(texto) {
     const normalizado = normalizarTexto(texto);
-    return /(PACOTE COM|KIT|CAIXA COM|CX COM|UNIDADES|UN\s*\.|UN\b|\d\s*X\s*\d|\d\s*X\s*[A-Z])/i.test(normalizado) ||
-           /\b\d+\s*[Xx]\s*\d+\b/.test(normalizado);
+    return /(PACOTE COM|KIT|CAIXA COM|CX COM|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d|\d\s*[Xx]\s*[A-Z])/.test(normalizado);
 }
 
-// Validação de marca: verifica se a marca do banco está presente no site
+// Validação de marca: se o banco tem uma marca conhecida, o site deve conter a mesma
 function validarMarca(nomeBanco, nomeSite) {
-    const marcas = ['WICKBOLD', 'PULLMAN', 'MELITTA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS', 'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO'];
+    const marcas = ['WICKBOLD', 'PULLMAN', 'MELITTA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS', 
+                    'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO'];
     const normalizadoBanco = normalizarTexto(nomeBanco);
     const normalizadoSite = normalizarTexto(nomeSite);
 
@@ -66,7 +68,7 @@ function validarMarca(nomeBanco, nomeSite) {
     return normalizadoSite.includes(marcaBanco);
 }
 
-// Score aprimorado usando Jaccard e peso para palavras iniciais
+// Score aprimorado: usa similaridade de Jaccard + peso para palavras iniciais
 function calcularScore(nomeBanco, nomeSite) {
     const banco = normalizarTexto(nomeBanco);
     const site = normalizarTexto(nomeSite);
@@ -76,45 +78,53 @@ function calcularScore(nomeBanco, nomeSite) {
 
     if (palavrasBanco.length === 0 || palavrasSite.length === 0) return 0;
 
-    // Jaccard simplificado: interseção / união
+    // Jaccard simplificado
     const interseccao = palavrasBanco.filter(p => palavrasSite.includes(p));
     const uniao = new Set([...palavrasBanco, ...palavrasSite]);
-    const score = uniao.size > 0 ? interseccao.length / uniao.size : 0;
+    let score = uniao.size > 0 ? interseccao.length / uniao.size : 0;
 
-    // Peso extra para palavras que aparecem no início (título)
-    const primeirasPalavrasBanco = banco.split(' ').slice(0, 3);
-    const primeirasPalavrasSite = site.split(' ').slice(0, 3);
-    const pesoInicio = primeirasPalavrasBanco.filter(p => primeirasPalavrasSite.includes(p)).length;
+    // Peso extra para as 3 primeiras palavras (título)
+    const primeirasBanco = banco.split(' ').slice(0, 3);
+    const primeirasSite = site.split(' ').slice(0, 3);
+    const pesoInicio = primeirasBanco.filter(p => primeirasSite.includes(p)).length;
 
-    return Math.round((score * 10) + pesoInicio); // escala de 0 a 10+ 
+    // Escala de 0 a 10+ 
+    return Math.round((score * 10) + pesoInicio);
 }
 
-// Construção do termo de busca: usa até 4 palavras relevantes (exclui palavras comuns)
+// Constroi termo de busca usando palavras mais relevantes (até 4)
 function construirTermoBusca(nomeProduto) {
     const normalizado = normalizarTexto(nomeProduto);
     const palavras = normalizado.split(' ').filter(p => p.length > 2);
-    // Pode-se adicionar uma lista de stopwords para melhorar, mas simplificamos
+    // Pega até 4 palavras mais significativas (pode ser melhorado)
     return palavras.slice(0, 4).join(' ');
 }
 
-// Cache simples para respostas da API
+// ============================================================
+// 2. FUNÇÃO DE BUSCA COM CACHE
+// ============================================================
+
 const cache = new Map();
 
-// Função para buscar produtos com cache
 async function buscarProdutos(url, loja, termo) {
     const chave = `${loja}:${termo}`;
     if (cache.has(chave)) return cache.get(chave);
     try {
-        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const res = await fetch(url, { 
+            headers: { 'User-Agent': 'Mozilla/5.0' } 
+        });
         const data = res.ok ? await res.json() : [];
         cache.set(chave, data);
         return data;
-    } catch {
+    } catch (e) {
         return [];
     }
 }
 
-// Filtra o melhor match entre os itens retornados, aplicando todas as regras
+// ============================================================
+// 3. FILTRAGEM DO MELHOR MATCH
+// ============================================================
+
 function filtrarMelhorMatch(produto, itens) {
     let melhorMatch = null;
     let maiorScore = -1;
@@ -126,11 +136,11 @@ function filtrarMelhorMatch(produto, itens) {
         const score = calcularScore(nomeBanco, nomeSite);
         const volumeBanco = extrairVolume(nomeBanco);
         const volumeSite = extrairVolume(nomeSite);
-        const volumeBate = volumesCompatíveis(volumeBanco, volumeSite);
+        const volumeBate = volumesCompativeis(volumeBanco, volumeSite);
         const marcaBate = validarMarca(nomeBanco, nomeSite);
         const multipackBate = isMultipack(nomeBanco) === isMultipack(nomeSite);
 
-        // Só aceita se passar em todas as travas e tiver score mínimo (ajustável)
+        // Critérios de aceitação: score mínimo 3, e todas as travas verdadeiras
         if (score >= 3 && marcaBate && volumeBate && multipackBate && score > maiorScore) {
             maiorScore = score;
             melhorMatch = item;
@@ -139,7 +149,9 @@ function filtrarMelhorMatch(produto, itens) {
     return melhorMatch;
 }
 
-// ==================== FUNÇÃO PRINCIPAL ====================
+// ============================================================
+// 4. FUNÇÃO PRINCIPAL (AZURE FUNCTION)
+// ============================================================
 
 module.exports = async function (context, req) {
     // Define qual mercado buscar (padrão é SAMS se não informado)
@@ -166,21 +178,25 @@ module.exports = async function (context, req) {
         const monitorados = await colecao.find({ monitorar: true }).toArray();
         
         for (const prod of monitorados) {
-            let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
+            let resultado = { 
+                seu_item: prod.nome_comum, 
+                status: "NÃO ENCONTRADO" 
+            };
             
             try {
                 // Construção do termo de busca
-                const termoBase = construirTermoBusca(prod.nome_comum);
-                let termo = encodeURIComponent(termoBase);
-                let url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
+                const termo = construirTermoBusca(prod.nome_comum);
+                const termoEncoded = encodeURIComponent(termo);
+                let url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termoEncoded}?_from=0&_to=20`;
                 
-                let data = await buscarProdutos(url, loja, termoBase);
+                // Primeira tentativa de busca
+                let data = await buscarProdutos(url, loja, termo);
                 
-                // Fallback: se não retornou resultados, tenta com nome completo
+                // Fallback: se não encontrou nada, busca com nome completo
                 if (!data || data.length === 0) {
                     const termoCompleto = encodeURIComponent(normalizarTexto(prod.nome_comum));
                     url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termoCompleto}?_from=0&_to=20`;
-                    data = await buscarProdutos(url, loja, prod.nome_comum); // chave diferente
+                    data = await buscarProdutos(url, loja, termoCompleto);
                 }
                 
                 if (data && data.length > 0) {
