@@ -60,12 +60,14 @@ function isMultipack(texto) {
 // Lista ampliada de marcas (incluindo iogurtes)
 function validarMarca(nomeBanco, nomeSite) {
     const marcas = [
-        'WICKBOLD', 'PULLMAN', 'MELITTA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS',
-        'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO',
-        'PENSE', 'BATAVO', 'VIGOR', 'PAULISTA', 'SADIA', 'PRESIDENT', 'DOVE',
-        'SEDA', 'NIVEA', 'JOHNSON', 'REXONA', 'CRF', 'EMBALIXO', 'VALGROUP',
-        'ALTACOPPO', 'CRISTALCOPO', 'HIGIPACK', 'PIQUITUCHO', 'PONJITA'
-    ];
+    'WICKBOLD', 'PULLMAN', 'MELITTA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS',
+    'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO',
+    'PENSE', 'BATAVO', 'VIGOR', 'PAULISTA', 'SADIA', 'PRESIDENT', 'DOVE',
+    'SEDA', 'NIVEA', 'JOHNSON', 'REXONA', 'CRF', 'EMBALIXO', 'VALGROUP',
+    'ALTACOPPO', 'CRISTALCOPO', 'HIGIPACK', 'PIQUITUCHO', 'PONJITA',
+    'ITAMBE', 'BRILHANTE', 'SWIFT', 'VEJA', 'LIMPOL', 'TIROLEZ', 'YOKA', 
+    'DOWNY', 'VANISH', 'SANOL', 'MEMBER', 'COCA'
+];
     const normalizadoBanco = normalizarTexto(nomeBanco);
     const normalizadoSite = normalizarTexto(nomeSite);
 
