@@ -1,7 +1,7 @@
 const { MongoClient } = require('mongodb');
 
 // ============================================================
-// 1. FUNÇÕES AUXILIARES (versão estável, sem expansão)
+// 1. FUNÇÕES AUXILIARES DE NORMALIZAÇÃO E EXTRAÇÃO
 // ============================================================
 
 function normalizarTexto(texto) {
@@ -28,45 +28,43 @@ function extrairVolume(texto) {
     if (unidade === 'KG') { valor *= 1000; unidade = 'G'; }
     if (unidade === 'L')  { valor *= 1000; unidade = 'ML'; }
 
-    // Retorna string como antes (para manter compatibilidade)
-    return `${Math.round(valor)}${unidade}`;
+    return { valor: Math.round(valor), unidade };
 }
 
+// Agora aceita ML e G como compatíveis (densidade ~1)
 function volumesCompativeis(volBanco, volSite) {
     if (!volBanco || !volSite) return true;
-    const numBanco = parseFloat(volBanco);
-    const numSite = parseFloat(volSite);
-    const unidadeBanco = volBanco.replace(/[\d.]/g, '');
-    const unidadeSite = volSite.replace(/[\d.]/g, '');
-    // Permite ML vs G (ambos numéricos)
-    if (unidadeBanco !== unidadeSite) {
-        // Se um é ML e outro G, considera compatível (densidade 1)
-        if (!((unidadeBanco === 'ML' && unidadeSite === 'G') || (unidadeBanco === 'G' && unidadeSite === 'ML'))) {
-            return false;
-        }
+
+    let { valor: v1, unidade: u1 } = volBanco;
+    let { valor: v2, unidade: u2 } = volSite;
+
+    // Se as unidades são diferentes, convertemos ML para G (ou vice-versa) assumindo densidade 1
+    if (u1 === 'ML' && u2 === 'G') {
+        v2 = v2; // ML e G são tratados como equivalentes numéricos
+    } else if (u1 === 'G' && u2 === 'ML') {
+        v1 = v1;
+    } else if (u1 !== u2) {
+        return false; // unidades incompatíveis (ex: L vs G não mapeado)
     }
-    const tolerancia = 0.08; // 8%
-    const diff = Math.abs(numBanco - numSite);
-    return diff <= (numBanco * tolerancia);
+
+    const tolerancia = 0.05; // 5%
+    const diff = Math.abs(v1 - v2);
+    return diff <= (v1 * tolerancia);
 }
 
 function isMultipack(texto) {
     const normalizado = normalizarTexto(texto);
-    return /(PACOTE COM|KIT|CAIXA COM|CX COM|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d)/.test(normalizado);
+    return /(PACOTE COM|KIT|CAIXA COM|CX COM|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d|\d\s*[Xx]\s*[A-Z])/.test(normalizado);
 }
 
+// Lista ampliada de marcas (incluindo iogurtes)
 function validarMarca(nomeBanco, nomeSite) {
-    // Lista completa de marcas
     const marcas = [
-        'WICKBOLD','PULLMAN','MELITTA','NESTLE','ACTIVIA','ELMA CHIPS',
-        'SCOTCH BRITE','NATURAL ONE','MOLICO','DANONE','COLGATE','PANCO',
-        'PENSE','BATAVO','VIGOR','PAULISTA','SADIA','PRESIDENT','DOVE',
-        'SEDA','NIVEA','JOHNSON','REXONA','CRF','EMBALIXO','VALGROUP',
-        'ALTACOPPO','CRISTALCOPO','HIGIPACK','PIQUITUCHO','PONJITA',
-        'TIROLEZ','BUFALO','OLIMPO','TUPI','DESTAC','SANOL','DAI',
-        'RADIUM','SWIFT','GRACIANA','ITALAC','ITAMBE','PATO','MINUANO',
-        'YPE','DOWNY','VANISH','VEJA','BRILHANTE','LIMPOL','URCA',
-        'AURORA','BECEL','PROTEX','CARREFOUR','TININDO','UAU','ASSai'
+        'WICKBOLD', 'PULLMAN', 'MELITTA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS',
+        'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO',
+        'PENSE', 'BATAVO', 'VIGOR', 'PAULISTA', 'SADIA', 'PRESIDENT', 'DOVE',
+        'SEDA', 'NIVEA', 'JOHNSON', 'REXONA', 'CRF', 'EMBALIXO', 'VALGROUP',
+        'ALTACOPPO', 'CRISTALCOPO', 'HIGIPACK', 'PIQUITUCHO', 'PONJITA'
     ];
     const normalizadoBanco = normalizarTexto(nomeBanco);
     const normalizadoSite = normalizarTexto(nomeSite);
@@ -86,17 +84,19 @@ function calcularScore(nomeBanco, nomeSite) {
 
     if (palavrasBanco.length === 0 || palavrasSite.length === 0) return 0;
 
+    // Jaccard
     const interseccao = palavrasBanco.filter(p => palavrasSite.includes(p));
     const uniao = new Set([...palavrasBanco, ...palavrasSite]);
     let score = uniao.size > 0 ? interseccao.length / uniao.size : 0;
 
+    // Peso extra para as 3 primeiras palavras
     const primeirasBanco = banco.split(' ').slice(0, 3);
     const primeirasSite = site.split(' ').slice(0, 3);
     const pesoInicio = primeirasBanco.filter(p => primeirasSite.includes(p)).length;
 
-    // Bônus para palavras-chave
-    const chaves = ['ZERO', 'LIGHT', 'SEM ACUCAR', 'SEM AÇÚCAR', 'ZERO LACTOSE', 'DIET'];
-    const bonusChave = chaves.filter(p => banco.includes(p) && site.includes(p)).length * 2;
+    // Bônus para palavras-chave (ZERO, LIGHT, SEM AÇÚCAR)
+    const palavrasChave = ['ZERO', 'LIGHT', 'SEM ACUCAR', 'SEM AÇÚCAR'];
+    const bonusChave = palavrasChave.filter(p => banco.includes(p) && site.includes(p)).length * 2;
 
     return Math.round((score * 10) + pesoInicio + bonusChave);
 }
@@ -104,8 +104,29 @@ function calcularScore(nomeBanco, nomeSite) {
 function construirTermoBusca(nomeProduto) {
     const normalizado = normalizarTexto(nomeProduto);
     const palavras = normalizado.split(' ').filter(p => p.length > 2);
-    // Primeiras 3 palavras (comportamento original que funcionava)
-    return palavras.slice(0, 3).join(' ');
+
+    // Tenta incluir marca e volume se existirem
+    const marcas = ['WICKBOLD','PULLMAN','MELITTA','NESTLE','ACTIVIA','ELMA CHIPS',
+                    'SCOTCH BRITE','NATURAL ONE','MOLICO','DANONE','COLGATE','PANCO',
+                    'PENSE','BATAVO','VIGOR','PAULISTA','SADIA','PRESIDENT','DOVE',
+                    'SEDA','NIVEA','JOHNSON','REXONA','CRF','EMBALIXO','VALGROUP',
+                    'ALTACOPPO','CRISTALCOPO','HIGIPACK','PIQUITUCHO','PONJITA'];
+    let marca = marcas.find(m => normalizado.includes(m));
+    let volume = extrairVolume(normalizado);
+    let termoParts = [];
+
+    if (marca) termoParts.push(marca);
+    // Pega as palavras mais relevantes (até 5) excluindo a marca já adicionada
+    let palavrasRestantes = palavras.filter(p => p !== marca);
+    if (volume) {
+        // Adiciona o volume como "1.15KG" ou "1150G" – melhor usar o valor + unidade original
+        const volStr = `${volume.valor}${volume.unidade}`;
+        termoParts.push(volStr);
+        palavrasRestantes = palavrasRestantes.filter(p => !p.includes(volume.valor.toString()));
+    }
+    termoParts.push(...palavrasRestantes.slice(0, 5 - termoParts.length));
+
+    return termoParts.join(' ');
 }
 
 // ============================================================
@@ -122,7 +143,7 @@ async function buscarProdutos(url, loja, termo) {
         const data = res.ok ? await res.json() : [];
         cache.set(chave, data);
         return data;
-    } catch {
+    } catch (e) {
         return [];
     }
 }
@@ -155,7 +176,7 @@ function filtrarMelhorMatch(produto, itens) {
 }
 
 // ============================================================
-// 4. FUNÇÃO PRINCIPAL
+// 4. FUNÇÃO PRINCIPAL (AZURE FUNCTION)
 // ============================================================
 
 module.exports = async function (context, req) {
@@ -182,31 +203,39 @@ module.exports = async function (context, req) {
         const monitorados = await colecao.find({ monitorar: true }).toArray();
         
         for (const prod of monitorados) {
-            let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
+            let resultado = { 
+                seu_item: prod.nome_comum, 
+                status: "NÃO ENCONTRADO" 
+            };
             
             try {
+                // Busca principal
                 const termo = construirTermoBusca(prod.nome_comum);
                 const termoEncoded = encodeURIComponent(termo);
-                let url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termoEncoded}?_from=0&_to=50`;
+                let url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termoEncoded}?_from=0&_to=20`;
                 let data = await buscarProdutos(url, loja, termo);
 
                 // Fallback 1: busca com nome completo
                 if (!data || data.length === 0) {
                     const termoCompleto = encodeURIComponent(normalizarTexto(prod.nome_comum));
-                    url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termoCompleto}?_from=0&_to=50`;
+                    url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termoCompleto}?_from=0&_to=20`;
                     data = await buscarProdutos(url, loja, termoCompleto);
                 }
 
-                // Fallback 2: busca com marca + volume (iogurtes e outros)
+                // Fallback 2: busca apenas com marca + volume
                 if (!data || data.length === 0) {
-                    const normalizado = normalizarTexto(prod.nome_comum);
-                    const marcas = ['NESTLE','ACTIVIA','DANONE','MOLICO','PENSE','BATAVO','VIGOR','ITAMBE','SADIA','PRESIDENT'];
-                    let marca = marcas.find(m => normalizado.includes(m));
-                    let volume = extrairVolume(normalizado);
-                    if (marca && volume) {
-                        const termoFallback = `${marca} ${volume}`;
+                    const vol = extrairVolume(prod.nome_comum);
+                    const marca = normalizarTexto(prod.nome_comum).split(' ').find(p => 
+                        ['WICKBOLD','PULLMAN','MELITTA','NESTLE','ACTIVIA','ELMA CHIPS',
+                         'SCOTCH BRITE','NATURAL ONE','MOLICO','DANONE','COLGATE','PANCO',
+                         'PENSE','BATAVO','VIGOR','PAULISTA','SADIA','PRESIDENT','DOVE',
+                         'SEDA','NIVEA','JOHNSON','REXONA','CRF','EMBALIXO','VALGROUP',
+                         'ALTACOPPO','CRISTALCOPO','HIGIPACK','PIQUITUCHO','PONJITA'].includes(p)
+                    );
+                    if (marca && vol) {
+                        const termoFallback = `${marca} ${vol.valor}${vol.unidade}`;
                         const fallbackEncoded = encodeURIComponent(termoFallback);
-                        url = `${configs[loja].host}/api/catalog_system/pub/products/search/${fallbackEncoded}?_from=0&_to=50`;
+                        url = `${configs[loja].host}/api/catalog_system/pub/products/search/${fallbackEncoded}?_from=0&_to=20`;
                         data = await buscarProdutos(url, loja, termoFallback);
                     }
                 }
