@@ -1409,9 +1409,17 @@ async function inserirLinkLoja(nomeProduto, loja) {
 // Função chamada ao clicar no botão "Desmarcar Todos"
 window.limparTodaMonitoracao = async () => {
     if(confirm("Tem certeza que deseja desativar o monitoramento de TODOS os itens do robô?")) {
+        
+        // 1. Manda a ordem pro Banco de Dados
         await desmarcarTodosDicionario();
-        alert("Todos os itens foram desmarcados!");
-        renderizarDicionario(); // <--- Essa linha faz a tela piscar e atualizar na hora!
+        
+        // 2. DESLIGA TODAS AS CHAVINHAS VISUALMENTE NA HORA!
+        const todasChavinhas = document.querySelectorAll('.toggle-monitorar');
+        todasChavinhas.forEach(chavinha => {
+            chavinha.checked = false; // Tira o verde e deixa cinza na hora
+        });
+
+        alert("Pronto! Todos os itens foram desmarcados com sucesso.");
     }
 };
 
