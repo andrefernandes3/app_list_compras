@@ -43,3 +43,26 @@ export async function alternarMonitoramentoProduto(nomeProduto, monitorarStatus)
         body: JSON.stringify({ item: nomeProduto.toUpperCase(), monitorar: monitorarStatus })
     });
 }
+
+// --- NOVAS FUNÇÕES DO DICIONÁRIO / MONITORAMENTO ---
+
+async function obterDicionario() {
+    const res = await fetch(`${API_BASE}/GerenciarDicionario`);
+    return await res.json();
+}
+
+async function atualizarItemDicionario(id, monitorar, preco_alvo) {
+    await fetch(`${API_BASE}/GerenciarDicionario`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, monitorar, preco_alvo })
+    });
+}
+
+async function desmarcarTodosDicionario() {
+    await fetch(`${API_BASE}/GerenciarDicionario`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'desmarcar_todos' })
+    });
+}

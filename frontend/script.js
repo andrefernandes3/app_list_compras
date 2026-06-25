@@ -742,9 +742,6 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
 /**
  * Renderiza a lista de produtos do dicionário, agrupados por categoria.
  */
-// 🔥 Se você for usar módulos de cara, adicione este import no topo do script.js:
-// import { buscarVinculosDicionariop } from './api.js';
-
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
     if (!container) return;
@@ -770,7 +767,15 @@ async function renderizarDicionario() {
             categories[cat].push(p);
         });
 
-        container.innerHTML = '';
+        // NOVO: Adiciona o botão "Desmarcar Todos" fixo no topo do Dicionário
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-4 px-2 mt-2">
+                <h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2>
+                <button onclick="limparTodaMonitoracao()" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black active:scale-90 transition-transform shadow-sm border border-red-100 hover:bg-red-100 flex items-center gap-1">
+                    ⚠️ DESMARCAR TUDO
+                </button>
+            </div>
+        `;
 
         for (const [cat, itens] of Object.entries(categories)) {
             const div = document.createElement('div');
@@ -783,49 +788,34 @@ async function renderizarDicionario() {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
 
-                // 🔥 LÓGICA DE CORES E EMOJIS:
-                const isMonitorado = prod.monitorar === true;
-                const classeSino = isMonitorado
-                    ? 'bg-green-100 rounded-full shadow-sm border border-green-300 scale-110 p-1'
-                    : 'grayscale opacity-40 hover:opacity-80 bg-gray-50 rounded-full p-1';
-                const iconeSino = isMonitorado ? '🔔' : '🔕';
-
                 div.innerHTML += `
-                    <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-3"
+                    <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-2"
                          data-categoria-dict="${cat}">
-                        <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                        
+                        <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0">
+                        
                         <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
                             <img src="${fotoUrl}" class="w-full h-full object-cover">
                         </div>
                         
-                        <div class="flex-1 flex items-center gap-2 min-w-0">
+                        <div class="flex-1 flex flex-col justify-center min-w-0">
                             <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
                             
-                            <div class="flex items-center gap-1 shrink-0">
-                                <!-- Botão de Gráfico -->
-                                <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" 
-                                        class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all p-0.5" 
-                                        title="Ver histórico de preços">
-                                    📊
-                                </button>
-                                
-                                <!-- NOVO: Botão de Inserir Link do Site -->
-                                <button onclick="inserirLinkLoja('${nomeSeguro.replace(/'/g, "\\'")}', 'SAMS')" 
-                                        class="text-[11px] opacity-50 hover:opacity-100 active:scale-90 transition-all p-0.5" 
-                                        title="${prod.url_sams ? 'Link do Sam\'s Club já salvo! Clique para alterar.' : 'Adicionar link exato do Sam\'s Club'}">
-                                    ${prod.url_sams ? '🔗' : '⛓️‍💥'}
-                                </button>
-                                
-                                <!-- Botão do Sino -->
-                                <button onclick="toggleMonitoramentoWeb('${nomeSeguro.replace(/'/g, "\\'")}', ${!isMonitorado}, this)" 
-                                        class="text-[11px] transition-all active:scale-90 ${classeSino}" 
-                                        title="${isMonitorado ? 'Monitorando preço baixo' : 'Ativar alerta de preço baixo'}">
-                                    ${iconeSino}
-                                </button>
+                            <div class="flex items-center gap-2 mt-1">
+                                <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all" title="Ver histórico de preços">📊</button>
+                                <button onclick="inserirLinkLoja('${nomeSeguro.replace(/'/g, "\\'")}', 'SAMS')" class="text-[11px] opacity-50 hover:opacity-100 active:scale-90 transition-all" title="Adicionar link exato">🔗</button>
                             </div>
                         </div>
                         
-                        <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold active:scale-90">🛒+</button>
+                        <div class="controles-item flex flex-col items-center justify-center gap-1.5 bg-blue-50/50 p-1.5 rounded-lg border border-blue-50 shrink-0">
+                            <label class="relative inline-flex items-center cursor-pointer" title="Ligar/Desligar robô">
+                                <input type="checkbox" class="sr-only peer toggle-monitorar" ${prod.monitorar ? 'checked' : ''} onchange="salvarAlteracoesItem('${prod._id}', this)">
+                                <div class="w-7 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-green-500"></div>
+                            </label>
+                            <input type="number" step="0.01" class="input-alvo w-12 p-0.5 text-[9px] font-black text-blue-700 text-center border border-blue-100 rounded bg-white shadow-inner focus:ring-1 outline-none placeholder-gray-400" placeholder="R$ Alvo" title="Deixe em branco para usar o histórico" value="${prod.preco_alvo || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)">
+                        </div>
+                        
+                        <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-2 py-3 rounded-lg text-xs font-bold active:scale-90 ml-1 shrink-0">🛒+</button>
                     </div>`;
             });
             container.appendChild(div);
@@ -1415,6 +1405,28 @@ async function inserirLinkLoja(nomeProduto, loja) {
         alert("Erro de comunicação com o servidor.");
     }
 }
+
+// Função chamada ao clicar no botão "Desmarcar Todos"
+window.limparTodaMonitoracao = async () => {
+    if(confirm("Tem certeza que deseja desativar o monitoramento de TODOS os itens do robô?")) {
+        await desmarcarTodosDicionario();
+        alert("Todos os itens foram desmarcados!");
+        renderizarDicionario(); // <--- Essa linha faz a tela piscar e atualizar na hora!
+    }
+};
+
+// Função chamada sempre que você digita no "Preço Alvo" ou clica no "Sininho/Toggle"
+window.salvarAlteracoesItem = async (id, elemento) => {
+    // Pega a linha (div) atual para buscar os valores exatos dela
+    const container = elemento.closest('.controles-item'); 
+    
+    // ATENÇÃO: Ajuste a classe '.toggle-monitorar' e '.input-alvo' conforme o seu HTML
+    const monitorar = container.querySelector('.toggle-monitorar').checked;
+    const preco_alvo = container.querySelector('.input-alvo').value;
+    
+    await atualizarItemDicionario(id, monitorar, preco_alvo);
+    console.log(`Item ${id} atualizado: Monitorar=${monitorar}, Alvo=${preco_alvo}`);
+};
 
 // ================== INICIALIZAÇÃO ==================
 renderizarFiltrosCategorias();
