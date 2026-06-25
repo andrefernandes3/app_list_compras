@@ -43,26 +43,35 @@ export async function alternarMonitoramentoProduto(nomeProduto, monitorarStatus)
         body: JSON.stringify({ item: nomeProduto.toUpperCase(), monitorar: monitorarStatus })
     });
 }
-
-// --- NOVAS FUNÇÕES DO DICIONÁRIO / MONITORAMENTO ---
+// --- FUNÇÕES DO DICIONÁRIO / MONITORAMENTO ---
 
 async function obterDicionario() {
-    const res = await fetch(`${API_BASE}/GerenciarDicionario`);
+    const res = await fetch('/api/GerenciarDicionario');
     return await res.json();
 }
 
 async function atualizarItemDicionario(id, monitorar, preco_alvo) {
-    await fetch(`${API_BASE}/GerenciarDicionario`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, monitorar, preco_alvo })
-    });
+    try {
+        await fetch('/api/GerenciarDicionario', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, monitorar, preco_alvo })
+        });
+    } catch (e) {
+        console.error("Erro de conexão ao salvar:", e);
+        alert("Erro de conexão! O banco não foi atualizado.");
+    }
 }
 
 async function desmarcarTodosDicionario() {
-    await fetch(`${API_BASE}/GerenciarDicionario`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'desmarcar_todos' })
-    });
+    try {
+        await fetch('/api/GerenciarDicionario', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'desmarcar_todos' })
+        });
+    } catch (e) {
+        console.error("Erro de conexão ao desmarcar:", e);
+        alert("Erro de conexão! O banco não foi atualizado.");
+    }
 }
