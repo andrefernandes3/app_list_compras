@@ -1,1 +1,20 @@
 
+name: ⏰ Despertador do Robô de Preços
+
+on:
+  schedule:
+    # Este código significa: Rodar a cada 15 minutos
+    - cron: '*/15 * * * *'
+  
+  # Isso cria um botão no GitHub para você rodar manualmente se não quiser esperar
+  workflow_dispatch: 
+
+jobs:
+  acordar-robo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 1. Iniciar Varredura de Preços (Sam's, Carrefour, Atacadão)
+        run: curl -s -X GET "https://delightful-pond-0b98bde1e.1.azurestaticapps.net/api/MonitorarPrecos"
+        
+      - name: 📧 2. Disparar E-mails com Alertas (Zoho)
+        run: curl -s -X GET "https://delightful-pond-0b98bde1e.1.azurestaticapps.net/api/DispararAlertas"
