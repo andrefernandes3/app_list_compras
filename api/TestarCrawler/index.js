@@ -1,6 +1,6 @@
 const { MongoClient } = require('mongodb');
 
-// Função Juiz: Mantém a base do Score
+// Função Juiz: Avalia a similaridade entre o que você busca e o que o site entrega
 function calcularScore(nomeBanco, nomeSite) {
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
     const textoSite = nomeSite.toUpperCase();
@@ -35,14 +35,18 @@ function validarMarca(nomeBanco, nomeSite) {
 }
 
 module.exports = async function (context, req) {
+    // Define qual mercado buscar (padrão é SAMS se não informado)
     const loja = (req.query.loja || 'SAMS').toUpperCase();
+    
+    // ADICIONADO O ATACADÃO AQUI NA CONFIGURAÇÃO
     const configs = {
         'SAMS': { host: 'https://www.samsclub.com.br' },
-        'CARREFOUR': { host: 'https://www.carrefour.com.br' }
+        'CARREFOUR': { host: 'https://www.carrefour.com.br' },
+        'ATACADAO': { host: 'https://www.atacadao.com.br' }
     };
 
     if (!configs[loja]) {
-        context.res = { status: 400, body: { erro: "Loja não suportada." } };
+        context.res = { status: 400, body: { erro: "Loja não suportada. Use SAMS, CARREFOUR ou ATACADAO." } };
         return;
     }
 
@@ -59,6 +63,7 @@ module.exports = async function (context, req) {
             let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
             
             try {
+                // Motor de Busca Universal VTEX
                 const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
                 const url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
                 
