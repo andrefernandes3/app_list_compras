@@ -1,14 +1,40 @@
 const { MongoClient } = require('mongodb');
 
-// Função Juiz: Avalia a similaridade entre o que você busca e o que o site entrega
+// Função Juiz: Mantém a base do Score
 function calcularScore(nomeBanco, nomeSite) {
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
     const textoSite = nomeSite.toUpperCase();
     return palavrasBanco.reduce((score, palavra) => textoSite.includes(palavra) ? score + 1 : score, 0);
 }
 
+// NOVA TRAVA 1: Conversor Universal de Volumes (Sabe que 1KG = 1000G e 1L = 1000ML)
+function extrairVolume(texto) {
+    const match = texto.toUpperCase().match(/(\d+(?:[.,]\d+)?)\s*(KG|G|L|ML)/);
+    if (!match) return null;
+    
+    let valor = parseFloat(match[1].replace(',', '.'));
+    let unidade = match[2];
+    
+    // Normaliza tudo para Gramas ou MLs para a comparação ser perfeita
+    if (unidade === 'KG') { valor *= 1000; unidade = 'G'; }
+    if (unidade === 'L') { valor *= 1000; unidade = 'ML'; }
+    
+    return `${valor}${unidade}`; // Ex: transforma "1,15KG" em "1150G"
+}
+
+// NOVA TRAVA 2: Validador de Marcas
+function validarMarca(nomeBanco, nomeSite) {
+    const marcas = ['WICKBOLD', 'PULLMAN', 'MELITTA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS', 'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO'];
+    const marcaBanco = marcas.find(m => nomeBanco.toUpperCase().includes(m));
+    
+    // Se o seu item tem uma marca mapeada, o site OBRIGATORIAMENTE tem que ter a mesma
+    if (marcaBanco) {
+        return nomeSite.toUpperCase().includes(marcaBanco);
+    }
+    return true; // Se não tem marca na lista, deixa passar
+}
+
 module.exports = async function (context, req) {
-    // Define qual mercado buscar (padrão é SAMS se não informado)
     const loja = (req.query.loja || 'SAMS').toUpperCase();
     const configs = {
         'SAMS': { host: 'https://www.samsclub.com.br' },
@@ -16,7 +42,7 @@ module.exports = async function (context, req) {
     };
 
     if (!configs[loja]) {
-        context.res = { status: 400, body: { erro: "Loja não suportada. Use SAMS ou CARREFOUR." } };
+        context.res = { status: 400, body: { erro: "Loja não suportada." } };
         return;
     }
 
@@ -33,7 +59,6 @@ module.exports = async function (context, req) {
             let resultado = { seu_item: prod.nome_comum, status: "NÃO ENCONTRADO" };
             
             try {
-                // Motor de Busca Universal VTEX
                 const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
                 const url = `${configs[loja].host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
                 
@@ -45,14 +70,31 @@ module.exports = async function (context, req) {
                     let maiorScore = -1;
 
                     data.forEach(item => {
-                        const score = calcularScore(prod.nome_comum, item.productName);
-                        if (score > maiorScore) {
+                        const nomeBanco = prod.nome_comum;
+                        const nomeSite = item.productName;
+
+                        const score = calcularScore(nomeBanco, nomeSite);
+                        
+                        // Executa as Travas
+                        const volumeBanco = extrairVolume(nomeBanco);
+                        const volumeSite = extrairVolume(nomeSite);
+                        const volumeBate = (volumeBanco && volumeSite) ? volumeBanco === volumeSite : true;
+                        
+                        const marcaBate = validarMarca(nomeBanco, nomeSite);
+
+                        // NOVA TRAVA 3: Proteção contra Kits/Multipacks (ex: 2x500g)
+                        const isMultipackSite = /CAIXA COM|PACK|\dX/i.test(nomeSite);
+                        const isMultipackBanco = /CAIXA COM|PACK|\dX/i.test(nomeBanco);
+                        const multipackBate = isMultipackBanco === isMultipackSite;
+
+                        // Só aceita se passar em TODAS as travas e tiver score mínimo
+                        if (score >= 2 && marcaBate && volumeBate && multipackBate && score > maiorScore) {
                             maiorScore = score;
                             melhorMatch = item;
                         }
                     });
 
-                    if (melhorMatch && maiorScore >= 1) {
+                    if (melhorMatch) {
                         const oferta = melhorMatch.items[0].sellers[0].commertialOffer;
                         resultado = { 
                             seu_item: prod.nome_comum, 
