@@ -3,11 +3,10 @@ name: ⏰ Despertador do Robô de Preços
 
 on:
   schedule:
-    # Este código significa: Rodar a cada 15 minutos
-    - cron: '*/15 * * * *'
+    # 11:00 no servidor do GitHub = 08:00 no Brasil. Roda todos os dias.
+    - cron: '0 11 * * *'
   
-  # Isso cria um botão no GitHub para você rodar manualmente se não quiser esperar
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   acordar-robo:
