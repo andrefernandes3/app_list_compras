@@ -1,6 +1,6 @@
 const { MongoClient } = require('mongodb');
 
-// Função Juiz: Avalia a similaridade entre o que você busca e o que o site entrega
+// Função Juiz: Avalia a similaridade entre o que você busca e o que o site entregA
 function calcularScore(nomeBanco, nomeSite) {
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
     const textoSite = nomeSite.toUpperCase();
