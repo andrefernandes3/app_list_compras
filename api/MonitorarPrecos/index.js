@@ -103,7 +103,7 @@ function construirTermoBusca(nomeProduto) {
 }
 
 // ============================================================
-// 2. FUNÇÕES DE BANCO DE DADOS
+// 2. FUNÇÕES DE BANCO DE DADOS E CACHE
 // ============================================================
 
 async function obterMenorPrecoHistorico(db, nomeProduto) {
@@ -116,10 +116,6 @@ async function obterMenorPrecoHistorico(db, nomeProduto) {
     const cursor = await db.collection("historico_precos").aggregate(pipeline).toArray();
     return cursor.length > 0 ? cursor[0].menorPreco : Infinity;
 }
-
-// ============================================================
-// 3. FUNÇÃO PRINCIPAL (AZURE FUNCTION)
-// ============================================================
 
 const cache = new Map();
 
@@ -154,9 +150,11 @@ function filtrarMelhorMatch(produto, itens) {
     return melhorMatch;
 }
 
+// ============================================================
+// 3. FUNÇÃO PRINCIPAL (AZURE FUNCTION)
+// ============================================================
+
 module.exports = async function (context, req) {
-    context.log("Iniciando Monitoramento de Preços Geral...");
-    
     const configs = [
         { id: 'SAMS', nome: "Sam's Club", host: 'https://www.samsclub.com.br' },
         { id: 'CARREFOUR', nome: "Carrefour", host: 'https://www.carrefour.com.br' },
@@ -164,6 +162,7 @@ module.exports = async function (context, req) {
     ];
 
     let client = null;
+    let relatorioVarredura = []; // ARRAY QUE VAI MOSTRAR TUDO NA TELA
 
     try {
         client = new MongoClient(process.env["MONGODB_URI"]);
@@ -172,23 +171,19 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
         
-        // Pega todos os produtos que estão com o sininho ativado
         const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
         let totalAlertas = 0;
 
         for (const prod of monitorados) {
-            // 1. Define o Preço de Referência (Alvo Manual ou Menor Histórico)
             const menorPrecoHistorico = await obterMenorPrecoHistorico(db, prod.nome_comum);
             const precoReferencia = prod.preco_alvo || menorPrecoHistorico;
             
-            if (precoReferencia === Infinity) continue; // Pula se não tem base de preço para comparar
+            if (precoReferencia === Infinity) continue;
 
-            // 2. Busca em TODAS as lojas configuradas
             for (const lojaConfig of configs) {
                 try {
                     const termo = construirTermoBusca(prod.nome_comum);
-                    const termoEncoded = encodeURIComponent(termo);
-                    let url = `${lojaConfig.host}/api/catalog_system/pub/products/search/${termoEncoded}?_from=0&_to=20`;
+                    let url = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=20`;
                     let data = await buscarProdutos(url, lojaConfig.id, termo);
 
                     if (!data || data.length === 0) {
@@ -205,42 +200,55 @@ module.exports = async function (context, req) {
                         const melhorMatch = filtrarMelhorMatch(prod, data);
                         
                         if (melhorMatch) {
-                            const oferta = melhorMatch.items[0].sellers[0].commertialOffer;
-                            const precoAtual = oferta.Price;
+                            const precoAtual = melhorMatch.items[0].sellers[0].commertialOffer.Price;
+                            let statusAcao = "Preço Normal/Alto (Ignorado)";
 
-                            // 3. A REGRA DE OURO: O preço está barato?
                             if (precoAtual < precoReferencia && precoAtual > 0) {
-                                // 4. Impede alertas duplicados no mesmo dia para a mesma loja/produto
                                 const alertaExistente = await alertasCol.findOne({
-                                    produto_nome: prod.nome_comum,
-                                    loja: lojaConfig.nome,
-                                    preco_atual: precoAtual,
-                                    status_notificacao: "pendente"
+                                    produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_atual: precoAtual, status_notificacao: "pendente"
                                 });
 
                                 if (!alertaExistente) {
                                     await alertasCol.insertOne({
-                                        produto_nome: prod.nome_comum,
-                                        loja: lojaConfig.nome,
-                                        preco_historico: precoReferencia,
-                                        preco_atual: precoAtual,
-                                        link_compra: melhorMatch.link,
-                                        data_alerta: new Date(),
-                                        status_notificacao: "pendente" // Prontinho para a DispararAlertas ler!
+                                        produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_historico: precoReferencia, preco_atual: precoAtual, link_compra: melhorMatch.link, data_alerta: new Date(), status_notificacao: "pendente"
                                     });
-                                    context.log(`🚨 OPORTUNIDADE: ${prod.nome_comum} por ${precoAtual} no ${lojaConfig.nome}`);
                                     totalAlertas++;
+                                    statusAcao = "🚨 ALERTA SALVO NA FILA!";
+                                } else {
+                                    statusAcao = "⏳ Alerta já estava pendente na fila";
                                 }
                             }
+
+                            // Registra o que ele encontrou e a decisão que tomou
+                            relatorioVarredura.push({
+                                produto_buscado: prod.nome_comum,
+                                loja: lojaConfig.nome,
+                                alvo_ou_historico: precoReferencia,
+                                preco_site: precoAtual,
+                                status_da_varredura: statusAcao
+                            });
+
+                        } else {
+                            relatorioVarredura.push({ produto_buscado: prod.nome_comum, loja: lojaConfig.nome, status_da_varredura: "Item rejeitado pelas Travas de Segurança" });
                         }
+                    } else {
+                        relatorioVarredura.push({ produto_buscado: prod.nome_comum, loja: lojaConfig.nome, status_da_varredura: "Sem estoque no site" });
                     }
                 } catch (e) {
-                    context.log(`Erro no Crawler (${lojaConfig.nome} - ${prod.nome_comum}): ${e.message}`);
+                    relatorioVarredura.push({ produto_buscado: prod.nome_comum, loja: lojaConfig.nome, status_da_varredura: `ERRO: ${e.message}` });
                 }
             }
         }
         
-        context.res = { status: 200, body: { message: "Monitoramento Geral Concluído.", alertas_gerados: totalAlertas } };
+        // CUSPINDO O RELATÓRIO NO NAVEGADOR
+        context.res = { 
+            status: 200, 
+            body: { 
+                mensagem: "Varredura 100% finalizada.", 
+                total_alertas_na_fila: totalAlertas,
+                detalhes_da_varredura: relatorioVarredura 
+            } 
+        };
     } catch (e) {
         context.res = { status: 500, body: { erro: e.message } };
     } finally {
