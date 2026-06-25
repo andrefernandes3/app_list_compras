@@ -1,5 +1,6 @@
 const { MongoClient } = require('mongodb');
 
+// Função Juiz: Avalia a similaridade de palavras
 function calcularScore(nomeBanco, nomeSite) {
     const palavrasBanco = nomeBanco.toUpperCase().split(' ').filter(p => p.length > 2);
     const textoSite = nomeSite.toUpperCase();
@@ -9,76 +10,96 @@ function calcularScore(nomeBanco, nomeSite) {
 module.exports = async function (context, req) {
     const uri = process.env.MONGODB_URI;
     const client = new MongoClient(uri);
-
+    
     try {
         await client.connect();
         const db = client.db('app_compras');
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
-
+        
         const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
         let totalAlertas = 0;
 
-        const lojas = [
-            { nome: "CARREFOUR", host: "https://www.carrefour.com.br", minScore: 2 },
-            { nome: "SAMS", host: "https://www.samsclub.com.br", minScore: 1 }
-        ];
+        // Foco exclusivo no Sam's Club
+        const hostSams = "https://www.samsclub.com.br";
 
         for (const prod of monitorados) {
-            // 1. Define preço de referência (Alvo manual > Histórico > Infinity)
             const menorPrecoHistorico = await obterMenorPrecoHistorico(db, prod.nome_comum);
             const precoReferencia = prod.preco_alvo || menorPrecoHistorico;
-
+            
             if (precoReferencia === Infinity) continue;
 
-            for (const loja of lojas) {
-                const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
-                const url = `${loja.host}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=20`;
+            // Usa as duas primeiras palavras para a busca na API
+            const termo = encodeURIComponent(prod.nome_comum.split(' ').slice(0, 2).join(' '));
+            const url = `${hostSams}/api/catalog_system/pub/products/search/${termo}?_from=0&_to=10`;
+            
+            const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            const data = res.ok ? await res.json() : [];
 
-                const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                const data = res.ok ? await res.json() : [];
+            let melhorMatch = null;
+            let maiorScore = -1;
 
-                let melhorMatch = null;
-                let maiorScore = -1;
-
+            if (data && data.length > 0) {
                 data.forEach(item => {
                     const nomeSite = item.productName.toUpperCase();
                     const nomeBanco = prod.nome_comum.toUpperCase();
+                    
+                    // 1. Validação de Palavras Exclusivas (Evita trocar Wickbold por Pullman)
+                    // Se o item do banco tem "WICKBOLD", o do site PRECISA ter "WICKBOLD"
+                    const palavrasChaveBanco = nomeBanco.split(' ').filter(p => p.length > 4); // Palavras longas (marcas/especificações)
+                    const marcasConhecidas = ["WICKBOLD", "PULLMAN", "NATURAL", "MELITTA", "NIVEA", "NINHO", "UNIÃO"];
+                    
+                    let marcaIncompativel = false;
+                    palavrasChaveBanco.forEach(palavra => {
+                        if (marcasConhecidas.includes(palavra) && !nomeSite.includes(palavra)) {
+                            marcaIncompativel = true; 
+                        }
+                    });
 
-                    // Trava Simplificada: Checa apenas a unidade (L ou ML)
-                    const temL = (n) => n.includes('L') && !n.includes('ML');
-                    const temML = (n) => n.includes('ML');
+                    if (marcaIncompativel) return; // Ignora este item do site completamente
 
-                    const unidadeBate = (temL(nomeSite) === temL(nomeBanco)) && (temML(nomeSite) === temML(nomeBanco));
+                    // 2. Trava de Volume Simplificada (L vs ML / G vs KG)
+                    const temGramas = (n) => n.includes('G') && !n.includes('KG');
+                    const temKilos = (n) => n.includes('KG') || n.includes('KILO');
+                    const volumeBate = (temGramas(nomeSite) === temGramas(nomeBanco)) && (temKilos(nomeSite) === temKilos(nomeBanco));
 
+                    // 3. Cálculo do Score
                     const score = calcularScore(nomeBanco, nomeSite);
-
-                    // Se o score for bom E a unidade for a mesma, aceita
-                    if (score >= loja.minScore && unidadeBate && score > maiorScore) {
+                    
+                    // No Sam's Club o filtro pode ser score >= 2 para garantir precisão
+                    if (score >= 2 && volumeBate && score > maiorScore) {
                         maiorScore = score;
                         melhorMatch = item;
                     }
                 });
+            }
 
-                if (melhorMatch) {
-                    const precoAtual = melhorMatch.items[0].sellers[0].commertialOffer.Price;
-
-                    if (precoAtual < precoReferencia && precoAtual > 0) {
-                        await alertasCol.insertOne({
-                            produto_nome: prod.nome_comum,
-                            loja: loja.nome,
-                            preco_historico: precoReferencia,
-                            preco_atual: precoAtual,
-                            link_compra: melhorMatch.link,
-                            data_alerta: new Date(),
-                            status_notificacao: "pendente"
-                        });
-                        totalAlertas++;
-                    }
+            // 4. Se encontrou um match legítimo, valida o preço
+            if (melhorMatch) {
+                const precoAtual = melhorMatch.items[0].sellers[0].commertialOffer.Price;
+                
+                if (precoAtual < precoReferencia && precoAtual > 0) {
+                    await alertasCol.insertOne({
+                        produto_nome: prod.nome_comum,
+                        loja: "SAMS",
+                        preco_historico: precoReferencia,
+                        preco_atual: precoAtual,
+                        link_compra: melhorMatch.link,
+                        data_alerta: new Date(),
+                        status_notificacao: "pendente"
+                    });
+                    totalAlertas++;
                 }
             }
         }
-        context.res = { status: 200, body: { message: "Monitoramento concluído.", total_alertas: totalAlertas } };
+
+        context.res = { 
+            status: 200, 
+            body: { 
+                message: "Monitoramento Sam's Club concluído.", 
+                total_alertas: totalAlertas
+            } 
+        };
     } catch (e) {
         context.res = { status: 500, body: { erro: e.message } };
     } finally {
@@ -87,20 +108,14 @@ module.exports = async function (context, req) {
 };
 
 async function obterMenorPrecoHistorico(db, nomeProduto) {
-    const volume = nomeProduto.match(/(\d+[\.,]?\d*\s?[L|G|ML])/i);
-    const volumeRegex = volume ? volume[0] : "";
-
+    const primeiraPalavra = nomeProduto.split(' ')[0];
+    
     const pipeline = [
         { $unwind: "$itens" },
-        { $match: { "itens.descricao": { $regex: nomeProduto.split(' ')[0], $options: 'i' } } }
+        { $match: { "itens.descricao": { $regex: primeiraPalavra, $options: 'i' } } },
+        { $group: { _id: null, menorPreco: { $min: "$itens.preco_unitario" } } }
     ];
-
-    if (volumeRegex) {
-        pipeline.push({ $match: { "itens.descricao": { $regex: volumeRegex, $options: 'i' } } });
-    }
-
-    pipeline.push({ $group: { _id: null, menorPreco: { $min: "$itens.preco_unitario" } } });
-
+    
     const cursor = await db.collection("historico_precos").aggregate(pipeline).toArray();
     return cursor.length > 0 ? cursor[0].menorPreco : Infinity;
 }
