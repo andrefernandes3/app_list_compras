@@ -1,5 +1,4 @@
 const { MongoClient } = require('mongodb');
-const stringSimilarity = require('string-similarity-js');
 
 // ============================================================
 // CONFIGURAÇÕES E MARCAS
@@ -57,17 +56,25 @@ function isMultipack(texto) {
     return /(PACOTE|KIT|CAIXA|CX|COM\s*\d|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d)/.test(normalizado);
 }
 
+// ====================== FUNÇÃO CORRIGIDA ======================
 function calcularScore(nomeBanco, nomeSite) {
     const a = normalizarTexto(nomeBanco);
     const b = normalizarTexto(nomeSite);
-    const sim = stringSimilarity.compareTwoStrings(a, b);
-
+    
+    const palavrasA = a.split(' ').filter(p => p.length > 2);
+    const palavrasB = b.split(' ').filter(p => p.length > 2);
+    
+    const interseccao = palavrasA.filter(p => palavrasB.includes(p)).length;
+    const uniao = new Set([...palavrasA, ...palavrasB]).size;
+    
+    const jaccard = uniao > 0 ? interseccao / uniao : 0;
+    
     let bonus = 0;
     if (MARCAS_CONHECIDAS.some(m => a.includes(m) && b.includes(m))) bonus += 25;
     if ((a.includes('ZERO') && b.includes('ZERO')) || 
         (a.includes('LIGHT') && b.includes('LIGHT'))) bonus += 15;
 
-    return Math.round(sim * 100 + bonus);
+    return Math.round((jaccard * 100) + bonus);
 }
 
 function construirTermosBusca(nomeProduto) {
