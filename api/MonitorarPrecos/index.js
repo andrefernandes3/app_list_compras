@@ -1,8 +1,22 @@
 const { MongoClient } = require('mongodb');
-const stringSimilarity = require('string-similarity-js'); // npm install string-similarity-js
+const stringSimilarity = require('string-similarity-js');
 
 // ============================================================
-// 1. FUNÇÕES AUXILIARES
+// CONFIGURAÇÕES E MARCAS
+// ============================================================
+
+const MARCAS_CONHECIDAS = [
+    'WICKBOLD', 'PULLMAN', 'MELITTA', 'MELITA', 'NESTLE', 'NESTLÉ', 'ACTIVIA',
+    'ELMA CHIPS', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO', 'PENSE',
+    'BATAVO', 'VIGOR', 'PAULISTA', 'SADIA', 'PRESIDENT', 'PRÉSIDENT', 'DOVE',
+    'SEDA', 'NIVEA', 'JOHNSON', 'REXONA', 'BRIGITTA', 'FUGINI', 'PREDILECTA',
+    'CARREFOUR', 'TIROLEZ', 'YOKI', 'COQUEIRO', 'GOMES DA COSTA', 'ITALAC',
+    'QUAKER', 'BAUDUCCO', 'MARILAN', 'CRF', 'EMBALIXO', 'VALGROUP', 'ALTACOPPO',
+    'CRISTALCOPO', 'HIGIPACK', 'PIQUITUCHO', 'PONJITA', 'ITAMBE', 'SWIFT', 'LIMPOL'
+];
+
+// ============================================================
+// FUNÇÕES AUXILIARES
 // ============================================================
 
 function normalizarTexto(texto) {
@@ -31,45 +45,29 @@ function extrairVolume(texto) {
 
 function volumesCompativeis(volBanco, volSite) {
     if (!volBanco || !volSite) return true;
-
     const conv = { 'G': 1, 'ML': 1, 'KG': 1000, 'L': 1000 };
     const v1 = volBanco.valor * (conv[volBanco.unidade] || 1);
     const v2 = volSite.valor * (conv[volSite.unidade] || 1);
-
     const diffPercent = Math.abs(v1 - v2) / Math.max(v1, v2);
-    return diffPercent <= 0.18; // 18% de tolerância
+    return diffPercent <= 0.18;
 }
 
 function isMultipack(texto) {
     const normalizado = normalizarTexto(texto);
-    return /(PACOTE|KIT|CAIXA|CX|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d|\d\s*[Xx]\s*[A-Z])/.test(normalizado);
-}
-
-const MARCAS_CONHECIDAS = [
-    'WICKBOLD', 'PULLMAN', 'MELITTA', 'MELITA', 'NESTLE', 'ACTIVIA', 'ELMA CHIPS',
-    'SCOTCH BRITE', 'NATURAL ONE', 'MOLICO', 'DANONE', 'COLGATE', 'PANCO', 'PENSE',
-    'BATAVO', 'VIGOR', 'PAULISTA', 'SADIA', 'PRESIDENT', 'PRÉSIDENT', 'DOVE', 'SEDA',
-    'NIVEA', 'JOHNSON', 'REXONA', 'BRIGITTA', 'FUGINI', 'PREDILECTA', 'CARREFOUR'
-];
-
-function validarMarca(nomeBanco, nomeSite) {
-    const nb = normalizarTexto(nomeBanco);
-    const ns = normalizarTexto(nomeSite);
-    return MARCAS_CONHECIDAS.some(m => nb.includes(m) && ns.includes(m));
+    return /(PACOTE|KIT|CAIXA|CX|COM\s*\d|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d)/.test(normalizado);
 }
 
 function calcularScore(nomeBanco, nomeSite) {
     const a = normalizarTexto(nomeBanco);
     const b = normalizarTexto(nomeSite);
-
     const sim = stringSimilarity.compareTwoStrings(a, b);
-    const palavrasBanco = a.split(' ').filter(p => p.length > 2);
-    const palavrasSite = b.split(' ').filter(p => p.length > 2);
 
-    const interseccao = palavrasBanco.filter(p => palavrasSite.includes(p));
-    const scoreJaccard = palavrasBanco.length > 0 ? interseccao.length / new Set([...palavrasBanco, ...palavrasSite]).size : 0;
+    let bonus = 0;
+    if (MARCAS_CONHECIDAS.some(m => a.includes(m) && b.includes(m))) bonus += 25;
+    if ((a.includes('ZERO') && b.includes('ZERO')) || 
+        (a.includes('LIGHT') && b.includes('LIGHT'))) bonus += 15;
 
-    return Math.round(sim * 100 + scoreJaccard * 50);
+    return Math.round(sim * 100 + bonus);
 }
 
 function construirTermosBusca(nomeProduto) {
@@ -78,75 +76,74 @@ function construirTermosBusca(nomeProduto) {
     const marca = MARCAS_CONHECIDAS.find(m => normal.includes(m)) || '';
 
     const termos = [
-        nomeProduto.split(' ').slice(0, 5).join(' '),
+        nomeProduto.split(' ').slice(0, 6).join(' '),
         `${marca} ${volume ? volume.valor + volume.unidade : ''}`.trim(),
-        normal.split(' ').filter(p => p.length > 3).slice(0, 4).join(' ')
+        normal.split(' ').filter(p => p.length > 3).slice(0, 5).join(' ')
     ];
 
-    return [...new Set(termos.filter(Boolean))]; // remove duplicados
+    return [...new Set(termos.filter(t => t && t.length > 3))];
 }
 
 // ============================================================
-// 2. CACHE
+// CACHE
 // ============================================================
 
 const cache = new Map();
 const CACHE_TTL = 1000 * 60 * 12; // 12 minutos
 
-async function buscarProdutos(url, loja, termo) {
-    const chave = `${loja}:${termo}`;
+async function buscarProdutos(url, loja) {
+    const chave = `${loja}:${url}`;
     const cached = cache.get(chave);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        return cached.data;
-    }
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
 
     try {
-        const res = await fetch(url, { 
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceMonitor/1.0)' } 
+        const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceMonitor/1.0)' }
         });
         const data = res.ok ? await res.json() : [];
         cache.set(chave, { data, timestamp: Date.now() });
         return data;
     } catch (e) {
-        console.error(`Erro ao buscar ${termo} na ${loja}:`, e.message);
+        console.error(`Erro na busca ${loja}:`, e.message);
         return [];
     }
 }
 
 // ============================================================
-// 3. MATCHING PRINCIPAL
+// MATCHING
 // ============================================================
 
 function filtrarMelhorMatch(produto, itens) {
-    let melhorMatch = null;
+    let melhor = null;
     let maiorScore = -1;
-
     const volBanco = extrairVolume(produto.nome_comum);
 
     for (const item of itens) {
-        const nomeSite = item.productName || '';
+        const nomeSite = item.productName || item.name || '';
+        if (!nomeSite) continue;
+
         const score = calcularScore(produto.nome_comum, nomeSite);
-        const marcaBate = validarMarca(produto.nome_comum, nomeSite);
+        const marcaBate = MARCAS_CONHECIDAS.some(m => 
+            normalizarTexto(produto.nome_comum).includes(m) && 
+            normalizarTexto(nomeSite).includes(m)
+        );
         const volumeBate = volumesCompativeis(volBanco, extrairVolume(nomeSite));
         const multipackBate = isMultipack(produto.nome_comum) === isMultipack(nomeSite);
 
-        let aceita = false;
-
-        if (score >= 75) aceita = true;
-        else if (score >= 58 && marcaBate && volumeBate) aceita = true;
-        else if (score >= 65 && marcaBate) aceita = true;
+        let aceita = score >= 72;
+        if (score >= 62 && marcaBate && volumeBate) aceita = true;
+        if (score >= 68 && marcaBate) aceita = true;
 
         if (aceita && score > maiorScore) {
             maiorScore = score;
-            melhorMatch = item;
+            melhor = item;
         }
     }
-
-    return melhorMatch;
+    return melhor;
 }
 
 // ============================================================
-// 4. FUNÇÃO PRINCIPAL
+// FUNÇÃO PRINCIPAL
 // ============================================================
 
 module.exports = async function (context, req) {
@@ -172,7 +169,6 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             const menorPrecoHistorico = await obterMenorPrecoHistorico(db, prod.nome_comum);
             const precoReferencia = prod.preco_alvo || menorPrecoHistorico || Infinity;
-
             if (precoReferencia === Infinity) continue;
 
             for (const lojaConfig of configs) {
@@ -181,23 +177,22 @@ module.exports = async function (context, req) {
 
                 for (const termo of termos) {
                     const url = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=25`;
-                    const data = await buscarProdutos(url, lojaConfig.id, termo);
+                    const data = await buscarProdutos(url, lojaConfig.id);
 
-                    if (data && data.length > 0) {
+                    if (data?.length > 0) {
                         melhorMatch = filtrarMelhorMatch(prod, data);
                         if (melhorMatch) break;
                     }
                 }
 
-                let statusAcao = "Sem estoque / Sem match";
+                let statusAcao = "Sem match";
 
                 if (melhorMatch) {
                     const precoAtual = melhorMatch.items?.[0]?.sellers?.[0]?.commertialOffer?.Price || 0;
-
                     if (precoAtual > 0) {
-                        const quedaPercentual = precoReferencia > 0 ? (precoReferencia - precoAtual) / precoReferencia : 0;
+                        const queda = precoReferencia > 0 ? (precoReferencia - precoAtual) / precoReferencia : 0;
 
-                        if (precoAtual < precoReferencia && quedaPercentual > 0.08) { // mínimo 8% de queda
+                        if (precoAtual < precoReferencia && queda > 0.08) {
                             const alertaExistente = await alertasCol.findOne({
                                 produto_nome: prod.nome_comum,
                                 loja: lojaConfig.nome,
@@ -215,28 +210,28 @@ module.exports = async function (context, req) {
                                     status_notificacao: "pendente"
                                 });
                                 totalAlertas++;
-                                statusAcao = "🚨 ALERTA SALVO NA FILA!";
+                                statusAcao = "🚨 ALERTA SALVO!";
                             } else {
                                 statusAcao = "⏳ Alerta já pendente";
                             }
                         } else {
-                            statusAcao = `Preço Normal (Queda: ${(quedaPercentual * 100).toFixed(1)}%)`;
+                            statusAcao = `Preço normal (${(queda * 100).toFixed(1)}% abaixo)`;
                         }
                     }
 
                     relatorioVarredura.push({
                         produto_buscado: prod.nome_comum,
                         loja: lojaConfig.nome,
-                        alvo_ou_historico: precoReferencia,
-                        preco_site: precoAtual,
-                        score: melhorMatch ? calcularScore(prod.nome_comum, melhorMatch.productName) : null,
-                        status_da_varredura: statusAcao
+                        alvo: precoReferencia,
+                        encontrado: precoAtual,
+                        score: calcularScore(prod.nome_comum, melhorMatch.productName || ''),
+                        status: statusAcao
                     });
                 } else {
                     relatorioVarredura.push({
                         produto_buscado: prod.nome_comum,
                         loja: lojaConfig.nome,
-                        status_da_varredura: "Item rejeitado ou não encontrado"
+                        status: "Não encontrado"
                     });
                 }
             }
@@ -245,12 +240,11 @@ module.exports = async function (context, req) {
         context.res = {
             status: 200,
             body: {
-                mensagem: "Varredura finalizada com algoritmo melhorado",
-                total_alertas_na_fila: totalAlertas,
-                detalhes_da_varredura: relatorioVarredura
+                mensagem: "Varredura finalizada (versão melhorada)",
+                total_alertas: totalAlertas,
+                detalhes: relatorioVarredura
             }
         };
-
     } catch (e) {
         context.res = { status: 500, body: { erro: e.message } };
     } finally {
@@ -258,7 +252,6 @@ module.exports = async function (context, req) {
     }
 };
 
-// Função auxiliar mantida
 async function obterMenorPrecoHistorico(db, nomeProduto) {
     const primeiraPalavra = nomeProduto.split(' ')[0];
     const pipeline = [
