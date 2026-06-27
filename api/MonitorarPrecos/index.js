@@ -1,7 +1,7 @@
 const { MongoClient } = require('mongodb');
 
 // ============================================================
-// CONFIGURAÇÕES E MARCAS
+// CONFIGURAÇÕES
 // ============================================================
 
 const MARCAS_CONHECIDAS = [
@@ -48,7 +48,7 @@ function volumesCompativeis(volBanco, volSite) {
     const v1 = volBanco.valor * (conv[volBanco.unidade] || 1);
     const v2 = volSite.valor * (conv[volSite.unidade] || 1);
     const diffPercent = Math.abs(v1 - v2) / Math.max(v1, v2);
-    return diffPercent <= 0.18;
+    return diffPercent <= 0.20; // aumentada um pouco
 }
 
 function isMultipack(texto) {
@@ -56,7 +56,6 @@ function isMultipack(texto) {
     return /(PACOTE|KIT|CAIXA|CX|COM\s*\d|UNIDADES|UN\s*\.|UN\b|\d\s*[Xx]\s*\d)/.test(normalizado);
 }
 
-// ====================== FUNÇÃO CORRIGIDA ======================
 function calcularScore(nomeBanco, nomeSite) {
     const a = normalizarTexto(nomeBanco);
     const b = normalizarTexto(nomeSite);
@@ -70,9 +69,9 @@ function calcularScore(nomeBanco, nomeSite) {
     const jaccard = uniao > 0 ? interseccao / uniao : 0;
     
     let bonus = 0;
-    if (MARCAS_CONHECIDAS.some(m => a.includes(m) && b.includes(m))) bonus += 25;
+    if (MARCAS_CONHECIDAS.some(m => a.includes(m) && b.includes(m))) bonus += 30;
     if ((a.includes('ZERO') && b.includes('ZERO')) || 
-        (a.includes('LIGHT') && b.includes('LIGHT'))) bonus += 15;
+        (a.includes('LIGHT') && b.includes('LIGHT'))) bonus += 20;
 
     return Math.round((jaccard * 100) + bonus);
 }
@@ -83,20 +82,18 @@ function construirTermosBusca(nomeProduto) {
     const marca = MARCAS_CONHECIDAS.find(m => normal.includes(m)) || '';
 
     const termos = [
-        nomeProduto.split(' ').slice(0, 6).join(' '),
+        nomeProduto.split(' ').slice(0, 8).join(' '),
         `${marca} ${volume ? volume.valor + volume.unidade : ''}`.trim(),
-        normal.split(' ').filter(p => p.length > 3).slice(0, 5).join(' ')
+        normal.split(' ').filter(p => p.length > 3).slice(0, 7).join(' '),
+        marca
     ];
 
-    return [...new Set(termos.filter(t => t && t.length > 3))];
+    return [...new Set(termos.filter(t => t && t.length > 2))];
 }
 
-// ============================================================
-// CACHE
-// ============================================================
-
+// Cache
 const cache = new Map();
-const CACHE_TTL = 1000 * 60 * 12; // 12 minutos
+const CACHE_TTL = 1000 * 60 * 12;
 
 async function buscarProdutos(url, loja) {
     const chave = `${loja}:${url}`;
@@ -104,21 +101,15 @@ async function buscarProdutos(url, loja) {
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
 
     try {
-        const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceMonitor/1.0)' }
-        });
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const data = res.ok ? await res.json() : [];
         cache.set(chave, { data, timestamp: Date.now() });
         return data;
     } catch (e) {
-        console.error(`Erro na busca ${loja}:`, e.message);
+        console.error(`Erro ${loja}:`, e.message);
         return [];
     }
 }
-
-// ============================================================
-// MATCHING
-// ============================================================
 
 function filtrarMelhorMatch(produto, itens) {
     let melhor = null;
@@ -131,15 +122,14 @@ function filtrarMelhorMatch(produto, itens) {
 
         const score = calcularScore(produto.nome_comum, nomeSite);
         const marcaBate = MARCAS_CONHECIDAS.some(m => 
-            normalizarTexto(produto.nome_comum).includes(m) && 
-            normalizarTexto(nomeSite).includes(m)
+            normalizarTexto(produto.nome_comum).includes(m) && normalizarTexto(nomeSite).includes(m)
         );
         const volumeBate = volumesCompativeis(volBanco, extrairVolume(nomeSite));
-        const multipackBate = isMultipack(produto.nome_comum) === isMultipack(nomeSite);
 
-        let aceita = score >= 72;
-        if (score >= 62 && marcaBate && volumeBate) aceita = true;
-        if (score >= 68 && marcaBate) aceita = true;
+        let aceita = score >= 65;
+        if (score >= 75) aceita = true;
+        if (score >= 58 && marcaBate && volumeBate) aceita = true;
+        if (score >= 70 && marcaBate) aceita = true;
 
         if (aceita && score > maiorScore) {
             maiorScore = score;
@@ -183,21 +173,24 @@ module.exports = async function (context, req) {
                 const termos = construirTermosBusca(prod.nome_comum);
 
                 for (const termo of termos) {
-                    const url = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=25`;
+                    const url = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=30`;
                     const data = await buscarProdutos(url, lojaConfig.id);
-
                     if (data?.length > 0) {
                         melhorMatch = filtrarMelhorMatch(prod, data);
                         if (melhorMatch) break;
                     }
                 }
 
-                let statusAcao = "Sem match";
+                let statusAcao = "Não encontrado";
 
                 if (melhorMatch) {
                     const precoAtual = melhorMatch.items?.[0]?.sellers?.[0]?.commertialOffer?.Price || 0;
+                    
                     if (precoAtual > 0) {
                         const queda = precoReferencia > 0 ? (precoReferencia - precoAtual) / precoReferencia : 0;
+                        const quedaPercent = (queda * 100).toFixed(1);
+                        
+                        statusAcao = `Preço normal (${quedaPercent}% ${queda > 0 ? 'abaixo' : 'acima'})`;
 
                         if (precoAtual < precoReferencia && queda > 0.08) {
                             const alertaExistente = await alertasCol.findOne({
@@ -221,8 +214,6 @@ module.exports = async function (context, req) {
                             } else {
                                 statusAcao = "⏳ Alerta já pendente";
                             }
-                        } else {
-                            statusAcao = `Preço normal (${(queda * 100).toFixed(1)}% abaixo)`;
                         }
                     }
 
@@ -247,7 +238,7 @@ module.exports = async function (context, req) {
         context.res = {
             status: 200,
             body: {
-                mensagem: "Varredura finalizada (versão melhorada)",
+                mensagem: "Varredura finalizada (versão aprimorada)",
                 total_alertas: totalAlertas,
                 detalhes: relatorioVarredura
             }
