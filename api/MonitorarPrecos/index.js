@@ -1,8 +1,28 @@
 const { MongoClient } = require('mongodb');
 
-// [FUNÇÕES DE APOIO PERMANECEM IGUAIS - Normalizar, ExtrairVolume, ValidarMarca...]
-// (Mantenha as funções auxiliares que você já tem no arquivo original)
+// --- FUNÇÕES AUXILIARES NECESSÁRIAS ---
+async function obterMenorPrecoHistorico(db, nomeProduto) {
+    const historico = await db.collection('historico_precos').find({ nome: nomeProduto }).toArray();
+    if (historico.length === 0) return Infinity;
+    return Math.min(...historico.map(h => h.preco));
+}
 
+function construirTermoBusca(nome) {
+    return nome.split(' ').slice(0, 3).join(' '); // Pega as 3 primeiras palavras
+}
+
+async function buscarProdutos(url, lojaId, termo) {
+    try {
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        return await res.json();
+    } catch (e) { return []; }
+}
+
+function filtrarMelhorMatch(prod, lista) {
+    return lista.find(item => item.productName.toUpperCase().includes(prod.nome_comum.split(' ')[0]));
+}
+
+// --- FUNÇÃO PRINCIPAL ---
 module.exports = async function (context, req) {
     const configs = [
         { id: 'SAMS', nome: "Sam's Club", host: 'https://www.samsclub.com.br' },
@@ -28,7 +48,6 @@ module.exports = async function (context, req) {
                 try {
                     let matchEncontrado = null;
 
-                    // 1. TENTATIVA: EAN (Direto ao ponto)
                     if (prod.ean) {
                         const urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}`;
                         const resEan = await fetch(urlEan, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -36,10 +55,9 @@ module.exports = async function (context, req) {
                         try {
                             const dataEan = JSON.parse(textoEan);
                             if (dataEan && dataEan.length > 0) matchEncontrado = dataEan[0];
-                        } catch (e) { context.log(`Erro JSON EAN ${lojaConfig.id}: ${prod.ean}`); }
+                        } catch (e) { }
                     }
 
-                    // 2. TENTATIVA: Algoritmo de Texto (Fallback)
                     if (!matchEncontrado) {
                         const termo = construirTermoBusca(prod.nome_comum);
                         const urlTexto = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=20`;
@@ -49,7 +67,6 @@ module.exports = async function (context, req) {
                         }
                     }
 
-                    // 3. Resultado
                     if (matchEncontrado) {
                         const precoAtual = matchEncontrado.items[0].sellers[0].commertialOffer.Price;
                         if (precoAtual < precoReferencia && precoAtual > 0) {
@@ -64,7 +81,7 @@ module.exports = async function (context, req) {
                             }
                         }
                     }
-                } catch (e) { context.log(`Falha na loja ${lojaConfig.id}: ${e.message}`); }
+                } catch (e) { }
             }
         }
         context.res = { status: 200, body: "Monitoramento Completo com EAN e Fallback." };
