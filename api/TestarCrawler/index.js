@@ -19,12 +19,18 @@ module.exports = async function (context, req) {
     // Função que encapsula a requisição em uma Promise
     const fetchData = (targetUrl, isRedirect = false) => {
         return new Promise((resolve, reject) => {
-            const urlObj = new URL(targetUrl);
+            // Se o targetUrl for relativo (começar com /), reconstruímos a URL base
+            let fullUrl = targetUrl;
+            if (targetUrl.startsWith('/')) {
+                fullUrl = `https://${hosts[loja]}${targetUrl}`;
+            }
+            
+            const urlObj = new URL(fullUrl);
             const options = {
                 hostname: urlObj.hostname,
                 path: urlObj.pathname + urlObj.search,
                 method: 'GET',
-                headers: {
+                headers: { 
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             };
