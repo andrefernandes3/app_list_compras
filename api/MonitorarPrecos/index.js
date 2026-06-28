@@ -30,7 +30,7 @@ async function registrarLog(db, mensagem) {
     });
     // Limpa logs antigos para manter os últimos 50
     await db.collection('logs_robo').deleteMany({
-        _id: { $nin: (await db.collection('logs_robo').find().sort({data:-1}).limit(50).toArray()).map(l => l._id) }
+        _id: { $nin: (await db.collection('logs_robo').find().sort({ data: -1 }).limit(50).toArray()).map(l => l._id) }
     });
 }
 
@@ -49,13 +49,13 @@ module.exports = async function (context, req) {
         const db = client.db('app_compras');
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
-        
+
         const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
 
         for (const prod of monitorados) {
             const precoReferencia = prod.preco_alvo || await obterMenorPrecoHistorico(db, prod.nome_comum);
             if (precoReferencia === Infinity) continue;
-            
+
             await registrarLog(db, `Analisando: ${prod.nome_comum}`);
 
             for (const lojaConfig of configs) {
@@ -73,13 +73,25 @@ module.exports = async function (context, req) {
                         } catch (e) { }
                     }
 
-                    // 2. TENTATIVA: Texto
+                    // 2. TENTATIVA: Algoritmo de Texto (Fallback)
                     if (!matchEncontrado) {
                         const termo = construirTermoBusca(prod.nome_comum);
-                        const urlTexto = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=20`;
-                        const dataTexto = await buscarProdutos(urlTexto, lojaConfig.id, termo);
-                        if (dataTexto && dataTexto.length > 0) {
-                            matchEncontrado = filtrarMelhorMatch(prod, dataTexto);
+                        // Log para você ver no seu banco de logs o que está sendo buscado
+                        await registrarLog(db, `Tentando busca texto: ${termo} em ${lojaConfig.id}`);
+
+                        // Garantimos o encodeURIComponent para não quebrar a URL com espaços ou caracteres especiais
+                        const urlTexto = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=5`;
+
+                        try {
+                            const dataTexto = await buscarProdutos(urlTexto, lojaConfig.id, termo);
+                            if (dataTexto && dataTexto.length > 0) {
+                                matchEncontrado = filtrarMelhorMatch(prod, dataTexto);
+                                if (!matchEncontrado) {
+                                    await registrarLog(db, `Busca texto falhou (sem match): ${termo}`);
+                                }
+                            }
+                        } catch (err) {
+                            await registrarLog(db, `Erro fatal na busca texto: ${err.message}`);
                         }
                     }
 
@@ -87,7 +99,7 @@ module.exports = async function (context, req) {
                     if (matchEncontrado) {
                         const precoAtual = matchEncontrado.items[0].sellers[0].commertialOffer.Price;
                         await registrarLog(db, `✅ ${lojaConfig.nome}: ${prod.nome_comum} encontrado por R$ ${precoAtual}`);
-                        
+
                         if (precoAtual < precoReferencia && precoAtual > 0) {
                             const jaExiste = await alertasCol.findOne({
                                 produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_atual: precoAtual, status_notificacao: "pendente"
