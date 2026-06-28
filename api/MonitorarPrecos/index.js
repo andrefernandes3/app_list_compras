@@ -24,7 +24,7 @@ function filtrarMelhorMatch(prod, lista) {
 async function registrarLog(db, mensagem) {
     await db.collection('logs_robo').insertOne({ mensagem, data: new Date() });
     await db.collection('logs_robo').deleteMany({
-        _id: { $nin: (await db.collection('logs_robo').find().sort({data:-1}).limit(50).toArray()).map(l => l._id) }
+        _id: { $nin: (await db.collection('logs_robo').find().sort({ data: -1 }).limit(50).toArray()).map(l => l._id) }
     });
 }
 
@@ -45,8 +45,20 @@ module.exports = async function (context, req) {
         const db = client.db('app_compras');
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
-        
-        const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
+
+        const totalNoBanco = await db.collection('dicionario_produtos').countDocuments();
+        const monitorados = await db.collection('dicionario_produtos').find({ monitorar: true }).toArray();
+        if (monitorados.length === 0) {
+            context.res = {
+                status: 200,
+                body: {
+                    erro: "Nenhum item monitorado encontrado",
+                    total_itens_no_banco: totalNoBanco,
+                    dica: "Verifique se o campo no banco é booleano (true) e não string ('true')"
+                }
+            };
+            return; // Encerra aqui se não achar nada
+        }
 
         for (const prod of monitorados) {
             const precoRef = prod.preco_alvo || await obterMenorPrecoHistorico(db, prod.nome_comum);
@@ -77,7 +89,7 @@ module.exports = async function (context, req) {
                 if (matchEncontrado) {
                     const precoAtual = matchEncontrado.items[0].sellers[0].commertialOffer.Price;
                     relatorio.push({ produto: prod.nome_comum, loja: lojaConfig.nome, status: "MATCH_PERFEITO", preco: precoAtual });
-                    
+
                     if (precoAtual < precoRef) {
                         const jaExiste = await alertasCol.findOne({ produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_atual: precoAtual, status_notificacao: "pendente" });
                         if (!jaExiste) {
@@ -90,10 +102,10 @@ module.exports = async function (context, req) {
             }
         }
 
-        context.res = { 
-            status: 200, 
+        context.res = {
+            status: 200,
             headers: { "Content-Type": "application/json" },
-            body: relatorio 
+            body: relatorio
         };
     } catch (e) {
         context.res = { status: 500, body: { erro: e.message } };
