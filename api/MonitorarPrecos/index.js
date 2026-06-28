@@ -31,12 +31,6 @@ module.exports = async function (context, req) {
             return;
         }
 
-        // CABEÇALHO MÁGICO: Força o CEP de Osasco (06010-000) nos sites VTEX
-        const headersVtex = {
-            'User-Agent': 'Mozilla/5.0',
-            'Cookie': 'vtex_segment=eyJjYW1wYWlnbnMiOm51bGwsImNoYW5uZWwiOiIxIiwicHJpY2VUYWJsZXMiOm51bGwsInJlZ2lvbklkIjoibnVsbCIsInV0bV9jYW1wYWlnbiI6bnVsbCwidXRtX3NvdXJjZSI6bnVsbCwidXRtaV9jYW1wYWlnbiI6bnVsbCwiY3VycmVuY3lDb2RlIjoiQlJMIiwiY3VycmVuY3lTeW1ib2wiOiJSJCIsImNvdW50cnlDb2RlIjoiQlJBIiwiY3VsdHVyZUluZm8iOiJwdC1CUiIsImNoYW5uZWxQcml2YWN5IjoicHVibGljIn0=; vtex_location=postalCode=06010000&country=BRA'
-        };
-
         for (const prod of monitorados) {
             const precoReferencia = prod.preco_alvo || await obterMenorPrecoHistorico(db, prod.nome_comum);
             const temAlvo = precoReferencia !== Infinity;
@@ -51,9 +45,9 @@ module.exports = async function (context, req) {
                 try {
                     const urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}`;
                     
-                    // Dispara com o cabeçalho de CEP
-                    const res = await fetch(urlEan, { headers: headersVtex });
-                    const textoRes = await res.text(); // Lê como texto para evitar a quebra de JSON
+                    // Dispara a requisição padrão, sem forçar CEP, para não ser bloqueado
+                    const res = await fetch(urlEan, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    const textoRes = await res.text(); 
                     
                     let data = null;
                     try {
@@ -67,11 +61,11 @@ module.exports = async function (context, req) {
                         let precoAtual = 0;
                         let linkCompra = item.link;
 
-                        // INTELIGÊNCIA DE ESTOQUE: Procura o 1º vendedor que tenha preço maior que zero
+                        // INTELIGÊNCIA: Procura o primeiro vendedor que tenha preço maior que zero
                         for (const seller of item.items[0].sellers) {
                             if (seller.commertialOffer.Price > 0) {
                                 precoAtual = seller.commertialOffer.Price;
-                                break; 
+                                break; // Achou preço real, para de procurar
                             }
                         }
 
@@ -83,7 +77,7 @@ module.exports = async function (context, req) {
                                 preco: precoAtual
                             });
 
-                            // Verifica se está barato e salva no banco de alertas
+                            // Salva o alerta se estiver barato
                             if (temAlvo && precoAtual < precoReferencia) {
                                 const jaExiste = await alertasCol.findOne({
                                     produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_atual: precoAtual, status_notificacao: "pendente"
@@ -102,24 +96,23 @@ module.exports = async function (context, req) {
                                 }
                             }
                         } else {
-                            // Achou o produto no site, mas todos os vendedores estão com preço 0
+                            // Achou o produto no catálogo geral, mas todos os estoques estão zerados
                             relatorio.push({ 
                                 produto: prod.nome_comum, 
                                 loja: lojaConfig.nome, 
-                                status: "NÃO ENCONTRADO (Ou sem estoque na região)" 
+                                status: "SEM ESTOQUE (Preço 0,00)" 
                             });
                         }
                     } else {
-                        // Não achou o produto (URL retornou array vazio)
-                        relatorio.push({ produto: prod.nome_comum, loja: lojaConfig.nome, status: "NÃO ENCONTRADO (Ou sem estoque na região)" });
+                        // Não achou o EAN no site
+                        relatorio.push({ produto: prod.nome_comum, loja: lojaConfig.nome, status: "NÃO ENCONTRADO NO CATÁLOGO" });
                     }
                 } catch (err) {
-                    relatorio.push({ produto: prod.nome_comum, loja: lojaConfig.nome, status: "ERRO: " + err.message });
+                    relatorio.push({ produto: prod.nome_comum, loja: lojaConfig.nome, status: "ERRO DE CONEXÃO" });
                 }
             }
         }
 
-        // Devolve o painel em JSON na tela
         context.res = { 
             status: 200, 
             headers: { "Content-Type": "application/json" },
