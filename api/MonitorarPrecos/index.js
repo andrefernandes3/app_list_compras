@@ -1,6 +1,7 @@
 const { MongoClient } = require('mongodb');
+const fetch = require('node-fetch'); // Necessário para ambiente Node.js
 
-// --- FUNÇÕES AUXILIARES NECESSÁRIAS ---
+// --- FUNÇÕES AUXILIARES ---
 async function obterMenorPrecoHistorico(db, nomeProduto) {
     const historico = await db.collection('historico_precos').find({ nome: nomeProduto }).toArray();
     if (historico.length === 0) return Infinity;
@@ -8,7 +9,7 @@ async function obterMenorPrecoHistorico(db, nomeProduto) {
 }
 
 function construirTermoBusca(nome) {
-    return nome.split(' ').slice(0, 3).join(' '); // Pega as 3 primeiras palavras
+    return nome.split(' ').slice(0, 3).join(' ');
 }
 
 async function buscarProdutos(url, lojaId, termo) {
@@ -20,6 +21,17 @@ async function buscarProdutos(url, lojaId, termo) {
 
 function filtrarMelhorMatch(prod, lista) {
     return lista.find(item => item.productName.toUpperCase().includes(prod.nome_comum.split(' ')[0]));
+}
+
+async function registrarLog(db, mensagem) {
+    await db.collection('logs_robo').insertOne({
+        mensagem: mensagem,
+        data: new Date()
+    });
+    // Limpa logs antigos para manter os últimos 50
+    await db.collection('logs_robo').deleteMany({
+        _id: { $nin: (await db.collection('logs_robo').find().sort({data:-1}).limit(50).toArray()).map(l => l._id) }
+    });
 }
 
 // --- FUNÇÃO PRINCIPAL ---
@@ -43,11 +55,14 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             const precoReferencia = prod.preco_alvo || await obterMenorPrecoHistorico(db, prod.nome_comum);
             if (precoReferencia === Infinity) continue;
+            
+            await registrarLog(db, `Analisando: ${prod.nome_comum}`);
 
             for (const lojaConfig of configs) {
                 try {
                     let matchEncontrado = null;
 
+                    // 1. TENTATIVA: EAN
                     if (prod.ean) {
                         const urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}`;
                         const resEan = await fetch(urlEan, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -58,6 +73,7 @@ module.exports = async function (context, req) {
                         } catch (e) { }
                     }
 
+                    // 2. TENTATIVA: Texto
                     if (!matchEncontrado) {
                         const termo = construirTermoBusca(prod.nome_comum);
                         const urlTexto = `${lojaConfig.host}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}?_from=0&_to=20`;
@@ -67,8 +83,11 @@ module.exports = async function (context, req) {
                         }
                     }
 
+                    // 3. Processamento
                     if (matchEncontrado) {
                         const precoAtual = matchEncontrado.items[0].sellers[0].commertialOffer.Price;
+                        await registrarLog(db, `✅ ${lojaConfig.nome}: ${prod.nome_comum} encontrado por R$ ${precoAtual}`);
+                        
                         if (precoAtual < precoReferencia && precoAtual > 0) {
                             const jaExiste = await alertasCol.findOne({
                                 produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_atual: precoAtual, status_notificacao: "pendente"
@@ -80,8 +99,10 @@ module.exports = async function (context, req) {
                                 });
                             }
                         }
+                    } else {
+                        await registrarLog(db, `❌ ${lojaConfig.nome}: ${prod.nome_comum} não encontrado.`);
                     }
-                } catch (e) { }
+                } catch (e) { await registrarLog(db, `Falha na loja ${lojaConfig.id}: ${e.message}`); }
             }
         }
         context.res = { status: 200, body: "Monitoramento Completo com EAN e Fallback." };
