@@ -19,24 +19,30 @@ module.exports = async function (context, req) {
     // Função que encapsula a requisição em uma Promise
     const fetchData = (targetUrl, isRedirect = false) => {
         return new Promise((resolve, reject) => {
-            // Se o targetUrl for relativo (começar com /), reconstruímos a URL base
+            // Se for redirecionamento, mantemos a URL como está
             let fullUrl = targetUrl;
-            if (targetUrl.startsWith('/')) {
-                fullUrl = `https://${hosts[loja]}${targetUrl}`;
+
+            // Se for a primeira chamada e for Carrefour, forçamos o parâmetro de cache
+            if (!isRedirect && fullUrl.includes('carrefour.com.br')) {
+                fullUrl += (fullUrl.includes('?') ? '&' : '?') + `_=${Date.now()}`;
             }
-            
+
+            // Tratamento para URLs relativas
+            if (fullUrl.startsWith('/')) {
+                fullUrl = `https://${hosts[loja]}${fullUrl}`;
+            }
+
             const urlObj = new URL(fullUrl);
             const options = {
                 hostname: urlObj.hostname,
                 path: urlObj.pathname + urlObj.search,
                 method: 'GET',
-                headers: { 
+                headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             };
 
             const reqHttp = https.request(options, (res) => {
-                // SE FOR REDIRECIONAMENTO (301/302), REPETE O FETCH NA NOVA URL
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                     return resolve(fetchData(res.headers.location, true));
                 }
