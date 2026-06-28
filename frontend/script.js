@@ -1,30 +1,18 @@
 // ================== ESTADO GLOBAL ==================
-let totaisPorMercado = {};           // Dados de preços por loja (vindos da API)
-let itensSelecionados = new Set();    // IDs dos produtos selecionados no dicionário
-let meuGraficoRelatorio = null;       // Instância do gráfico de gastos
-let timeoutPreco, timeoutQtd;         // Debouncers para salvar preço e quantidade
+let totaisPorMercado = {};           
+let itensSelecionados = new Set();    
+let meuGraficoRelatorio = null;       
+let timeoutPreco, timeoutQtd;         
 let categoriaSelecionadaFiltro = "TUDO";
 
-// Armazena os preços digitados pelo usuário em tempo real (persistidos no localStorage)
 window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
 
 // ================== FUNÇÕES UTILITÁRIAS ==================
-
-/**
- * Escapa caracteres especiais para uso em atributos HTML.
- * @param {string} str - String a ser escapatada.
- * @returns {string}
- */
 function escapeHTML(str) {
     if (!str) return "";
     return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
-/**
- * Retorna uma cor hexadecimal para o mercado (usado nos gráficos e cards).
- * @param {string} nomeMercado - Nome do mercado.
- * @returns {string}
- */
 function obterCorMercado(nomeMercado) {
     const cores = {
         'CARREFOUR': '#2ecc71',
@@ -40,14 +28,8 @@ function obterCorMercado(nomeMercado) {
     return cores[chave] || '#3498db';
 }
 
-/**
- * Exibe um modal com a imagem ampliada do produto.
- * @param {string} url - URL da imagem.
- * @param {string} nome - Nome do produto.
- */
 function ampliarImagem(url, nome) {
     if (!url || url.includes('placeholder')) return;
-    // Remove modal anterior se existir
     const modalExistente = document.getElementById('modal-foto');
     if (modalExistente) modalExistente.remove();
 
@@ -62,11 +44,6 @@ function ampliarImagem(url, nome) {
 }
 
 // ================== ABAS ==================
-
-/**
- * Alterna entre as abas: Lista, Dicionário, Relatórios.
- * @param {string} aba - 'lista', 'dicionario' ou 'relatorios'
- */
 function alternarAba(aba) {
     const abas = ['lista', 'dicionario', 'relatorios'];
     abas.forEach(a => {
@@ -87,10 +64,6 @@ function alternarAba(aba) {
 }
 
 // ================== RELATÓRIOS ==================
-
-/**
- * Carrega o gráfico de gastos por categoria (pizza) e popula o filtro de lojas.
- */
 async function carregarRelatorios() {
     const ctx = document.getElementById('chartCategorias');
     const seletorLoja = document.getElementById('filtro-loja-relatorio');
@@ -102,7 +75,6 @@ async function carregarRelatorios() {
         const response = await fetch(url);
         const dados = await response.json();
 
-        // Preenche o seletor de lojas apenas na primeira vez
         if (seletorLoja && seletorLoja.options.length <= 1) {
             await carregarFiltroLojas();
         }
@@ -121,26 +93,19 @@ async function carregarRelatorios() {
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '70%',
+                responsive: true, maintainAspectRatio: false, cutout: '70%',
                 onClick: (evt, activeElements) => {
                     if (activeElements.length > 0) {
                         const index = activeElements[0].index;
                         exibirDetalhesCategoria(dados[index]);
                     }
                 },
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } }
-                }
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } } }
             }
         });
     } catch (e) { console.error("Erro ao carregar gráfico:", e); }
 }
 
-/**
- * Popula o seletor de lojas com os valores disponíveis no banco.
- */
 async function carregarFiltroLojas() {
     const seletor = document.getElementById('filtro-loja-relatorio');
     const response = await fetch('/api/ListarLojas');
@@ -153,10 +118,6 @@ async function carregarFiltroLojas() {
     });
 }
 
-/**
- * Exibe os itens detalhados de uma categoria (ao clicar no gráfico).
- * @param {object} categoria - Objeto contendo _id, totalGasto e detalhes.
- */
 function exibirDetalhesCategoria(categoria) {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
@@ -184,17 +145,12 @@ function exibirDetalhesCategoria(categoria) {
 }
 
 // ================== LISTA DE COMPRAS ==================
-
-/**
- * Carrega a lista ativa do backend, renderiza os cards e aciona a pintura de bordas e ranking.
- */
 async function carregarLista() {
     totaisPorMercado = {};
     const listaDiv = document.getElementById('lista-ativa');
     listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
 
     try {
-        // Busca concorrentemente os dados da lista, vínculos do dicionário e comparativo base
         const [respLista, respDict, respPrecos] = await Promise.all([
             fetch('/api/GerenciarLista'),
             fetch('/api/VincularProdutos'),
@@ -205,39 +161,28 @@ async function carregarLista() {
         const dicionario = await respDict.json();
         const dataPrecos = await respPrecos.json();
 
-        // Armazena em cache global a estrutura de preços por loja vinda do histórico do banco
         window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
-
-        // Guarda o dicionário e ranking base na janela global para uso de outras funções (como o recalcularRankingLive)
         window.dadosOriginaisDicionario = dataPrecos;
 
-        // Se a lista estiver vazia, encerra limpando a tela e escondendo o ranking superior
         if (itens.length === 0) {
             listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
             document.getElementById('totalizador-estimado').classList.add('hidden');
             return;
         }
 
-        // Mapeia e injeta a categoria correta em cada item consultando o dicionário de vínculos
         const itensOrdenados = itens.map(item => {
             const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
             return { ...item, categoria: (info.categoria || "OUTROS").toUpperCase() };
         });
 
-        // Ordena alfabeticamente pelas categorias para agrupar os itens por corredor
         itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
-
-        // [NOVO] Renderiza dinamicamente as pílulas de categorias com base nos itens que estão na lista ativa
         renderizarFiltrosCategorias(itensOrdenados);
 
         listaDiv.innerHTML = '';
         let categoriaAtual = "";
 
-        // Renderiza cada item agrupando-os visualmente por blocos de corredores
         itensOrdenados.forEach(item => {
             const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-
-            // Tratamentos de strings seguras para evitar quebras em atributos HTML e ID do DOM
             const idFormatado = item.item_nome.replace(/[^a-zA-Z0-9]/g, '_');
             const nomeSeguro = escapeHTML(item.item_nome).replace(/'/g, "\\'");
             const nomeBusca = item.item_nome.trim().toUpperCase();
@@ -246,27 +191,20 @@ async function carregarLista() {
             const qtd = item.quantidade || 1;
             const precoReal = item.preco_real || '';
 
-            // Se mudou de categoria, cria uma nova divisória de cabeçalho de corredor
             if (item.categoria !== categoriaAtual) {
                 categoriaAtual = item.categoria;
                 const separador = document.createElement('div');
-
-                // Adicionadas classes e atributos essenciais para a inteligência da função 'filtrarPorCorredor'
                 separador.className = "header-corredor text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-50 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
                 separador.setAttribute('data-categoria', categoriaAtual);
                 separador.innerHTML = `📍 CORREDOR: ${categoriaAtual}`;
                 listaDiv.appendChild(separador);
             }
 
-            // Instancia o container principal do Card do Produto
             const itemElement = document.createElement('div');
-
-            // Adicionados atributos estruturais 'card-produto-lista' e 'data-categoria-produto' para o filtro funcionar
             itemElement.className = `card-produto-lista bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
             itemElement.setAttribute('data-produto', nomeBusca);
             itemElement.setAttribute('data-categoria-produto', item.categoria);
 
-            // Injeta o HTML em linha única compactada para smartphones (Sua recomendação)
             itemElement.innerHTML = `
                 <div class="flex flex-col w-full gap-2">
                     <div class="flex items-center gap-2 w-full justify-between">
@@ -300,76 +238,53 @@ async function carregarLista() {
                             <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
                         </div>
                     </div>
-
                     <div id="preco-lista-${idFormatado}" class="w-full"></div>
                 </div>`;
-
             listaDiv.appendChild(itemElement);
 
-            // Caso o item já tenha um preço real digitado anteriormente, dispara a verificação de alerta de inflação
             if (precoReal) {
                 verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
             }
         });
 
-        // Aguarda um curto período para garantir a fixação dos elementos no DOM antes de rodar os scripts visuais pós-carga
         setTimeout(() => {
-            pintarBordasDeCobertura(window.totaisPorMercado); // Colore bordas esquerdas conforme menor preço histórico
-            atualizarPrecosEPilulas();                        // Popula os carrosséis inferiores e o ranking superior inteligente
-            calcularTotalReal();                              // Calcula e fixa o total planejado/carrinho no header
-
-            // [NOVO] Garante que, se a página atualizar, o corredor selecionado anteriormente permaneça ativo e filtrado
+            pintarBordasDeCobertura(window.totaisPorMercado); 
+            atualizarPrecosEPilulas();                        
+            calcularTotalReal();                              
             if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
                 filtrarPorCorredor(categoriaSelecionadaFiltro);
             }
         }, 300);
-
     } catch (err) {
         console.error("Erro fatal ao processar e renderizar a lista de compras:", err);
     }
 }
-/**
- * Atualiza os 4 boxes de digitação de preços (Carrefour, Assaí, Atacadão, Sams)
- * e também o ranking no elemento 'totalizador-estimado'.
- */
-/**
- * Atualiza os 4 boxes de preço injetando os valores históricos do banco caso não haja digitação.
- */
+
 async function atualizarPrecosEPilulas() {
     try {
         const respPrecos = await fetch('/api/CompararPrecos');
         const data = await respPrecos.json();
         window.dadosOriginaisDicionario = data;
 
-        // Pega todos os cards visíveis ou invisíveis da lista ativa
         const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
-
         cards.forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
             if (!nomeProduto) return;
 
-            // 🔥 CORREÇÃO DO ID: Usa exatamente o mesmo padrão de Regex da carregarLista()
-            // Buscando o nome original a partir do cache ou tratando a string de forma idêntica
             const dadosLista = window.dadosOriginaisDicionario?.precosPorLojaCompleto || {};
-
-            // Encontra a chave original correspondente no banco (com acentos/caixa alta)
             const nomeReal = Object.keys(dadosLista).find(k => k.trim().toUpperCase() === nomeProduto) || nomeProduto;
             const idFormatado = nomeReal.replace(/[^a-zA-Z0-9]/g, '_');
-
             const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
             if (!containerPreco) return;
 
-            // Busca preços históricos do banco
             const precosPorLoja = dadosLista[nomeReal] || {};
             const precoCRF = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
             const precoASA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
             const precoATA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ATACADAO"))] || null;
             const precoSAM = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S") || k.toUpperCase().includes("CLUB"))] || null;
 
-            // Busca os digitados da sessão atual (MongoDB Temp)
             const digitados = window.precosDigitadosNoMercado?.[nomeReal.trim().toUpperCase()] || {};
 
-            // Injeta o HTML renderizando os inputs com indicador inteligente
             containerPreco.innerHTML = `
                 <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
                     ${renderInputMercado('Carrefour', digitados['CARREFOUR'], precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeReal, 'CARREFOUR')}
@@ -382,21 +297,15 @@ async function atualizarPrecosEPilulas() {
                     <span class="font-black">R$ ${data.precosIndividuais?.[nomeReal]?.valor?.toFixed(2) || '--'}</span>
                 </div>`;
         });
-
         recalcularRankingLive(data.ranking || []);
     } catch (e) {
         console.error("Erro ao sincronizar pílulas de mercados:", e);
     }
 }
-/**
- * Componente do Input com inteligência visual (Diferencia estimativa de preço real).
- */
+
 function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProduto, rede) {
-    // Se o usuário já digitou algo, prioriza. Caso contrário, assume o valor estável do banco
     const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
     const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
-
-    // Configura o indicador visual (✍️ para manual, 🏦 para histórico do MongoDB)
     const indicador = temDigitado ? '✍️' : (valorBanco ? '🏦' : '---');
     const estiloTexto = temDigitado ? 'font-black text-gray-900' : 'font-medium text-gray-400/90 italic';
 
@@ -413,29 +322,17 @@ function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProdu
     `;
 }
 
-/**
- * Registra o preço digitado para um produto e rede, salva no localStorage e atualiza o ranking.
- * @param {string} nome - Nome do produto
- * @param {string} rede - Rede (CARREFOUR, ASSAI, ...)
- * @param {number} valor - Preço digitado
- */
 async function registrarPrecoLive(nome, rede, valor) {
     const numValor = parseFloat(valor);
-
-    // Agora aceitamos o 0 de forma intencional
     const valorValido = !isNaN(numValor) && numValor >= 0;
 
     if (!window.precosDigitadosNoMercado[nome]) {
         window.precosDigitadosNoMercado[nome] = {};
     }
 
-    // Se o usuário digitou 0 ou limpou o campo, definimos explicitamente como 0
     window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
-
-    // Recalcula o ranking imediatamente na tela
     recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
 
-    // Persiste no Banco de Dados Temporário
     if (valorValido) {
         try {
             await fetch('/api/GerenciarPrecosTemp', {
@@ -447,56 +344,34 @@ async function registrarPrecoLive(nome, rede, valor) {
     }
 }
 
-/**
- * Recalcula e exibe o ranking das lojas com base nos preços digitados pelo usuário.
- * @param {Array} rankingBase - Ranking original vindo da API (opcional)
- */
-/**
- * Recalcula o ranking somando Preços Digitados + Preços do Banco (onde não houver digitação).
- */
-/**
- * Soma dinamicamente os valores reais digitados + estimativas históricas para atualizar o topo.
- */
 function recalcularRankingLive(rankingBase) {
     const containerRanking = document.getElementById('totalizador-estimado');
     if (!containerRanking) return;
 
-    // Redes que vamos comparar
     const lojas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
     const totais = {};
     lojas.forEach(loja => { totais[loja] = 0; });
 
-    // Percorremos todos os cards de produtos visíveis na tela
     const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
-
     cards.forEach(card => {
         const nomeProduto = card.getAttribute('data-produto');
         const inputQtd = card.querySelector('.input-qtd-real');
         const qtd = parseFloat(inputQtd ? inputQtd.value : 1) || 1;
 
         lojas.forEach(loja => {
-            // 1. Tenta pegar o preço que você digitou temporariamente nesta sessão
-            // Dentro do laço lojas.forEach na função recalcularRankingLive:
             let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
-
-            // Se for exatamente 0, significa que o usuário anulou manualmente o valor histórico
             if (precoParaSomar === 0) {
-                precoParaSomar = 0; // Mantém zero e não pega o do banco
-            }
-            // Se estiver vazio ou nulo (undefined), aí sim busca o histórico do banco
-            else if (precoParaSomar === undefined || precoParaSomar === null) {
+                precoParaSomar = 0; 
+            } else if (precoParaSomar === undefined || precoParaSomar === null) {
                 const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
                 const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
                 precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
             }
 
-            if (precoParaSomar > 0) {
-                totais[loja] += precoParaSomar * qtd;
-            }
+            if (precoParaSomar > 0) totais[loja] += precoParaSomar * qtd;
         });
     });
 
-    // Converte para formato de array e ordena do mais barato para o mais caro
     const rankingCalculado = Object.entries(totais)
         .filter(([_, total]) => total > 0)
         .map(([loja, total]) => ({ nome: loja, total }))
@@ -507,41 +382,30 @@ function recalcularRankingLive(rankingBase) {
         return;
     }
 
-    // Remove o hidden e renderiza o layout fixo no topo
     containerRanking.classList.remove('hidden');
     exibirRanking(rankingCalculado);
 }
-/**
- * Renderiza os cards do ranking dentro do elemento 'totalizador-estimado'.
- * @param {Array} ranking - Array de objetos { nome, total }
- */
+
 function exibirRanking(ranking) {
     const containerRanking = document.getElementById('totalizador-estimado');
     if (!containerRanking) return;
     containerRanking.classList.remove('hidden');
 
-    // Mudamos o texto para branco para contrastar com o fundo azul do header
     let html = `<p class="text-[9px] font-black text-blue-100 uppercase tracking-widest mb-2 text-center">📊 Melhor Mercado Atual</p>
                 <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">`;
 
     ranking.forEach((loja, idx) => {
         const isVencedor = idx === 0;
-        // Cards levemente translúcidos ou sólidos dependendo da vitória
         html += `
             <div class="min-w-[110px] p-2 rounded-xl border-l-4 ${isVencedor ? 'border-green-400 bg-white' : 'border-blue-400 bg-blue-500/50'} shadow-md transition-all">
                 <p class="text-[7px] font-black ${isVencedor ? 'text-gray-500' : 'text-blue-100'} uppercase truncate">${loja.nome}</p>
                 <p class="text-sm font-black ${isVencedor ? 'text-gray-800' : 'text-white'}">R$ ${loja.total.toFixed(2)}</p>
             </div>`;
     });
-
     html += `</div>`;
     containerRanking.innerHTML = html;
 }
 
-/**
- * Pinta a borda esquerda de cada card conforme a cobertura de preços (0, 1-2 ou 3+ lojas).
- * @param {object} dadosComparativos - Objeto com preços por loja para cada produto.
- */
 function pintarBordasDeCobertura(dadosComparativos) {
     const cards = document.querySelectorAll('[data-produto]');
     cards.forEach(card => {
@@ -555,21 +419,13 @@ function pintarBordasDeCobertura(dadosComparativos) {
         const total = [temCRF, temASA, temATA].filter(v => v).length;
 
         card.classList.remove('border-yellow-400', 'border-red-500', 'border-transparent');
-        if (total >= 3) {
-            card.classList.add('border-transparent');
-        } else if (total === 0) {
-            card.classList.add('border-red-500');
-        } else {
-            card.classList.add('border-yellow-400');
-        }
+        if (total >= 3) card.classList.add('border-transparent');
+        else if (total === 0) card.classList.add('border-red-500');
+        else card.classList.add('border-yellow-400');
     });
 }
 
 // ================== FUNÇÕES DE PERSISTÊNCIA ==================
-
-/**
- * Calcula o total real da lista (soma preço * quantidade de cada item) e atualiza o display.
- */
 function calcularTotalReal() {
     let total = 0;
     const cards = document.querySelectorAll('#lista-ativa > div');
@@ -586,11 +442,6 @@ function calcularTotalReal() {
     if (display) display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
 }
 
-/**
- * Salva o preço real no backend (debounced).
- * @param {string} nome - Nome do produto
- * @param {number} valor - Preço digitado
- */
 function salvarPrecoNoBanco(nome, valor) {
     clearTimeout(timeoutPreco);
     timeoutPreco = setTimeout(async () => {
@@ -604,11 +455,6 @@ function salvarPrecoNoBanco(nome, valor) {
     }, 800);
 }
 
-/**
- * Salva a quantidade no backend e recarrega os preços (debounced).
- * @param {string} nome - Nome do produto
- * @param {number} qtd - Quantidade
- */
 function agendarSalvarQtd(nome, qtd) {
     clearTimeout(timeoutQtd);
     timeoutQtd = setTimeout(async () => {
@@ -618,7 +464,6 @@ function agendarSalvarQtd(nome, qtd) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
             });
-            // Atualiza apenas os preços e ranking, sem recarregar a lista inteira
             await atualizarPrecosEPilulas();
             calcularTotalReal();
         } catch (e) { console.error(e); }
@@ -626,13 +471,7 @@ function agendarSalvarQtd(nome, qtd) {
 }
 
 // ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
-
-/**
- * Abre um modal com o gráfico de evolução de preços do produto.
- * @param {string} nome - Nome do produto
- */
 async function abrirGrafico(nome) {
-    // Remove modal anterior se existir
     const modalExistente = document.getElementById('modal-grafico');
     if (modalExistente) modalExistente.remove();
 
@@ -655,19 +494,13 @@ async function abrirGrafico(nome) {
             </div>
             <div class="relative h-64">
                 <canvas id="meuGrafico"></canvas>
-            </div>            
+            </div>          
         </div>
     </div>`;
     document.body.insertAdjacentHTML('beforeend', canvasHtml);
     await filtrarPeriodoGrafico(nome, 0);
 }
 
-/**
- * Filtra o gráfico por período (dias) e renderiza os dados.
- * @param {string} nome - Nome do produto
- * @param {number} dias - Número de dias (0 = todos)
- * @param {HTMLElement} btn - Botão clicado (para estilização)
- */
 async function filtrarPeriodoGrafico(nome, dias, btn = null) {
     if (btn) {
         document.querySelectorAll('.btn-filtro').forEach(b => {
@@ -697,17 +530,13 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
                     data: dados.map(d => d.preco),
                     borderColor: '#2563eb',
                     backgroundColor: 'rgba(37, 99, 235, 0.05)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 6,
+                    fill: true, tension: 0.4, pointRadius: 6,
                     pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
-                    pointBorderWidth: 2,
-                    pointBorderColor: '#fff'
+                    pointBorderWidth: 2, pointBorderColor: '#fff'
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                responsive: true, maintainAspectRatio: false,
                 plugins: {
                     legend: { display: false },
                     tooltip: {
@@ -732,16 +561,10 @@ async function filtrarPeriodoGrafico(nome, dias, btn = null) {
         } else {
             new Chart(ctx, config);
         }
-    } catch (e) {
-        console.error("Erro ao carregar gráfico filtrado:", e);
-    }
+    } catch (e) { console.error("Erro ao carregar gráfico filtrado:", e); }
 }
 
-// ================== DICIONÁRIO ==================
-
-/**
- * Renderiza a lista de produtos do dicionário, agrupados por categoria.
- */
+// ================== DICIONÁRIO E CONFIG DO EAN ==================
 async function renderizarDicionario() {
     const container = document.getElementById('lista-dicionario');
     if (!container) return;
@@ -756,9 +579,7 @@ async function renderizarDicionario() {
     if (selectAllCheck) selectAllCheck.checked = false;
 
     try {
-        const produtos = typeof buscarVinculosDicionario === 'function'
-            ? await buscarVinculosDicionario()
-            : await fetch('/api/VincularProdutos').then(r => r.json());
+        const produtos = await fetch('/api/VincularProdutos').then(r => r.json());
 
         const categories = {};
         produtos.forEach(p => {
@@ -766,12 +587,12 @@ async function renderizarDicionario() {
             if (!categories[cat]) categories[cat] = [];
             categories[cat].push(p);
         });
-        // NOVO: Adiciona o botão fixo no topo do Dicionário
+
         container.innerHTML = `
             <div class="flex justify-between items-center mb-4 px-2 mt-2">
                 <h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2>
                 <button onclick="limparTodaMonitoracao()" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black active:scale-90 transition-transform shadow-sm border border-red-100 hover:bg-red-100 flex items-center gap-1">
-                    🔕 DESLIGAR ROBÔ (TUDO)
+                    🔕 DESLIGAR ROBÔ
                 </button>
             </div>
         `;
@@ -780,41 +601,54 @@ async function renderizarDicionario() {
             const div = document.createElement('div');
             div.className = "mb-4 block-categoria-dicionario";
             div.setAttribute('data-categoria-dict', cat);
-
             div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
 
             itens.forEach(prod => {
                 const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
                 const nomeSeguro = escapeHTML(prod.nome_comum);
+                
+                // NOVO: Design inteligente de fundo para quem não tem EAN
+                const eanFaltando = !prod.ean ? 'border-orange-300 bg-orange-50' : 'border-gray-100 bg-white';
 
                 div.innerHTML += `
-                    <div class="item-dicionario-lista bg-white p-2 rounded-xl border border-gray-100 flex items-center mb-1 shadow-sm gap-2"
+                    <div class="item-dicionario-lista p-2 rounded-xl border flex flex-col md:flex-row md:items-center mb-2 shadow-sm gap-2 ${eanFaltando}"
                          data-categoria-dict="${cat}">
                         
-                        <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0">
-                        
-                        <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
-                            <img src="${fotoUrl}" class="w-full h-full object-cover">
-                        </div>
-                        
-                        <div class="flex-1 flex flex-col justify-center min-w-0">
-                            <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
+                        <div class="flex items-center gap-2 flex-1 w-full">
+                            <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0">
                             
-                            <div class="flex items-center gap-2 mt-1">
-                                <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all" title="Ver histórico de preços">📊</button>
-                                <button onclick="inserirLinkLoja('${nomeSeguro.replace(/'/g, "\\'")}', 'SAMS')" class="text-[11px] opacity-50 hover:opacity-100 active:scale-90 transition-all" title="Adicionar link exato">🔗</button>
+                            <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
+                                <img src="${fotoUrl}" class="w-full h-full object-cover">
+                            </div>
+                            
+                            <div class="flex-1 flex flex-col justify-center min-w-0">
+                                <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all" title="Ver histórico de preços">📊 Gráfico</button>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="controles-item flex flex-col items-center justify-center gap-1.5 bg-blue-50/50 p-1.5 rounded-lg border border-blue-50 shrink-0">
-                            <label class="relative inline-flex items-center cursor-pointer" title="Ligar/Desligar robô">
-                                <input type="checkbox" class="sr-only peer toggle-monitorar" ${prod.monitorar ? 'checked' : ''} onchange="salvarAlteracoesItem('${prod._id}', this)">
-                                <div class="w-7 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-green-500"></div>
-                            </label>
-                            <input type="number" step="0.01" class="input-alvo w-12 p-0.5 text-[9px] font-black text-blue-700 text-center border border-blue-100 rounded bg-white shadow-inner focus:ring-1 outline-none placeholder-gray-400" placeholder="R$ Alvo" title="Deixe em branco para usar o histórico" value="${prod.preco_alvo || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)">
+                        <div class="controles-item flex items-center justify-between gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-none border-black/5">
+                            
+                            <div class="flex flex-col gap-1.5 flex-1">
+                                <input type="text" class="input-ean w-full md:w-28 p-1 text-[9px] font-mono text-center border border-gray-200 rounded outline-none placeholder-gray-400 focus:border-blue-400" 
+                                       placeholder="EAN (Código)" value="${prod.ean || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)" title="Código de barras EAN">
+                                       
+                                <input type="number" step="0.01" class="input-alvo w-full md:w-28 p-1 text-[9px] font-black text-blue-700 text-center border border-gray-200 rounded shadow-inner outline-none placeholder-gray-400 focus:border-blue-400" 
+                                       placeholder="R$ Alvo" value="${prod.preco_alvo || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)">
+                            </div>
+                            
+                            <div class="flex flex-col items-center justify-center gap-1 bg-blue-50/50 p-2 rounded-lg border border-blue-50 shrink-0">
+                                <span class="text-[7px] uppercase font-black text-blue-400 tracking-wider">Robô</span>
+                                <label class="relative inline-flex items-center cursor-pointer" title="Ligar/Desligar robô">
+                                    <input type="checkbox" class="sr-only peer toggle-monitorar" ${prod.monitorar ? 'checked' : ''} onchange="salvarAlteracoesItem('${prod._id}', this)">
+                                    <div class="w-7 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-green-500"></div>
+                                </label>
+                            </div>
+                            
+                            <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-3 rounded-lg text-xs font-bold hover:bg-blue-100 active:scale-90 shrink-0 h-full">🛒+</button>
                         </div>
-                        
-                        <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-2 py-3 rounded-lg text-xs font-bold active:scale-90 ml-1 shrink-0">🛒+</button>
                     </div>`;
             });
             container.appendChild(div);
@@ -823,45 +657,8 @@ async function renderizarDicionario() {
         if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
             filtrarPorCorredor(categoriaSelecionadaFiltro);
         }
-
     } catch (e) {
         console.error("Erro ao renderizar o dicionário:", e);
-    }
-}
-
-/**
- * Dispara a ativação/desativação do monitoramento do crawler pelo botão do sino
- */
-/**
- * Dispara a ativação/desativação do monitoramento do crawler pelo botão do sino
- */
-async function toggleMonitoramentoWeb(nomeProduto, ativar, elementoBotao) {
-    try {
-        // Usa o fetch direto para evitar erros de importação do api.js
-        const response = await fetch('/api/VincularProdutos', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item: nomeProduto.toUpperCase(), monitorar: ativar })
-        });
-
-        if (!response.ok) throw new Error("A API recusou a atualização");
-
-        const nomeEscapado = nomeProduto.replace(/'/g, "\\'");
-
-        // Altera visualmente o botão (Muda o Emoji e aplica fundo/filtros)
-        if (ativar) {
-            elementoBotao.className = "text-[11px] transition-all p-1 active:scale-90 bg-green-100 rounded-full shadow-sm border border-green-300 scale-110";
-            elementoBotao.innerHTML = "🔔"; // Emoji normal (Sino ligado)
-            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', false, this)`);
-            elementoBotao.title = "Monitorando preço baixo";
-        } else {
-            elementoBotao.className = "text-[11px] transition-all p-1 active:scale-90 grayscale opacity-40 hover:opacity-80 bg-gray-50 rounded-full";
-            elementoBotao.innerHTML = "🔕"; // Sino cortado e em preto e branco
-            elementoBotao.setAttribute('onclick', `toggleMonitoramentoWeb('${nomeEscapado}', true, this)`);
-            elementoBotao.title = "Ativar alerta de preço baixo";
-        }
-    } catch (err) {
-        console.error("Erro ao alternar monitoramento:", err);
     }
 }
 
@@ -921,7 +718,6 @@ async function enviarSelecionadosParaLista() {
 }
 
 // ================== MANIPULAÇÃO DA LISTA ==================
-
 async function alternarStatus(nome, novoStatus) {
     try {
         await fetch('/api/GerenciarLista', {
@@ -966,7 +762,6 @@ async function deletarItem(nome) {
     if (!confirm(`Remover ${nome} da lista?`)) return;
     try {
         await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
-        // Remove também os preços digitados no localStorage
         if (window.precosDigitadosNoMercado && window.precosDigitadosNoMercado[nome]) {
             delete window.precosDigitadosNoMercado[nome];
             localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
@@ -978,27 +773,19 @@ async function deletarItem(nome) {
 async function finalizarCompra() {
     if (!confirm("Deseja limpar toda a lista?")) return;
     try {
-        // Limpa lista ativa e preços temporários no MongoDB
         await Promise.all([
             fetch('/api/GerenciarLista', { method: 'DELETE' }),
             fetch('/api/GerenciarPrecosTemp', { method: 'DELETE' })
         ]);
-
         window.precosDigitadosNoMercado = {};
         localStorage.removeItem('precosLive');
-
-        // Recarrega a interface
         carregarLista();
         const display = document.getElementById('total-real-dinamico');
         if (display) display.innerText = "R$ 0,00";
-
-    } catch (e) {
-        console.error("Erro ao finalizar compra:", e);
-    }
+    } catch (e) { console.error("Erro ao finalizar compra:", e); }
 }
 
 // ================== NOTA FISCAL ==================
-
 async function processarUrlManual() {
     const urlInput = document.getElementById('url-input');
     const url = urlInput.value.trim();
@@ -1007,7 +794,6 @@ async function processarUrlManual() {
     statusDiv.classList.remove('hidden');
     statusDiv.innerText = "📡 Analisando CNPJ da nota...";
     try {
-        // Primeiro, consulta sem salvar
         let response = await fetch('/api/ProcessarNota', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1112,32 +898,6 @@ function vincularID(id, desc) {
     });
 }
 
-// ================== ALERTA DE PREÇO ==================
-
-async function verificarAlertaPreco(nome, precoAtual, elementoDestino) {
-    if (!precoAtual || precoAtual <= 0) {
-        elementoDestino.innerHTML = '';
-        return;
-    }
-    try {
-        const response = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`);
-        const historico = await response.json();
-        if (!historico || historico.length === 0) return;
-        const soma = historico.reduce((acc, h) => acc + h.preco, 0);
-        const media = soma / historico.length;
-        const diff = ((precoAtual - media) / media) * 100;
-        let badge = "";
-        if (diff < -5) {
-            badge = `<span class="bg-green-500 text-white text-[8px] px-1 rounded animate-bounce">🔥 BOM PREÇO</span>`;
-        } else if (diff > 5) {
-            badge = `<span class="bg-red-500 text-white text-[8px] px-1 rounded">⚠️ CARO (Média: R$ ${media.toFixed(2)})</span>`;
-        } else {
-            badge = `<span class="bg-blue-400 text-white text-[8px] px-1 rounded">⚖️ NA MÉDIA</span>`;
-        }
-        elementoDestino.innerHTML = badge;
-    } catch (e) { console.error("Erro no alerta de preço", e); }
-}
-
 function sugerirCategoria(nome) {
     const palavras = nome.toUpperCase();
     if (palavras.match(/QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
@@ -1154,7 +914,6 @@ function sugerirCategoria(nome) {
 }
 
 // ================== RANKING TOP 10 ==================
-
 async function renderizarRankingTopCompras() {
     const container = document.getElementById('lista-gastos-detalhada');
     if (!container) return;
@@ -1196,7 +955,6 @@ async function renderizarGraficoMedias() {
 }
 
 // ================== SUGESTÕES AUTOCOMPLETE ==================
-
 async function carregarSugestoes() {
     try {
         const response = await fetch('/api/VincularProdutos');
@@ -1208,10 +966,6 @@ async function carregarSugestoes() {
     } catch (e) { }
 }
 
-/**
- * Busca os preços temporários salvos no MongoDB e popula a interface.
- * Garante que os dados sejam os mesmos em qualquer dispositivo.
- */
 async function hidratarPrecosTemporarios() {
     try {
         const response = await fetch('/api/GerenciarPrecosTemp');
@@ -1225,52 +979,30 @@ async function hidratarPrecosTemporarios() {
                 }
                 window.precosDigitadosNoMercado[reg.item][reg.loja] = reg.preco;
             });
-
-            // IMPORTANTE: Atualiza o Ranking e os inputs na tela
             recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
-
-            // Opcional: Atualizar os campos visíveis se o usuário não estiver digitando neles
-            const inputs = document.querySelectorAll('.input-preco-mercado');
-            // ... lógica para atualizar valores nos inputs ...
         }
     } catch (e) { console.error("Erro na sincronização:", e); }
 }
 
-// Verifica novos preços no banco a cada 5 segundos
 setInterval(() => {
-    // Só busca se a página não estiver oculta (economiza bateria/dados)
     if (!document.hidden) {
         hidratarPrecosTemporarios();
     }
 }, 5000);
 
-/**
- * Gera as pílulas de filtros de categoria com base nos itens presentes na lista.
- */
 function renderizarFiltrosCategorias() {
     const secaoFiltros = document.getElementById('secao-filtros-categorias');
     const container = document.getElementById('container-categorias-filtro');
     if (!container || !secaoFiltros) return;
 
-    // Relação fixa de todos os seus corredores do mercado
     const todosOsCorredores = [
-        "TUDO",
-        "HORTIFRUTI",
-        "FRIOS E CONGELADOS",
-        "MERCEARIA",
-        "AÇOUGUE E PEIXARIA",
-        "BEBIDAS",
-        "LIMPEZA",
-        "HIGIENE E PERFUMARIA",
-        "PADARIA E MATINAIS",
-        "DESCARTÁVEIS E EMBALAGENS",
-        "OUTROS"
+        "TUDO", "HORTIFRUTI", "FRIOS E CONGELADOS", "MERCEARIA", "AÇOUGUE E PEIXARIA",
+        "BEBIDAS", "LIMPEZA", "HIGIENE E PERFUMARIA", "PADARIA E MATINAIS", "DESCARTÁVEIS E EMBALAGENS", "OUTROS"
     ];
 
     secaoFiltros.classList.remove('hidden');
     container.innerHTML = '';
 
-    // Cria as pílulas na tela de forma estável
     todosOsCorredores.forEach(corredor => {
         const label = corredor === "TUDO" ? "📍 TUDO" : corredor;
         const btn = criarBotaoPilula(corredor, label);
@@ -1291,18 +1023,9 @@ function criarBotaoPilula(idCategoria, label) {
     return botao;
 }
 
-/**
- * Filtra visualmente os elementos da lista sem precisar recarregar dados do banco.
- * Atualiza o ranking do topo para somar apenas o corredor visível.
- */
-/**
- * Filtra visualmente os elementos da Lista Ativa E do Dicionário
- * sem precisar recarregar dados do banco.
- */
 function filtrarPorCorredor(idCategoria) {
     categoriaSelecionadaFiltro = idCategoria;
 
-    // 1. Atualiza visual dos botões do filtro
     const botoes = document.querySelectorAll('#container-categorias-filtro button');
     botoes.forEach(btn => {
         const text = btn.innerText.replace('📍 ', '').trim().toUpperCase();
@@ -1313,7 +1036,6 @@ function filtrarPorCorredor(idCategoria) {
         }
     });
 
-    // 2. Filtra divisórias de corredores na Lista Ativa
     const headers = document.querySelectorAll('#lista-ativa .header-corredor');
     headers.forEach(h => {
         const catHeader = h.getAttribute('data-categoria');
@@ -1324,7 +1046,6 @@ function filtrarPorCorredor(idCategoria) {
         }
     });
 
-    // 3. Filtra os cards dos produtos na Lista Ativa
     const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
     cards.forEach(card => {
         const catCard = card.getAttribute('data-categoria-produto');
@@ -1335,11 +1056,6 @@ function filtrarPorCorredor(idCategoria) {
         }
     });
 
-    // ==========================================
-    // 🔥 NOVO: FILTRO PARA O DICIONÁRIO
-    // ==========================================
-    // Garanta que os itens renderizados na tabela/lista do dicionário possuam 
-    // a classe '.item-dicionario-lista' e o atributo 'data-categoria-dict'
     const itensDict = document.querySelectorAll('#container-dicionario .item-dicionario-lista, #tabela-dicionario tr[data-categoria-dict]');
     itensDict.forEach(item => {
         const catDict = item.getAttribute('data-categoria-dict');
@@ -1350,98 +1066,65 @@ function filtrarPorCorredor(idCategoria) {
         }
     });
 
-    // Localize o final da sua função filtrarPorCorredor(idCategoria) no script.js e substitua a parte do dicionário por esta:
-
-    // 4. Filtra os blocos de categorias na aba do Dicionário
     const blocosDict = document.querySelectorAll('.block-categoria-dicionario');
     blocosDict.forEach(bloco => {
         const catBloco = bloco.getAttribute('data-categoria-dict');
         if (idCategoria === "TUDO" || (catBloco && catBloco.toUpperCase() === idCategoria.toUpperCase())) {
-            bloco.classList.remove('hidden'); // Reexibe o bloco inteiro
+            bloco.classList.remove('hidden'); 
         } else {
-            bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden'); // Oculta o bloco completo
+            bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden'); 
         }
     });
 
-    // Exemplo de função que alterna para o Dicionário
-    function irParaAbaDicionario() {
-        document.getElementById('secao-lista').classList.add('hidden');
-        document.getElementById('secao-dicionario').classList.remove('hidden');
-
-        // Força o filtro a voltar para o estado padrão ao mudar de aba, evitando confusão
-        filtrarPorCorredor("TUDO");
-    }
-
-    // Força a atualização do ranking no topo para os itens visíveis
     if (window.dadosOriginaisDicionario) {
         atualizarPrecosEPilulas();
     }
 }
-/**
- * Abre um prompt para o usuário colar o link do produto no site do mercado
- */
-async function inserirLinkLoja(nomeProduto, loja) {
-    const url = prompt(`Cole o link exato do produto "${nomeProduto}" no site do ${loja === 'SAMS' ? "Sam's Club" : loja}:`);
-    
-    if (!url) return; // Se o usuário cancelar ou deixar em branco, não faz nada
-
-    try {
-        // Usa o fetch direto para evitar erros de escopo/importação
-        const response = await fetch('/api/VincularProdutos', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item: nomeProduto.toUpperCase(), loja: loja, url: url.trim() })
-        });
-
-        if (response.ok) {
-            alert(`Link do ${loja} salvo com sucesso para o robô!`);
-            renderizarDicionario(); // Recarrega a tela para a corrente acender 🔗
-        } else {
-            alert("Erro ao salvar o link no banco de dados.");
-        }
-    } catch (e) {
-        console.error("Erro ao salvar link:", e);
-        alert("Erro de comunicação com o servidor.");
-    }
-}
 
 // ==============================================================
-// FUNÇÕES DO ROBÔ DE PREÇOS (Comunicação Direta com o Backend)
+// FUNÇÕES DO ROBÔ DE PREÇOS (Atualizadas para o EAN)
 // ==============================================================
-
-// 1. Função que salva o Preço Alvo e liga/desliga o item individualmente
 window.salvarAlteracoesItem = async (id, elemento) => {
-    const container = elemento.closest('.controles-item'); 
+    const container = elemento.closest('.item-dicionario-lista'); 
     const monitorar = container.querySelector('.toggle-monitorar').checked;
     const preco_alvo = container.querySelector('.input-alvo').value;
+    const ean = container.querySelector('.input-ean').value.trim();
     
+    // Feedback visual enquanto salva
+    container.style.opacity = '0.5';
+
     try {
-        // Faz a comunicação direta com a API (Ignorando o api.js)
         await fetch('/api/GerenciarDicionario', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, monitorar, preco_alvo })
+            body: JSON.stringify({ id, monitorar, preco_alvo, ean })
         });
         
-        console.log(`✅ Salvo no banco! Item: ${id} | Monitorar: ${monitorar} | Alvo: ${preco_alvo}`);
+        // Remove a cor laranja se o usuário preencheu o EAN, ou adiciona se apagou
+        if (ean === '') {
+            container.classList.add('border-orange-300', 'bg-orange-50');
+            container.classList.remove('bg-white', 'border-gray-100');
+        } else {
+            container.classList.remove('border-orange-300', 'bg-orange-50');
+            container.classList.add('bg-white', 'border-gray-100');
+        }
     } catch (e) {
-        console.error("Erro ao salvar no banco:", e);
-        alert("Erro de conexão! O preço não foi salvo.");
+        console.error(e);
+        alert("Erro ao salvar! Verifique a conexão.");
+    } finally {
+        container.style.opacity = '1';
     }
 };
 
-// 2. Função que desliga o robô para todos os itens da lista
 window.limparTodaMonitoracao = async () => {
     if(confirm("Tem certeza que deseja DESLIGAR O ROBÔ para todos os itens do catálogo?")) {
         try {
-            // Manda a ordem pro banco apagar tudo
             await fetch('/api/GerenciarDicionario', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'desmarcar_todos' })
             });
 
-            // Desliga todas as chavinhas verdes na sua tela na mesma hora
             const todasChavinhas = document.querySelectorAll('.toggle-monitorar');
             todasChavinhas.forEach(chavinha => {
                 chavinha.checked = false; 
@@ -1449,7 +1132,7 @@ window.limparTodaMonitoracao = async () => {
 
             alert("Pronto! O robô foi desligado para todos os itens.");
         } catch (e) {
-            console.error("Erro ao desligar tudo:", e);
+            console.error(e);
             alert("Erro de conexão ao tentar desligar o robô!");
         }
     }

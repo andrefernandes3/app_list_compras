@@ -23,7 +23,7 @@ module.exports = async function (context, req) {
             context.res = { status: 200, body: itens };
         } 
         else if (metodo === 'PUT') {
-            // TRAVA 1: Garante que o body seja lido como JSON, independente de como o Azure mandou
+            // TRAVA 1: Garante que o body seja lido como JSON
             const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
             // Tratamento: Desmarcar Todos
@@ -32,17 +32,22 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, body: { message: "Todos os itens desmarcados no BD." } };
             } 
             else {
-                // Tratamento: Salvar 1 item
-                const { id, monitorar, preco_alvo } = body;
+                // Tratamento: Salvar 1 item (Agora com EAN incluído)
+                const { id, monitorar, preco_alvo, ean } = body;
                 
-                // TRAVA 2: Força o monitorar a ser um Booleano absoluto (true ou false)
+                // TRAVA 2: Força o monitorar a ser um Booleano absoluto
                 let updateFields = { 
                     monitorar: (monitorar === true || monitorar === "true") 
                 };
                 
-                // TRAVA 3: Converte o preço com segurança para não quebrar no banco
+                // TRAVA 3: Converte o preço alvo com segurança
                 if (preco_alvo !== undefined) {
                     updateFields.preco_alvo = preco_alvo ? parseFloat(String(preco_alvo).replace(',', '.')) : null;
+                }
+
+                // TRAVA 4: Salva o EAN limpo (ou null se apagado)
+                if (ean !== undefined) {
+                    updateFields.ean = ean ? String(ean).trim() : null;
                 }
                 
                 await col.updateOne(
