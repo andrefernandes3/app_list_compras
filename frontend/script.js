@@ -1,1145 +1,1175 @@
-// ================== ESTADO GLOBAL ==================
-let totaisPorMercado = {};           
-let itensSelecionados = new Set();    
-let meuGraficoRelatorio = null;       
-let timeoutPreco, timeoutQtd;         
-let categoriaSelecionadaFiltro = "TUDO";
-
-window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
-
-// ================== FUNÇÕES UTILITÁRIAS ==================
-function escapeHTML(str) {
-    if (!str) return "";
-    return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
-function obterCorMercado(nomeMercado) {
-    const cores = {
-        'CARREFOUR': '#2ecc71',
-        'PÃO': '#e67e22',
-        'EXTRA': '#e74c3c',
-        'ASSAI': '#e7e304',
-        'ATACADAO': '#09ebfc',
-        'SAMS': '#3906f1'
-    };
-    if (!nomeMercado) return '#3498db';
-    const nomeUpper = nomeMercado.toUpperCase();
-    const chave = Object.keys(cores).find(k => nomeUpper.includes(k));
-    return cores[chave] || '#3498db';
-}
-
-function ampliarImagem(url, nome) {
-    if (!url || url.includes('placeholder')) return;
-    const modalExistente = document.getElementById('modal-foto');
-    if (modalExistente) modalExistente.remove();
-
-    const modalHtml = `
-        <div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
-            <div class="relative w-full max-w-sm"> 
-                <img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
-                <p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
-            </div>
-        </div>`;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
-
-// ================== ABAS ==================
-function alternarAba(aba) {
-    const abas = ['lista', 'dicionario', 'relatorios'];
-    abas.forEach(a => {
-        const div = document.getElementById(`secao-${a}`);
-        const btnId = a === 'relatorios' ? 'btn-aba-rel' : (a === 'dicionario' ? 'btn-aba-dict' : 'btn-aba-lista');
-        const btn = document.getElementById(btnId);
-        if (a === aba) {
-            div.classList.remove('hidden');
-            btn.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600";
-        } else {
-            div.classList.add('hidden');
-            btn.className = "flex-1 py-3 text-sm font-bold text-gray-500";
-        }
-    });
-    if (aba === 'lista') carregarLista();
-    if (aba === 'dicionario') renderizarDicionario();
-    if (aba === 'relatorios') carregarRelatorios();
-}
-
-// ================== RELATÓRIOS ==================
-async function carregarRelatorios() {
-    const ctx = document.getElementById('chartCategorias');
-    const seletorLoja = document.getElementById('filtro-loja-relatorio');
-    const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
-    try {
-        const url = (lojaSelecionada && lojaSelecionada !== "")
-            ? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}`
-            : '/api/ObterRelatorioGastos';
-        const response = await fetch(url);
-        const dados = await response.json();
-
-        if (seletorLoja && seletorLoja.options.length <= 1) {
-            await carregarFiltroLojas();
-        }
-
-        if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
-        if (!dados || dados.length === 0) return;
-
-        meuGraficoRelatorio = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: dados.map(d => d._id),
-                datasets: [{
-                    data: dados.map(d => d.totalGasto),
-                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC926', '#1982C4', '#6A4C93'],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false, cutout: '70%',
-                onClick: (evt, activeElements) => {
-                    if (activeElements.length > 0) {
-                        const index = activeElements[0].index;
-                        exibirDetalhesCategoria(dados[index]);
-                    }
-                },
-                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } } }
-            }
-        });
-    } catch (e) { console.error("Erro ao carregar gráfico:", e); }
-}
-
-async function carregarFiltroLojas() {
-    const seletor = document.getElementById('filtro-loja-relatorio');
-    const response = await fetch('/api/ListarLojas');
-    const lojas = await response.json();
-    lojas.forEach(loja => {
-        const option = document.createElement('option');
-        option.value = loja;
-        option.innerText = `🏪 ${loja}`;
-        seletor.appendChild(option);
-    });
-}
-
-function exibirDetalhesCategoria(categoria) {
-    const container = document.getElementById('lista-gastos-detalhada');
-    if (!container) return;
-    const detalhesOrdenados = [...categoria.detalhes].sort((a, b) => a.nome.localeCompare(b.nome));
-    let html = `
-        <div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-            <h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest text-center">
-                📦 Detalhes: ${categoria._id}
-            </h4>
-            <div class="space-y-2">`;
-    detalhesOrdenados.forEach(item => {
-        const unitario = item.valor / (item.qtd || 1);
-        html += `
-            <div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
-                <div class="flex flex-col">
-                    <span class="text-gray-600 font-bold uppercase truncate pr-2">${item.nome}</span>
-                    <span class="text-[9px] text-gray-400 font-medium">${item.qtd}x de R$ ${unitario.toFixed(2)}</span>
-                </div>
-                <span class="text-blue-700 font-black whitespace-nowrap">R$ ${item.valor.toFixed(2)}</span>
-            </div>`;
-    });
-    html += `</div></div>`;
-    container.innerHTML = html;
-    container.scrollIntoView({ behavior: 'smooth' });
-}
-
-// ================== LISTA DE COMPRAS ==================
-async function carregarLista() {
-    totaisPorMercado = {};
-    const listaDiv = document.getElementById('lista-ativa');
-    listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
-
-    try {
-        const [respLista, respDict, respPrecos] = await Promise.all([
-            fetch('/api/GerenciarLista'),
-            fetch('/api/VincularProdutos'),
-            fetch('/api/CompararPrecos')
-        ]);
-
-        const itens = await respLista.json();
-        const dicionario = await respDict.json();
-        const dataPrecos = await respPrecos.json();
-
-        window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
-        window.dadosOriginaisDicionario = dataPrecos;
-
-        if (itens.length === 0) {
-            listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
-            document.getElementById('totalizador-estimado').classList.add('hidden');
-            return;
-        }
-
-        const itensOrdenados = itens.map(item => {
-            const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            return { ...item, categoria: (info.categoria || "OUTROS").toUpperCase() };
-        });
-
-        itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
-        renderizarFiltrosCategorias(itensOrdenados);
-
-        listaDiv.innerHTML = '';
-        let categoriaAtual = "";
-
-        itensOrdenados.forEach(item => {
-            const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
-            const idFormatado = item.item_nome.replace(/[^a-zA-Z0-9]/g, '_');
-            const nomeSeguro = escapeHTML(item.item_nome).replace(/'/g, "\\'");
-            const nomeBusca = item.item_nome.trim().toUpperCase();
-
-            const isComprado = item.comprado === true;
-            const qtd = item.quantidade || 1;
-            const precoReal = item.preco_real || '';
-
-            if (item.categoria !== categoriaAtual) {
-                categoriaAtual = item.categoria;
-                const separador = document.createElement('div');
-                separador.className = "header-corredor text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-50 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
-                separador.setAttribute('data-categoria', categoriaAtual);
-                separador.innerHTML = `📍 CORREDOR: ${categoriaAtual}`;
-                listaDiv.appendChild(separador);
-            }
-
-            const itemElement = document.createElement('div');
-            itemElement.className = `card-produto-lista bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
-            itemElement.setAttribute('data-produto', nomeBusca);
-            itemElement.setAttribute('data-categoria-produto', item.categoria);
-
-            itemElement.innerHTML = `
-                <div class="flex flex-col w-full gap-2">
-                    <div class="flex items-center gap-2 w-full justify-between">
-                        <div class="flex items-center gap-2 min-w-0 flex-1">
-                            <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
-                                 onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
-                                <img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
-                            </div>
-                            <span class="nome-item font-bold text-gray-700 uppercase text-[11px] leading-tight truncate flex-1" 
-                                  title="${item.item_nome}" onclick="abrirGrafico('${nomeSeguro}')">
-                                ${item.item_nome}
-                            </span>
-                        </div>
-
-                        <div class="relative flex items-center gap-1 bg-blue-50/40 p-1 rounded-lg shrink-0">
-                            <div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
-                            
-                            <input type="number" min="1" value="${qtd}" 
-                                class="input-qtd-real w-7 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
-                                oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
-                            
-                            <span class="text-[8px] text-blue-400">x</span>
-                            
-                            <input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
-                                oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
-                                class="input-preco-real w-12 p-1 text-[10px] border border-blue-200 rounded text-center outline-none bg-white focus:ring-1 focus:ring-blue-500">
-                            
-                            <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-0.5 active:scale-90 transition-transform">
-                                ${isComprado ? '🔄' : '✅'}
-                            </button>
-                            <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
-                        </div>
-                    </div>
-                    <div id="preco-lista-${idFormatado}" class="w-full"></div>
-                </div>`;
-            listaDiv.appendChild(itemElement);
-
-            if (precoReal) {
-                verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
-            }
-        });
-
-        setTimeout(() => {
-            pintarBordasDeCobertura(window.totaisPorMercado); 
-            atualizarPrecosEPilulas();                        
-            calcularTotalReal();                              
-            if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
-                filtrarPorCorredor(categoriaSelecionadaFiltro);
-            }
-        }, 300);
-    } catch (err) {
-        console.error("Erro fatal ao processar e renderizar a lista de compras:", err);
-    }
-}
-
-async function atualizarPrecosEPilulas() {
-    try {
-        const respPrecos = await fetch('/api/CompararPrecos');
-        const data = await respPrecos.json();
-        window.dadosOriginaisDicionario = data;
-
-        const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
-        cards.forEach(card => {
-            const nomeProduto = card.getAttribute('data-produto');
-            if (!nomeProduto) return;
-
-            const dadosLista = window.dadosOriginaisDicionario?.precosPorLojaCompleto || {};
-            const nomeReal = Object.keys(dadosLista).find(k => k.trim().toUpperCase() === nomeProduto) || nomeProduto;
-            const idFormatado = nomeReal.replace(/[^a-zA-Z0-9]/g, '_');
-            const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
-            if (!containerPreco) return;
-
-            const precosPorLoja = dadosLista[nomeReal] || {};
-            const precoCRF = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
-            const precoASA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
-            const precoATA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ATACADAO"))] || null;
-            const precoSAM = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S") || k.toUpperCase().includes("CLUB"))] || null;
-
-            const digitados = window.precosDigitadosNoMercado?.[nomeReal.trim().toUpperCase()] || {};
-
-            containerPreco.innerHTML = `
-                <div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                    ${renderInputMercado('Carrefour', digitados['CARREFOUR'], precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeReal, 'CARREFOUR')}
-                    ${renderInputMercado('Assaí', digitados['ASSAI'], precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeReal, 'ASSAI')}
-                    ${renderInputMercado('Atacadão', digitados['ATACADAO'], precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeReal, 'ATACADAO')}
-                    ${renderInputMercado('Sams Club', digitados['SAMS CLUB'], precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeReal, 'SAMS CLUB')}
-                </div>
-                <div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
-                    <span>💡 Menor Preço Histórico: ${data.precosIndividuais?.[nomeReal]?.loja || 'N/A'}</span>
-                    <span class="font-black">R$ ${data.precosIndividuais?.[nomeReal]?.valor?.toFixed(2) || '--'}</span>
-                </div>`;
-        });
-        recalcularRankingLive(data.ranking || []);
-    } catch (e) {
-        console.error("Erro ao sincronizar pílulas de mercados:", e);
-    }
-}
-
-function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProduto, rede) {
-    const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
-    const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
-    const indicador = temDigitado ? '✍️' : (valorBanco ? '🏦' : '---');
-    const estiloTexto = temDigitado ? 'font-black text-gray-900' : 'font-medium text-gray-400/90 italic';
-
-    return `
-        <div class="flex-1 min-w-[78px] p-1 rounded-lg border ${classes} text-center shadow-sm relative">
-            <div class="flex justify-between items-center px-0.5 mb-0.5">
-                <span class="text-[7px] uppercase font-black tracking-wider opacity-75">${label}</span>
-                <span class="text-[6px] opacity-75">${indicador}</span>
-            </div>
-            <input type="number" step="0.01" value="${valorExibido}" placeholder="---"
-                class="input-preco-mercado w-full bg-transparent border-none text-center outline-none text-[10px] p-0 m-0 ${estiloTexto}"
-                oninput="registrarPrecoLive('${nomeProduto.replace(/'/g, "\\'")}', '${rede}', this.value)">
-        </div>
-    `;
-}
-
-async function registrarPrecoLive(nome, rede, valor) {
-    const numValor = parseFloat(valor);
-    const valorValido = !isNaN(numValor) && numValor >= 0;
-
-    if (!window.precosDigitadosNoMercado[nome]) {
-        window.precosDigitadosNoMercado[nome] = {};
-    }
-
-    window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
-    recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
-
-    if (valorValido) {
-        try {
-            await fetch('/api/GerenciarPrecosTemp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ item: nome.toUpperCase(), loja: rede.toUpperCase(), preco: numValor })
-            });
-        } catch (e) { console.error("Erro ao sincronizar preço temporário:", e); }
-    }
-}
-
-function recalcularRankingLive(rankingBase) {
-    const containerRanking = document.getElementById('totalizador-estimado');
-    if (!containerRanking) return;
-
-    const lojas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
-    const totais = {};
-    lojas.forEach(loja => { totais[loja] = 0; });
-
-    const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
-    cards.forEach(card => {
-        const nomeProduto = card.getAttribute('data-produto');
-        const inputQtd = card.querySelector('.input-qtd-real');
-        const qtd = parseFloat(inputQtd ? inputQtd.value : 1) || 1;
-
-        lojas.forEach(loja => {
-            let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
-            if (precoParaSomar === 0) {
-                precoParaSomar = 0; 
-            } else if (precoParaSomar === undefined || precoParaSomar === null) {
-                const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
-                const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
-                precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
-            }
-
-            if (precoParaSomar > 0) totais[loja] += precoParaSomar * qtd;
-        });
-    });
-
-    const rankingCalculado = Object.entries(totais)
-        .filter(([_, total]) => total > 0)
-        .map(([loja, total]) => ({ nome: loja, total }))
-        .sort((a, b) => a.total - b.total);
-
-    if (rankingCalculado.length === 0) {
-        containerRanking.classList.add('hidden');
-        return;
-    }
-
-    containerRanking.classList.remove('hidden');
-    exibirRanking(rankingCalculado);
-}
-
-function exibirRanking(ranking) {
-    const containerRanking = document.getElementById('totalizador-estimado');
-    if (!containerRanking) return;
-    containerRanking.classList.remove('hidden');
-
-    let html = `<p class="text-[9px] font-black text-blue-100 uppercase tracking-widest mb-2 text-center">📊 Melhor Mercado Atual</p>
-                <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">`;
-
-    ranking.forEach((loja, idx) => {
-        const isVencedor = idx === 0;
-        html += `
-            <div class="min-w-[110px] p-2 rounded-xl border-l-4 ${isVencedor ? 'border-green-400 bg-white' : 'border-blue-400 bg-blue-500/50'} shadow-md transition-all">
-                <p class="text-[7px] font-black ${isVencedor ? 'text-gray-500' : 'text-blue-100'} uppercase truncate">${loja.nome}</p>
-                <p class="text-sm font-black ${isVencedor ? 'text-gray-800' : 'text-white'}">R$ ${loja.total.toFixed(2)}</p>
-            </div>`;
-    });
-    html += `</div>`;
-    containerRanking.innerHTML = html;
-}
-
-function pintarBordasDeCobertura(dadosComparativos) {
-    const cards = document.querySelectorAll('[data-produto]');
-    cards.forEach(card => {
-        const nome = card.getAttribute('data-produto');
-        const p = dadosComparativos[nome] || {};
-        const chaves = Object.keys(p);
-
-        const temCRF = chaves.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
-        const temASA = chaves.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
-        const temATA = chaves.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
-        const total = [temCRF, temASA, temATA].filter(v => v).length;
-
-        card.classList.remove('border-yellow-400', 'border-red-500', 'border-transparent');
-        if (total >= 3) card.classList.add('border-transparent');
-        else if (total === 0) card.classList.add('border-red-500');
-        else card.classList.add('border-yellow-400');
-    });
-}
-
-// ================== FUNÇÕES DE PERSISTÊNCIA ==================
-function calcularTotalReal() {
-    let total = 0;
-    const cards = document.querySelectorAll('#lista-ativa > div');
-    cards.forEach(card => {
-        const inputPreco = card.querySelector('.input-preco-real');
-        const inputQtd = card.querySelector('.input-qtd-real');
-        if (inputPreco && inputQtd) {
-            const preco = parseFloat(inputPreco.value) || 0;
-            const qtd = parseFloat(inputQtd.value) || 1;
-            total += preco * qtd;
-        }
-    });
-    const display = document.getElementById('total-real-dinamico');
-    if (display) display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
-}
-
-function salvarPrecoNoBanco(nome, valor) {
-    clearTimeout(timeoutPreco);
-    timeoutPreco = setTimeout(async () => {
-        try {
-            await fetch('/api/GerenciarLista', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome: nome.toUpperCase(), preco_real: parseFloat(valor) || 0 })
-            });
-        } catch (e) { console.error(e); }
-    }, 800);
-}
-
-function agendarSalvarQtd(nome, qtd) {
-    clearTimeout(timeoutQtd);
-    timeoutQtd = setTimeout(async () => {
-        try {
-            await fetch('/api/GerenciarLista', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
-            });
-            await atualizarPrecosEPilulas();
-            calcularTotalReal();
-        } catch (e) { console.error(e); }
-    }, 1000);
-}
-
-// ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
-async function abrirGrafico(nome) {
-    const modalExistente = document.getElementById('modal-grafico');
-    if (modalExistente) modalExistente.remove();
-
-    const nomeSeguro = nome.replace(/'/g, "\\'");
-    let canvasHtml = `
-    <div id="modal-grafico" class="fixed inset-0 bg-black/80 z-[60] p-4 flex flex-col justify-center">
-        <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-fade-in">
-            <div class="flex justify-between items-start mb-4">
-                <div>
-                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Histórico de Preços</p>
-                    <h3 class="text-sm font-black text-gray-800 uppercase leading-tight">${nome}</h3>
-                </div>
-                <button onclick="document.getElementById('modal-grafico').remove()" class="bg-red-50 text-red-500 rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-sm active:scale-90">✕</button>
-            </div>
-            <div class="flex gap-2 mb-6 justify-center" id="filtros-grafico">
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 7, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">7D</button>
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 30, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">30D</button>
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 90, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">90D</button>
-                <button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 0, this)" class="btn-filtro flex-1 py-2 bg-blue-600 text-white text-[9px] font-black rounded-xl shadow-md">TUDO</button>
-            </div>
-            <div class="relative h-64">
-                <canvas id="meuGrafico"></canvas>
-            </div>          
-        </div>
-    </div>`;
-    document.body.insertAdjacentHTML('beforeend', canvasHtml);
-    await filtrarPeriodoGrafico(nome, 0);
-}
-
-async function filtrarPeriodoGrafico(nome, dias, btn = null) {
-    if (btn) {
-        document.querySelectorAll('.btn-filtro').forEach(b => {
-            b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
-            b.classList.add('bg-gray-100', 'text-gray-500');
-        });
-        btn.classList.remove('bg-gray-100', 'text-gray-500');
-        btn.classList.add('bg-blue-600', 'text-white', 'shadow-md');
-    }
-
-    try {
-        const url = dias > 0
-            ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}`
-            : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
-        const response = await fetch(url);
-        const dados = await response.json();
-
-        const ctx = document.getElementById('meuGrafico');
-        let chartInstance = Chart.getChart(ctx);
-
-        const config = {
-            type: 'line',
-            data: {
-                labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
-                datasets: [{
-                    label: 'Preço R$',
-                    data: dados.map(d => d.preco),
-                    borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37, 99, 235, 0.05)',
-                    fill: true, tension: 0.4, pointRadius: 6,
-                    pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
-                    pointBorderWidth: 2, pointBorderColor: '#fff'
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        enabled: true,
-                        callbacks: {
-                            label: (context) => `R$ ${context.parsed.y.toFixed(2)}`,
-                            afterLabel: (context) => `Loja: ${dados[context.dataIndex].mercado}`
-                        }
-                    }
-                },
-                scales: {
-                    y: { beginAtZero: false, grid: { color: '#f3f4f6' }, ticks: { font: { size: 9 } } },
-                    x: { grid: { display: false }, ticks: { font: { size: 8 } } }
-                }
-            }
-        };
-
-        if (chartInstance) {
-            chartInstance.data = config.data;
-            chartInstance.options = config.options;
-            chartInstance.update();
-        } else {
-            new Chart(ctx, config);
-        }
-    } catch (e) { console.error("Erro ao carregar gráfico filtrado:", e); }
-}
-
-// ================== DICIONÁRIO E CONFIG DO EAN ==================
+	// ================== ESTADO GLOBAL ==================
+	let totaisPorMercado = {};
+	let itensSelecionados = new Set();
+	let meuGraficoRelatorio = null;
+	let timeoutPreco, timeoutQtd;
+	let categoriaSelecionadaFiltro = "TUDO";
+
+	window.precosDigitadosNoMercado = JSON.parse(localStorage.getItem('precosLive')) || {};
+
+	// ================== FUNÇÕES UTILITÁRIAS ==================
+	function escapeHTML(str) {
+		if (!str) return "";
+		return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+	}
+
+	function obterCorMercado(nomeMercado) {
+		const cores = {
+			'CARREFOUR': '#2ecc71',
+			'PÃO': '#e67e22',
+			'EXTRA': '#e74c3c',
+			'ASSAI': '#e7e304',
+			'ATACADAO': '#09ebfc',
+			'SAMS': '#3906f1'
+		};
+		if (!nomeMercado) return '#3498db';
+		const nomeUpper = nomeMercado.toUpperCase();
+		const chave = Object.keys(cores).find(k => nomeUpper.includes(k));
+		return cores[chave] || '#3498db';
+	}
+
+	function ampliarImagem(url, nome) {
+		if (!url || url.includes('placeholder')) return;
+		const modalExistente = document.getElementById('modal-foto');
+		if (modalExistente) modalExistente.remove();
+
+		const modalHtml = `
+			<div id="modal-foto" onclick="this.remove()" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4">
+				<div class="relative w-full max-w-sm"> 
+					<img src="${url}" class="w-full h-auto max-h-[70vh] object-contain rounded-2xl shadow-2xl border-4 border-white/10">
+					<p class="text-white text-center mt-4 font-bold uppercase tracking-widest text-[10px]">${nome}</p>
+				</div>
+			</div>`;
+		document.body.insertAdjacentHTML('beforeend', modalHtml);
+	}
+
+	// ================== ABAS ==================
+	function alternarAba(aba) {
+		const abas = ['lista', 'dicionario', 'relatorios'];
+		abas.forEach(a => {
+			const div = document.getElementById(`secao-${a}`);
+			const btnId = a === 'relatorios' ? 'btn-aba-rel' : (a === 'dicionario' ? 'btn-aba-dict' : 'btn-aba-lista');
+			const btn = document.getElementById(btnId);
+			if (a === aba) {
+				div.classList.remove('hidden');
+				btn.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600";
+			} else {
+				div.classList.add('hidden');
+				btn.className = "flex-1 py-3 text-sm font-bold text-gray-500";
+			}
+		});
+		if (aba === 'lista') carregarLista();
+		if (aba === 'dicionario') renderizarDicionario();
+		if (aba === 'relatorios') carregarRelatorios();
+	}
+
+	// ================== RELATÓRIOS ==================
+	async function carregarRelatorios() {
+		const ctx = document.getElementById('chartCategorias');
+		const seletorLoja = document.getElementById('filtro-loja-relatorio');
+		const lojaSelecionada = seletorLoja ? seletorLoja.value : "";
+		try {
+			const url = (lojaSelecionada && lojaSelecionada !== "")
+				? `/api/ObterRelatorioGastos?loja=${encodeURIComponent(lojaSelecionada)}`
+				: '/api/ObterRelatorioGastos';
+			const response = await fetch(url);
+			const dados = await response.json();
+
+			if (seletorLoja && seletorLoja.options.length <= 1) {
+				await carregarFiltroLojas();
+			}
+
+			if (meuGraficoRelatorio) meuGraficoRelatorio.destroy();
+			if (!dados || dados.length === 0) return;
+
+			meuGraficoRelatorio = new Chart(ctx, {
+				type: 'doughnut',
+				data: {
+					labels: dados.map(d => d._id),
+					datasets: [{
+						data: dados.map(d => d.totalGasto),
+						backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC926', '#1982C4', '#6A4C93'],
+						borderWidth: 0
+					}]
+				},
+				options: {
+					responsive: true, maintainAspectRatio: false, cutout: '70%',
+					onClick: (evt, activeElements) => {
+						if (activeElements.length > 0) {
+							const index = activeElements[0].index;
+							exibirDetalhesCategoria(dados[index]);
+						}
+					},
+					plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } } }
+				}
+			});
+		} catch (e) { console.error("Erro ao carregar gráfico:", e); }
+	}
+
+	async function carregarFiltroLojas() {
+		const seletor = document.getElementById('filtro-loja-relatorio');
+		const response = await fetch('/api/ListarLojas');
+		const lojas = await response.json();
+		lojas.forEach(loja => {
+			const option = document.createElement('option');
+			option.value = loja;
+			option.innerText = `🏪 ${loja}`;
+			seletor.appendChild(option);
+		});
+	}
+
+	function exibirDetalhesCategoria(categoria) {
+		const container = document.getElementById('lista-gastos-detalhada');
+		if (!container) return;
+		const detalhesOrdenados = [...categoria.detalhes].sort((a, b) => a.nome.localeCompare(b.nome));
+		let html = `
+			<div class="mt-6 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+				<h4 class="text-[10px] font-black text-blue-600 uppercase mb-3 tracking-widest text-center">
+					📦 Detalhes: ${categoria._id}
+				</h4>
+				<div class="space-y-2">`;
+		detalhesOrdenados.forEach(item => {
+			const unitario = item.valor / (item.qtd || 1);
+			html += `
+				<div class="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg shadow-sm">
+					<div class="flex flex-col">
+						<span class="text-gray-600 font-bold uppercase truncate pr-2">${item.nome}</span>
+						<span class="text-[9px] text-gray-400 font-medium">${item.qtd}x de R$ ${unitario.toFixed(2)}</span>
+					</div>
+					<span class="text-blue-700 font-black whitespace-nowrap">R$ ${item.valor.toFixed(2)}</span>
+				</div>`;
+		});
+		html += `</div></div>`;
+		container.innerHTML = html;
+		container.scrollIntoView({ behavior: 'smooth' });
+	}
+
+	// ================== LISTA DE COMPRAS ==================
+	async function carregarLista() {
+		totaisPorMercado = {};
+		const listaDiv = document.getElementById('lista-ativa');
+		listaDiv.innerHTML = '<p class="text-gray-400 text-xs text-center animate-pulse">Sincronizando...</p>';
+
+		try {
+			const [respLista, respDict, respPrecos] = await Promise.all([
+				fetch('/api/GerenciarLista'),
+				fetch('/api/VincularProdutos'),
+				fetch('/api/CompararPrecos')
+			]);
+
+			const itens = await respLista.json();
+			const dicionario = await respDict.json();
+			const dataPrecos = await respPrecos.json();
+
+			window.totaisPorMercado = dataPrecos.precosPorLojaCompleto || {};
+			window.dadosOriginaisDicionario = dataPrecos;
+
+			if (itens.length === 0) {
+				listaDiv.innerHTML = '<p class="text-gray-500 italic text-center py-4">Tudo pronto! 🎉</p>';
+				document.getElementById('totalizador-estimado').classList.add('hidden');
+				return;
+			}
+
+			const itensOrdenados = itens.map(item => {
+				const info = dicionario.find(p => p.nome_comum === item.item_nome) || {};
+				return { ...item, categoria: (info.categoria || "OUTROS").toUpperCase() };
+			});
+
+			itensOrdenados.sort((a, b) => a.categoria.localeCompare(b.categoria));
+			renderizarFiltrosCategorias(itensOrdenados);
+
+			listaDiv.innerHTML = '';
+			let categoriaAtual = "";
+
+			itensOrdenados.forEach(item => {
+				const infoDict = dicionario.find(p => p.nome_comum === item.item_nome) || {};
+				const idFormatado = item.item_nome.replace(/[^a-zA-Z0-9]/g, '_');
+				const nomeSeguro = escapeHTML(item.item_nome).replace(/'/g, "\\'");
+				const nomeBusca = item.item_nome.trim().toUpperCase();
+
+				const isComprado = item.comprado === true;
+				const qtd = item.quantidade || 1;
+				const precoReal = item.preco_real || '';
+
+				if (item.categoria !== categoriaAtual) {
+					categoriaAtual = item.categoria;
+					const separador = document.createElement('div');
+					separador.className = "header-corredor text-[10px] font-black text-blue-500 mt-4 mb-2 uppercase tracking-widest border-l-4 border-blue-50 border-blue-500 pl-2 bg-blue-50/50 py-1 rounded-r";
+					separador.setAttribute('data-categoria', categoriaAtual);
+					separador.innerHTML = `📍 CORREDOR: ${categoriaAtual}`;
+					listaDiv.appendChild(separador);
+				}
+
+				const itemElement = document.createElement('div');
+				itemElement.className = `card-produto-lista bg-white p-2 rounded-xl border border-blue-50 border-l-4 border-yellow-400 shadow-sm mb-2 flex items-center gap-3 ${isComprado ? 'item-comprado opacity-60' : ''}`;
+				itemElement.setAttribute('data-produto', nomeBusca);
+				itemElement.setAttribute('data-categoria-produto', item.categoria);
+
+				itemElement.innerHTML = `
+					<div class="flex flex-col w-full gap-2">
+						<div class="flex items-center gap-2 w-full justify-between">
+							<div class="flex items-center gap-2 min-w-0 flex-1">
+								<div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 cursor-pointer" 
+									 onclick="ampliarImagem('${infoDict.foto_url || 'https://via.placeholder.com/50'}', '${nomeSeguro}')">
+									<img src="${infoDict.foto_url || 'https://via.placeholder.com/50'}" class="w-full h-full object-cover">
+								</div>
+								<span class="nome-item font-bold text-gray-700 uppercase text-[11px] leading-tight truncate flex-1" 
+									  title="${item.item_nome}" onclick="abrirGrafico('${nomeSeguro}')">
+									${item.item_nome}
+								</span>
+							</div>
+
+							<div class="relative flex items-center gap-1 bg-blue-50/40 p-1 rounded-lg shrink-0">
+								<div id="alerta-${idFormatado}" class="absolute -top-5 right-0 z-10 pointer-events-none"></div>
+								
+								<input type="number" min="1" value="${qtd}" 
+									class="input-qtd-real w-7 p-0 text-[10px] font-black text-blue-700 bg-transparent border-none text-center outline-none"
+									oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
+								
+								<span class="text-[8px] text-blue-400">x</span>
+								
+								<input type="number" step="0.01" value="${precoReal}" placeholder="0,00"
+									oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); verificarAlertaPreco('${nomeSeguro}', this.value, document.getElementById('alerta-${idFormatado}'))" 
+									class="input-preco-real w-12 p-1 text-[10px] border border-blue-200 rounded text-center outline-none bg-white focus:ring-1 focus:ring-blue-500">
+								
+								<button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-0.5 active:scale-90 transition-transform">
+									${isComprado ? '🔄' : '✅'}
+								</button>
+								<button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-0.5 text-gray-400 hover:text-red-500 rounded p-0.5">🗑️</button>
+							</div>
+						</div>
+						<div id="preco-lista-${idFormatado}" class="w-full"></div>
+					</div>`;
+				listaDiv.appendChild(itemElement);
+
+				if (precoReal) {
+					verificarAlertaPreco(item.item_nome, precoReal, document.getElementById(`alerta-${idFormatado}`));
+				}
+			});
+
+			setTimeout(() => {
+				pintarBordasDeCobertura(window.totaisPorMercado);
+				atualizarPrecosEPilulas();
+				calcularTotalReal();
+				if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
+					filtrarPorCorredor(categoriaSelecionadaFiltro);
+				}
+			}, 300);
+		} catch (err) {
+			console.error("Erro fatal ao processar e renderizar a lista de compras:", err);
+		}
+	}
+
+	async function atualizarPrecosEPilulas() {
+		try {
+			const respPrecos = await fetch('/api/CompararPrecos');
+			const data = await respPrecos.json();
+			window.dadosOriginaisDicionario = data;
+
+			const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
+			cards.forEach(card => {
+				const nomeProduto = card.getAttribute('data-produto');
+				if (!nomeProduto) return;
+
+				const dadosLista = window.dadosOriginaisDicionario?.precosPorLojaCompleto || {};
+				const nomeReal = Object.keys(dadosLista).find(k => k.trim().toUpperCase() === nomeProduto) || nomeProduto;
+				const idFormatado = nomeReal.replace(/[^a-zA-Z0-9]/g, '_');
+				const containerPreco = document.getElementById(`preco-lista-${idFormatado}`);
+				if (!containerPreco) return;
+
+				const precosPorLoja = dadosLista[nomeReal] || {};
+				const precoCRF = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("CARREFOUR"))] || null;
+				const precoASA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ"))] || null;
+				const precoATA = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("ATACADAO"))] || null;
+				const precoSAM = precosPorLoja[Object.keys(precosPorLoja).find(k => k.toUpperCase().includes("SAMS") || k.toUpperCase().includes("SAM'S") || k.toUpperCase().includes("CLUB"))] || null;
+
+				const digitados = window.precosDigitadosNoMercado?.[nomeReal.trim().toUpperCase()] || {};
+
+				containerPreco.innerHTML = `
+					<div class="flex gap-1 mt-2 w-full overflow-x-auto pb-1 no-scrollbar scroll-smooth">
+						${renderInputMercado('Carrefour', digitados['CARREFOUR'], precoCRF, 'bg-green-50 text-green-700 border-green-200', nomeReal, 'CARREFOUR')}
+						${renderInputMercado('Assaí', digitados['ASSAI'], precoASA, 'bg-yellow-50 text-yellow-700 border-yellow-200', nomeReal, 'ASSAI')}
+						${renderInputMercado('Atacadão', digitados['ATACADAO'], precoATA, 'bg-cyan-50 text-cyan-700 border-cyan-200', nomeReal, 'ATACADAO')}
+						${renderInputMercado('Sams Club', digitados['SAMS CLUB'], precoSAM, 'bg-indigo-50 text-indigo-700 border-indigo-200', nomeReal, 'SAMS CLUB')}
+					</div>
+					<div class="mt-1 text-[9px] bg-emerald-50 text-emerald-700 p-1 px-2 rounded-lg border border-emerald-200 flex justify-between items-center shadow-sm">
+						<span>💡 Menor Preço Histórico: ${data.precosIndividuais?.[nomeReal]?.loja || 'N/A'}</span>
+						<span class="font-black">R$ ${data.precosIndividuais?.[nomeReal]?.valor?.toFixed(2) || '--'}</span>
+					</div>`;
+			});
+			recalcularRankingLive(data.ranking || []);
+		} catch (e) {
+			console.error("Erro ao sincronizar pílulas de mercados:", e);
+		}
+	}
+
+	function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProduto, rede) {
+		const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
+		const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
+		const indicador = temDigitado ? '✍️' : (valorBanco ? '🏦' : '---');
+		const estiloTexto = temDigitado ? 'font-black text-gray-900' : 'font-medium text-gray-400/90 italic';
+
+		return `
+			<div class="flex-1 min-w-[78px] p-1 rounded-lg border ${classes} text-center shadow-sm relative">
+				<div class="flex justify-between items-center px-0.5 mb-0.5">
+					<span class="text-[7px] uppercase font-black tracking-wider opacity-75">${label}</span>
+					<span class="text-[6px] opacity-75">${indicador}</span>
+				</div>
+				<input type="number" step="0.01" value="${valorExibido}" placeholder="---"
+					class="input-preco-mercado w-full bg-transparent border-none text-center outline-none text-[10px] p-0 m-0 ${estiloTexto}"
+					oninput="registrarPrecoLive('${nomeProduto.replace(/'/g, "\\'")}', '${rede}', this.value)">
+			</div>
+		`;
+	}
+
+	async function registrarPrecoLive(nome, rede, valor) {
+		const numValor = parseFloat(valor);
+		const valorValido = !isNaN(numValor) && numValor >= 0;
+
+		if (!window.precosDigitadosNoMercado[nome]) {
+			window.precosDigitadosNoMercado[nome] = {};
+		}
+
+		window.precosDigitadosNoMercado[nome][rede] = isNaN(numValor) ? null : numValor;
+		recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
+
+		if (valorValido) {
+			try {
+				await fetch('/api/GerenciarPrecosTemp', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ item: nome.toUpperCase(), loja: rede.toUpperCase(), preco: numValor })
+				});
+			} catch (e) { console.error("Erro ao sincronizar preço temporário:", e); }
+		}
+	}
+
+	function recalcularRankingLive(rankingBase) {
+		const containerRanking = document.getElementById('totalizador-estimado');
+		if (!containerRanking) return;
+
+		const lojas = ['CARREFOUR', 'ASSAI', 'ATACADAO', 'SAMS CLUB'];
+		const totais = {};
+		lojas.forEach(loja => { totais[loja] = 0; });
+
+		const cards = document.querySelectorAll('#lista-ativa div[data-produto]');
+		cards.forEach(card => {
+			const nomeProduto = card.getAttribute('data-produto');
+			const inputQtd = card.querySelector('.input-qtd-real');
+			const qtd = parseFloat(inputQtd ? inputQtd.value : 1) || 1;
+
+			lojas.forEach(loja => {
+				let precoParaSomar = window.precosDigitadosNoMercado[nomeProduto]?.[loja];
+				if (precoParaSomar === 0) {
+					precoParaSomar = 0;
+				} else if (precoParaSomar === undefined || precoParaSomar === null) {
+					const dadosBanco = window.dadosOriginaisDicionario?.precosPorLojaCompleto?.[nomeProduto];
+					const chaveLojaBanco = Object.keys(dadosBanco || {}).find(k => k.toUpperCase().includes(loja));
+					precoParaSomar = dadosBanco && chaveLojaBanco ? dadosBanco[chaveLojaBanco] : 0;
+				}
+
+				if (precoParaSomar > 0) totais[loja] += precoParaSomar * qtd;
+			});
+		});
+
+		const rankingCalculado = Object.entries(totais)
+			.filter(([_, total]) => total > 0)
+			.map(([loja, total]) => ({ nome: loja, total }))
+			.sort((a, b) => a.total - b.total);
+
+		if (rankingCalculado.length === 0) {
+			containerRanking.classList.add('hidden');
+			return;
+		}
+
+		containerRanking.classList.remove('hidden');
+		exibirRanking(rankingCalculado);
+	}
+
+	function exibirRanking(ranking) {
+		const containerRanking = document.getElementById('totalizador-estimado');
+		if (!containerRanking) return;
+		containerRanking.classList.remove('hidden');
+
+		let html = `<p class="text-[9px] font-black text-blue-100 uppercase tracking-widest mb-2 text-center">📊 Melhor Mercado Atual</p>
+					<div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">`;
+
+		ranking.forEach((loja, idx) => {
+			const isVencedor = idx === 0;
+			html += `
+				<div class="min-w-[110px] p-2 rounded-xl border-l-4 ${isVencedor ? 'border-green-400 bg-white' : 'border-blue-400 bg-blue-500/50'} shadow-md transition-all">
+					<p class="text-[7px] font-black ${isVencedor ? 'text-gray-500' : 'text-blue-100'} uppercase truncate">${loja.nome}</p>
+					<p class="text-sm font-black ${isVencedor ? 'text-gray-800' : 'text-white'}">R$ ${loja.total.toFixed(2)}</p>
+				</div>`;
+		});
+		html += `</div>`;
+		containerRanking.innerHTML = html;
+	}
+
+	function pintarBordasDeCobertura(dadosComparativos) {
+		const cards = document.querySelectorAll('[data-produto]');
+		cards.forEach(card => {
+			const nome = card.getAttribute('data-produto');
+			const p = dadosComparativos[nome] || {};
+			const chaves = Object.keys(p);
+
+			const temCRF = chaves.some(k => k.toUpperCase().includes("CARREFOUR") && p[k] !== null);
+			const temASA = chaves.some(k => (k.toUpperCase().includes("ASSAI") || k.toUpperCase().includes("ASSAÍ")) && p[k] !== null);
+			const temATA = chaves.some(k => k.toUpperCase().includes("ATACADAO") && p[k] !== null);
+			const total = [temCRF, temASA, temATA].filter(v => v).length;
+
+			card.classList.remove('border-yellow-400', 'border-red-500', 'border-transparent');
+			if (total >= 3) card.classList.add('border-transparent');
+			else if (total === 0) card.classList.add('border-red-500');
+			else card.classList.add('border-yellow-400');
+		});
+	}
+
+	// ================== FUNÇÕES DE PERSISTÊNCIA ==================
+	function calcularTotalReal() {
+		let total = 0;
+		const cards = document.querySelectorAll('#lista-ativa > div');
+		cards.forEach(card => {
+			const inputPreco = card.querySelector('.input-preco-real');
+			const inputQtd = card.querySelector('.input-qtd-real');
+			if (inputPreco && inputQtd) {
+				const preco = parseFloat(inputPreco.value) || 0;
+				const qtd = parseFloat(inputQtd.value) || 1;
+				total += preco * qtd;
+			}
+		});
+		const display = document.getElementById('total-real-dinamico');
+		if (display) display.innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
+	}
+
+	function salvarPrecoNoBanco(nome, valor) {
+		clearTimeout(timeoutPreco);
+		timeoutPreco = setTimeout(async () => {
+			try {
+				await fetch('/api/GerenciarLista', {
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ nome: nome.toUpperCase(), preco_real: parseFloat(valor) || 0 })
+				});
+			} catch (e) { console.error(e); }
+		}, 800);
+	}
+
+	function agendarSalvarQtd(nome, qtd) {
+		clearTimeout(timeoutQtd);
+		timeoutQtd = setTimeout(async () => {
+			try {
+				await fetch('/api/GerenciarLista', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: parseInt(qtd) || 1 })
+				});
+				await atualizarPrecosEPilulas();
+				calcularTotalReal();
+			} catch (e) { console.error(e); }
+		}, 1000);
+	}
+
+	// ================== GRÁFICO DE HISTÓRICO DO PRODUTO ==================
+	async function abrirGrafico(nome) {
+		const modalExistente = document.getElementById('modal-grafico');
+		if (modalExistente) modalExistente.remove();
+
+		const nomeSeguro = nome.replace(/'/g, "\\'");
+		let canvasHtml = `
+		<div id="modal-grafico" class="fixed inset-0 bg-black/80 z-[60] p-4 flex flex-col justify-center">
+			<div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-fade-in">
+				<div class="flex justify-between items-start mb-4">
+					<div>
+						<p class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Histórico de Preços</p>
+						<h3 class="text-sm font-black text-gray-800 uppercase leading-tight">${nome}</h3>
+					</div>
+					<button onclick="document.getElementById('modal-grafico').remove()" class="bg-red-50 text-red-500 rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-sm active:scale-90">✕</button>
+				</div>
+				<div class="flex gap-2 mb-6 justify-center" id="filtros-grafico">
+					<button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 7, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">7D</button>
+					<button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 30, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">30D</button>
+					<button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 90, this)" class="btn-filtro flex-1 py-2 bg-gray-100 text-[9px] font-black rounded-xl hover:bg-blue-50 transition-all">90D</button>
+					<button onclick="filtrarPeriodoGrafico('${nomeSeguro}', 0, this)" class="btn-filtro flex-1 py-2 bg-blue-600 text-white text-[9px] font-black rounded-xl shadow-md">TUDO</button>
+				</div>
+				<div class="relative h-64">
+					<canvas id="meuGrafico"></canvas>
+				</div>          
+			</div>
+		</div>`;
+		document.body.insertAdjacentHTML('beforeend', canvasHtml);
+		await filtrarPeriodoGrafico(nome, 0);
+	}
+
+	async function filtrarPeriodoGrafico(nome, dias, btn = null) {
+		if (btn) {
+			document.querySelectorAll('.btn-filtro').forEach(b => {
+				b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
+				b.classList.add('bg-gray-100', 'text-gray-500');
+			});
+			btn.classList.remove('bg-gray-100', 'text-gray-500');
+			btn.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+		}
+
+		try {
+			const url = dias > 0
+				? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}`
+				: `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+			const response = await fetch(url);
+			const dados = await response.json();
+
+			const ctx = document.getElementById('meuGrafico');
+			let chartInstance = Chart.getChart(ctx);
+
+			const config = {
+				type: 'line',
+				data: {
+					labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
+					datasets: [{
+						label: 'Preço R$',
+						data: dados.map(d => d.preco),
+						borderColor: '#2563eb',
+						backgroundColor: 'rgba(37, 99, 235, 0.05)',
+						fill: true, tension: 0.4, pointRadius: 6,
+						pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
+						pointBorderWidth: 2, pointBorderColor: '#fff'
+					}]
+				},
+				options: {
+					responsive: true, maintainAspectRatio: false,
+					plugins: {
+						legend: { display: false },
+						tooltip: {
+							enabled: true,
+							callbacks: {
+								label: (context) => `R$ ${context.parsed.y.toFixed(2)}`,
+								afterLabel: (context) => `Loja: ${dados[context.dataIndex].mercado}`
+							}
+						}
+					},
+					scales: {
+						y: { beginAtZero: false, grid: { color: '#f3f4f6' }, ticks: { font: { size: 9 } } },
+						x: { grid: { display: false }, ticks: { font: { size: 8 } } }
+					}
+				}
+			};
+
+			if (chartInstance) {
+				chartInstance.data = config.data;
+				chartInstance.options = config.options;
+				chartInstance.update();
+			} else {
+				new Chart(ctx, config);
+			}
+		} catch (e) { console.error("Erro ao carregar gráfico filtrado:", e); }
+	}
+
+	// ================== DICIONÁRIO E CONFIG DO EAN ==================
 async function renderizarDicionario() {
-    const container = document.getElementById('lista-dicionario');
-    if (!container) return;
+	const container = document.getElementById('lista-dicionario');
+	if (!container) return;
 
-    container.innerHTML = '<p class="text-center text-gray-400 p-4">Carregando catálogo...</p>';
-    itensSelecionados.clear();
+	container.innerHTML = '<p class="text-center text-gray-400 p-4">Carregando catálogo...</p>';
+	itensSelecionados.clear();
 
-    const btnMultiplos = document.getElementById('btn-adicionar-multiplos');
-    if (btnMultiplos) btnMultiplos.classList.add('hidden');
+	const btnMultiplos = document.getElementById('btn-adicionar-multiplos');
+	if (btnMultiplos) btnMultiplos.classList.add('hidden');
 
-    const selectAllCheck = document.getElementById('select-all-dict');
-    if (selectAllCheck) selectAllCheck.checked = false;
+	const selectAllCheck = document.getElementById('select-all-dict');
+	if (selectAllCheck) selectAllCheck.checked = false;
 
-    try {
-        const produtos = await fetch('/api/VincularProdutos').then(r => r.json());
+	try {
+		const produtos = await fetch('/api/VincularProdutos').then(r => r.json());
 
-        const categories = {};
-        produtos.forEach(p => {
-            const cat = (p.categoria || "OUTROS").toUpperCase();
-            if (!categories[cat]) categories[cat] = [];
-            categories[cat].push(p);
-        });
+		const categories = {};
+		produtos.forEach(p => {
+			const cat = (p.categoria || "OUTROS").toUpperCase();
+			if (!categories[cat]) categories[cat] = [];
+			categories[cat].push(p);
+		});
 
-        container.innerHTML = `
-            <div class="flex justify-between items-center mb-4 px-2 mt-2">
-                <h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2>
-                <button onclick="limparTodaMonitoracao()" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black active:scale-90 transition-transform shadow-sm border border-red-100 hover:bg-red-100 flex items-center gap-1">
-                    🔕 DESLIGAR ROBÔ
-                </button>
-            </div>
-        `;
+		container.innerHTML = `
+			<div class="flex justify-between items-center mb-4 px-2 mt-2">
+				<h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2>
+				<button onclick="limparTodaMonitoracao()" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black active:scale-90 transition-transform shadow-sm border border-red-100 hover:bg-red-100 flex items-center gap-1">
+					🔕 DESLIGAR ROBÔ
+				</button>
+			</div>
+		`;
 
-        for (const [cat, itens] of Object.entries(categories)) {
-            const div = document.createElement('div');
-            div.className = "mb-4 block-categoria-dicionario";
-            div.setAttribute('data-categoria-dict', cat);
-            div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
+		for (const [cat, itens] of Object.entries(categories)) {
+			const div = document.createElement('div');
+			div.className = "mb-4 block-categoria-dicionario";
+			div.setAttribute('data-categoria-dict', cat);
+			div.innerHTML = `<h3 class="text-[10px] font-black text-blue-500 mb-2 uppercase tracking-widest border-l-4 border-blue-500 pl-2">${cat}</h3>`;
 
-            itens.forEach(prod => {
-                const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
-                const nomeSeguro = escapeHTML(prod.nome_comum);
-                
-                // NOVO: Design inteligente de fundo para quem não tem EAN
-                const eanFaltando = !prod.ean ? 'border-orange-300 bg-orange-50' : 'border-gray-100 bg-white';
+			itens.forEach(prod => {
+				const fotoUrl = prod.foto_url || 'https://via.placeholder.com/50';
+				const nomeSeguro = escapeHTML(prod.nome_comum);
 
-                div.innerHTML += `
-                    <div class="item-dicionario-lista p-2 rounded-xl border flex flex-col md:flex-row md:items-center mb-2 shadow-sm gap-2 ${eanFaltando}"
-                         data-categoria-dict="${cat}">
-                        
-                        <div class="flex items-center gap-2 flex-1 w-full">
-                            <input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0">
-                            
-                            <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
-                                <img src="${fotoUrl}" class="w-full h-full object-cover">
-                            </div>
-                            
-                            <div class="flex-1 flex flex-col justify-center min-w-0">
-                                <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
-                                <div class="flex items-center gap-2 mt-1">
-                                    <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all" title="Ver histórico de preços">📊 Gráfico</button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="controles-item flex items-center justify-between gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-none border-black/5">
-                            
-                            <div class="flex flex-col gap-1.5 flex-1">
-                                <input type="text" class="input-ean w-full md:w-28 p-1 text-[9px] font-mono text-center border border-gray-200 rounded outline-none placeholder-gray-400 focus:border-blue-400" 
-                                       placeholder="EAN (Código)" value="${prod.ean || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)" title="Código de barras EAN">
-                                       
-                                <input type="number" step="0.01" class="input-alvo w-full md:w-28 p-1 text-[9px] font-black text-blue-700 text-center border border-gray-200 rounded shadow-inner outline-none placeholder-gray-400 focus:border-blue-400" 
-                                       placeholder="R$ Alvo" value="${prod.preco_alvo || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)">
-                            </div>
-                            
-                            <div class="flex flex-col items-center justify-center gap-1 bg-blue-50/50 p-2 rounded-lg border border-blue-50 shrink-0">
-                                <span class="text-[7px] uppercase font-black text-blue-400 tracking-wider">Robô</span>
-                                <label class="relative inline-flex items-center cursor-pointer" title="Ligar/Desligar robô">
-                                    <input type="checkbox" class="sr-only peer toggle-monitorar" ${prod.monitorar ? 'checked' : ''} onchange="salvarAlteracoesItem('${prod._id}', this)">
-                                    <div class="w-7 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-green-500"></div>
-                                </label>
-                            </div>
-                            
-                            <button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-3 rounded-lg text-xs font-bold hover:bg-blue-100 active:scale-90 shrink-0 h-full">🛒+</button>
-                        </div>
-                    </div>`;
-            });
-            container.appendChild(div);
-        }
+				// NOVO: Design inteligente de fundo para quem não tem EAN
+				const eanFaltando = !prod.ean ? 'border-orange-300 bg-orange-50' : 'border-gray-100 bg-white';
 
-        if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
-            filtrarPorCorredor(categoriaSelecionadaFiltro);
-        }
-    } catch (e) {
-        console.error("Erro ao renderizar o dicionário:", e);
-    }
+				div.innerHTML += `
+					<div class="item-dicionario-lista p-2 rounded-xl border flex flex-col md:flex-row md:items-center mb-2 shadow-sm gap-2 ${eanFaltando}"
+						 data-categoria-dict="${cat}">
+						
+						<div class="flex items-center gap-2 flex-1 w-full">
+							<input type="checkbox" data-nome="${nomeSeguro}" onchange="toggleSelecao('${nomeSeguro}', this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0">
+							
+							<div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')">
+								<img src="${fotoUrl}" class="w-full h-full object-cover">
+							</div>
+							
+							<div class="flex-1 flex flex-col justify-center min-w-0">
+								<p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
+								<div class="flex items-center gap-2 mt-1">
+									<button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[11px] opacity-60 hover:opacity-100 active:scale-90 transition-all" title="Ver histórico de preços">📊 Gráfico</button>
+								</div>
+							</div>
+						</div>
+						
+						<div class="controles-item flex items-center justify-between gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-none border-black/5">
+							
+							<div class="flex flex-col gap-1.5 flex-1">
+	
+	<div class="flex gap-1">
+		<input type="text" class="input-ean w-full md:w-20 p-1 text-[9px] font-mono text-center border border-gray-200 rounded outline-none placeholder-gray-400 focus:border-blue-400" 
+			   placeholder="EAN" value="${prod.ean || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)" title="Código de barras EAN">
+		
+		<button onclick="iniciarScannerEAN(this)" class="bg-gray-200 hover:bg-gray-300 px-2 rounded text-[10px]" title="Escanear com a câmera">📷</button>
+	</div>
+	
+	<input type="number" step="0.01" class="input-alvo w-full md:w-28 p-1 text-[9px] font-black text-blue-700 text-center border border-gray-200 rounded shadow-inner outline-none placeholder-gray-400 focus:border-blue-400" 
+		   placeholder="R$ Alvo" value="${prod.preco_alvo || ''}" onchange="salvarAlteracoesItem('${prod._id}', this)">
+</div>
+							
+							<div class="flex flex-col items-center justify-center gap-1 bg-blue-50/50 p-2 rounded-lg border border-blue-50 shrink-0">
+								<span class="text-[7px] uppercase font-black text-blue-400 tracking-wider">Robô</span>
+								<label class="relative inline-flex items-center cursor-pointer" title="Ligar/Desligar robô">
+									<input type="checkbox" class="sr-only peer toggle-monitorar" ${prod.monitorar ? 'checked' : ''} onchange="salvarAlteracoesItem('${prod._id}', this)">
+									<div class="w-7 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-green-500"></div>
+								</label>
+							</div>
+							
+							<button onclick="adicionarDiretoALista('${nomeSeguro}')" class="bg-blue-50 text-blue-600 px-3 py-3 rounded-lg text-xs font-bold hover:bg-blue-100 active:scale-90 shrink-0 h-full">🛒+</button>
+						</div>
+					</div>`;
+			});
+			container.appendChild(div);
+		}
+
+		if (typeof categoriaSelecionadaFiltro !== 'undefined' && categoriaSelecionadaFiltro !== "TUDO") {
+			filtrarPorCorredor(categoriaSelecionadaFiltro);
+		}
+	} catch (e) {
+		console.error("Erro ao renderizar o dicionário:", e);
+	}
 }
 
-function selecionarTudoDicionario(checked) {
-    const checkboxes = document.querySelectorAll('#lista-dicionario input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        cb.checked = checked;
-        const nome = cb.getAttribute('data-nome');
-        if (checked) itensSelecionados.add(nome);
-        else itensSelecionados.delete(nome);
-    });
-    atualizarBotaoMultiplos();
-}
+	function selecionarTudoDicionario(checked) {
+		const checkboxes = document.querySelectorAll('#lista-dicionario input[type="checkbox"]');
+		checkboxes.forEach(cb => {
+			cb.checked = checked;
+			const nome = cb.getAttribute('data-nome');
+			if (checked) itensSelecionados.add(nome);
+			else itensSelecionados.delete(nome);
+		});
+		atualizarBotaoMultiplos();
+	}
 
-function toggleSelecao(nome, checked) {
-    if (checked) itensSelecionados.add(nome);
-    else itensSelecionados.delete(nome);
-    atualizarBotaoMultiplos();
-}
+	function toggleSelecao(nome, checked) {
+		if (checked) itensSelecionados.add(nome);
+		else itensSelecionados.delete(nome);
+		atualizarBotaoMultiplos();
+	}
 
-function atualizarBotaoMultiplos() {
-    const btn = document.getElementById('btn-adicionar-multiplos');
-    const contador = itensSelecionados.size;
-    if (contador > 0) {
-        btn.classList.remove('hidden');
-        btn.className = "fixed bottom-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-full text-xs font-black shadow-2xl animate-bounce border-2 border-white";
-        btn.innerText = `🛒 ADICIONAR ${contador} ITENS`;
-    } else {
-        btn.classList.add('hidden');
-    }
-}
+	function atualizarBotaoMultiplos() {
+		const btn = document.getElementById('btn-adicionar-multiplos');
+		const contador = itensSelecionados.size;
+		if (contador > 0) {
+			btn.classList.remove('hidden');
+			btn.className = "fixed bottom-6 right-6 z-50 bg-green-600 text-white px-6 py-3 rounded-full text-xs font-black shadow-2xl animate-bounce border-2 border-white";
+			btn.innerText = `🛒 ADICIONAR ${contador} ITENS`;
+		} else {
+			btn.classList.add('hidden');
+		}
+	}
 
-async function enviarSelecionadosParaLista() {
-    const btn = document.getElementById('btn-adicionar-multiplos');
-    if (itensSelecionados.size === 0) return;
-    const total = itensSelecionados.size;
-    btn.innerText = "ADICIONANDO...";
-    btn.disabled = true;
-    try {
-        for (let nome of itensSelecionados) {
-            await fetch('/api/GerenciarLista', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
-            });
-        }
-        itensSelecionados.clear();
-        btn.disabled = false;
-        btn.classList.add('hidden');
-        alert(`${total} itens adicionados com sucesso!`);
-        alternarAba('lista');
-    } catch (e) {
-        console.error(e);
-        btn.disabled = false;
-        btn.innerText = `ADICIONAR ${itensSelecionados.size} ITENS`;
-    }
-}
+	async function enviarSelecionadosParaLista() {
+		const btn = document.getElementById('btn-adicionar-multiplos');
+		if (itensSelecionados.size === 0) return;
+		const total = itensSelecionados.size;
+		btn.innerText = "ADICIONANDO...";
+		btn.disabled = true;
+		try {
+			for (let nome of itensSelecionados) {
+				await fetch('/api/GerenciarLista', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
+				});
+			}
+			itensSelecionados.clear();
+			btn.disabled = false;
+			btn.classList.add('hidden');
+			alert(`${total} itens adicionados com sucesso!`);
+			alternarAba('lista');
+		} catch (e) {
+			console.error(e);
+			btn.disabled = false;
+			btn.innerText = `ADICIONAR ${itensSelecionados.size} ITENS`;
+		}
+	}
 
-// ================== MANIPULAÇÃO DA LISTA ==================
-async function alternarStatus(nome, novoStatus) {
-    try {
-        await fetch('/api/GerenciarLista', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
-        });
-        carregarLista();
-    } catch (e) { console.error(e); }
-}
+	// ================== MANIPULAÇÃO DA LISTA ==================
+	async function alternarStatus(nome, novoStatus) {
+		try {
+			await fetch('/api/GerenciarLista', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ nome: nome.toUpperCase(), comprado: novoStatus })
+			});
+			carregarLista();
+		} catch (e) { console.error(e); }
+	}
 
-async function adicionarItemManual() {
-    const inputNome = document.getElementById('novo-item-lista');
-    const inputQtd = document.getElementById('qtd-item-lista');
-    const nome = inputNome.value.trim().toUpperCase();
-    if (!nome) return;
-    try {
-        await fetch('/api/GerenciarLista', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome, quantidade: parseFloat(inputQtd.value) || 1 })
-        });
-        inputNome.value = '';
-        inputQtd.value = '1';
-        carregarLista();
-    } catch (e) { }
-}
+	async function adicionarItemManual() {
+		const inputNome = document.getElementById('novo-item-lista');
+		const inputQtd = document.getElementById('qtd-item-lista');
+		const nome = inputNome.value.trim().toUpperCase();
+		if (!nome) return;
+		try {
+			await fetch('/api/GerenciarLista', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ nome: nome, quantidade: parseFloat(inputQtd.value) || 1 })
+			});
+			inputNome.value = '';
+			inputQtd.value = '1';
+			carregarLista();
+		} catch (e) { }
+	}
 
-async function adicionarDiretoALista(nome) {
-    try {
-        await fetch('/api/GerenciarLista', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
-        });
-        alert("Item adicionado à lista!");
-        carregarLista();
-    } catch (e) { console.error(e); }
-}
+	async function adicionarDiretoALista(nome) {
+		try {
+			await fetch('/api/GerenciarLista', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ nome: nome.toUpperCase(), quantidade: 1 })
+			});
+			alert("Item adicionado à lista!");
+			carregarLista();
+		} catch (e) { console.error(e); }
+	}
 
-async function deletarItem(nome) {
-    if (!confirm(`Remover ${nome} da lista?`)) return;
-    try {
-        await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
-        if (window.precosDigitadosNoMercado && window.precosDigitadosNoMercado[nome]) {
-            delete window.precosDigitadosNoMercado[nome];
-            localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
-        }
-        carregarLista();
-    } catch (e) { console.error(e); }
-}
+	async function deletarItem(nome) {
+		if (!confirm(`Remover ${nome} da lista?`)) return;
+		try {
+			await fetch(`/api/GerenciarLista?nome=${encodeURIComponent(nome)}`, { method: 'DELETE' });
+			if (window.precosDigitadosNoMercado && window.precosDigitadosNoMercado[nome]) {
+				delete window.precosDigitadosNoMercado[nome];
+				localStorage.setItem('precosLive', JSON.stringify(window.precosDigitadosNoMercado));
+			}
+			carregarLista();
+		} catch (e) { console.error(e); }
+	}
 
-async function finalizarCompra() {
-    if (!confirm("Deseja limpar toda a lista?")) return;
-    try {
-        await Promise.all([
-            fetch('/api/GerenciarLista', { method: 'DELETE' }),
-            fetch('/api/GerenciarPrecosTemp', { method: 'DELETE' })
-        ]);
-        window.precosDigitadosNoMercado = {};
-        localStorage.removeItem('precosLive');
-        carregarLista();
-        const display = document.getElementById('total-real-dinamico');
-        if (display) display.innerText = "R$ 0,00";
-    } catch (e) { console.error("Erro ao finalizar compra:", e); }
-}
+	async function finalizarCompra() {
+		if (!confirm("Deseja limpar toda a lista?")) return;
+		try {
+			await Promise.all([
+				fetch('/api/GerenciarLista', { method: 'DELETE' }),
+				fetch('/api/GerenciarPrecosTemp', { method: 'DELETE' })
+			]);
+			window.precosDigitadosNoMercado = {};
+			localStorage.removeItem('precosLive');
+			carregarLista();
+			const display = document.getElementById('total-real-dinamico');
+			if (display) display.innerText = "R$ 0,00";
+		} catch (e) { console.error("Erro ao finalizar compra:", e); }
+	}
 
-// ================== NOTA FISCAL ==================
-async function processarUrlManual() {
-    const urlInput = document.getElementById('url-input');
-    const url = urlInput.value.trim();
-    if (!url) return;
-    const statusDiv = document.getElementById('status');
-    statusDiv.classList.remove('hidden');
-    statusDiv.innerText = "📡 Analisando CNPJ da nota...";
-    try {
-        let response = await fetch('/api/ProcessarNota', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, consulta: true })
-        });
-        let resData = await response.json();
-        let apelidoFinal = resData.estabelecimento;
-        const ehNomeJuridico = /LTDA|S\.A|S\/A|DISTRIBUIDORA/i.test(apelidoFinal);
-        if (!resData.jaConhecido || ehNomeJuridico) {
-            const novoApelido = prompt(`Nova unidade (CNPJ: ${resData.cnpj}). Como quer chamar esta loja?`, apelidoFinal);
-            if (novoApelido) {
-                apelidoFinal = novoApelido.toUpperCase();
-            } else if (ehNomeJuridico) {
-                statusDiv.innerText = "⚠️ Processamento cancelado: Defina um apelido.";
-                return;
-            }
-        }
-        statusDiv.innerText = "💾 Salvando dados...";
-        response = await fetch('/api/ProcessarNota', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, apelido: apelidoFinal })
-        });
-        resData = await response.json();
-        statusDiv.innerText = `✅ Processado: ${resData.estabelecimento}`;
-        urlInput.value = '';
-        renderPreview(resData.dados);
-        carregarLista();
-    } catch (err) {
-        statusDiv.innerText = "❌ Erro ao processar nota.";
-        console.error(err);
-    }
-}
+	// ================== NOTA FISCAL ==================
+	async function processarUrlManual() {
+		const urlInput = document.getElementById('url-input');
+		const url = urlInput.value.trim();
+		if (!url) return;
+		const statusDiv = document.getElementById('status');
+		statusDiv.classList.remove('hidden');
+		statusDiv.innerText = "📡 Analisando CNPJ da nota...";
+		try {
+			let response = await fetch('/api/ProcessarNota', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ url, consulta: true })
+			});
+			let resData = await response.json();
+			let apelidoFinal = resData.estabelecimento;
+			const ehNomeJuridico = /LTDA|S\.A|S\/A|DISTRIBUIDORA/i.test(apelidoFinal);
+			if (!resData.jaConhecido || ehNomeJuridico) {
+				const novoApelido = prompt(`Nova unidade (CNPJ: ${resData.cnpj}). Como quer chamar esta loja?`, apelidoFinal);
+				if (novoApelido) {
+					apelidoFinal = novoApelido.toUpperCase();
+				} else if (ehNomeJuridico) {
+					statusDiv.innerText = "⚠️ Processamento cancelado: Defina um apelido.";
+					return;
+				}
+			}
+			statusDiv.innerText = "💾 Salvando dados...";
+			response = await fetch('/api/ProcessarNota', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ url, apelido: apelidoFinal })
+			});
+			resData = await response.json();
+			statusDiv.innerText = `✅ Processado: ${resData.estabelecimento}`;
+			urlInput.value = '';
+			renderPreview(resData.dados);
+			carregarLista();
+		} catch (err) {
+			statusDiv.innerText = "❌ Erro ao processar nota.";
+			console.error(err);
+		}
+	}
 
-async function renderPreview(dados) {
-    const previewContainer = document.getElementById('preview-container');
-    const listaItens = document.getElementById('lista-itens');
-    listaItens.innerHTML = '';
-    previewContainer.classList.remove('hidden');
-    const respDict = await fetch('/api/VincularProdutos');
-    const dicionario = await respDict.json();
-    const header = document.createElement('div');
-    header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
-    header.innerHTML = `
-        <div class="flex justify-between items-start mb-2">
-            <div><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p><p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "DESCONHECIDO"}</p></div>
-            <div class="text-right"><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total</p><p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p></div>
-        </div>
-        <div class="flex justify-between items-center pt-2 border-t border-blue-100">
-            <p class="text-[10px] text-gray-500 font-medium">📦 ${dados.itens.length} itens encontrados</p>
-            <p class="text-[10px] text-gray-500 font-medium">📅 ${new Date(dados.data_compra).toLocaleDateString('pt-BR')}</p>
-        </div>`;
-    listaItens.appendChild(header);
-    dados.itens.forEach(item => {
-        const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
-        const temNomeAmigavel = !!produtoVinculado;
-        const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
-        const precoUnitario = item.preco_unitario || 0;
-        const qtd = item.quantidade || 0;
-        const precoTotalItem = item.preco_total || (precoUnitario * qtd);
-        const itemDiv = document.createElement('div');
-        itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
-        itemDiv.innerHTML = `
-        <div class="flex-1 pr-2">
-            <p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-orange-500'} uppercase leading-tight">
-                ${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
-            </p>
-            <div class="flex flex-wrap gap-2 mt-1 items-center">
-                <span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">
-                    ${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}
-                </span>
-                <span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">
-                    ${temFoto ? 'Com Foto' : 'Sem Foto'}
-                </span>
-                <p class="text-[10px] font-black text-blue-600">${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span></p>
-            </div>
-        </div>
-        <button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
-            class="ml-2 p-3 ${(temNomeAmigavel && temFoto) ? 'bg-gray-100 text-gray-400' : 'bg-orange-500 text-white animate-pulse'} rounded-full shadow-sm active:scale-90 transition-transform">
-            ${(temNomeAmigavel && temFoto) ? '✔️' : '✏️'}
-        </button>`;
-        listaItens.appendChild(itemDiv);
-    });
-}
+	async function renderPreview(dados) {
+		const previewContainer = document.getElementById('preview-container');
+		const listaItens = document.getElementById('lista-itens');
+		listaItens.innerHTML = '';
+		previewContainer.classList.remove('hidden');
+		const respDict = await fetch('/api/VincularProdutos');
+		const dicionario = await respDict.json();
+		const header = document.createElement('div');
+		header.className = "p-4 bg-blue-50 border-b border-blue-100 rounded-t-xl mb-2";
+		header.innerHTML = `
+			<div class="flex justify-between items-start mb-2">
+				<div><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estabelecimento</p><p class="text-xs font-bold text-gray-800 uppercase">${dados.estabelecimento || "DESCONHECIDO"}</p></div>
+				<div class="text-right"><p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total</p><p class="text-sm font-black text-blue-600">R$ ${parseFloat(dados.valor_total || 0).toFixed(2)}</p></div>
+			</div>
+			<div class="flex justify-between items-center pt-2 border-t border-blue-100">
+				<p class="text-[10px] text-gray-500 font-medium">📦 ${dados.itens.length} itens encontrados</p>
+				<p class="text-[10px] text-gray-500 font-medium">📅 ${new Date(dados.data_compra).toLocaleDateString('pt-BR')}</p>
+			</div>`;
+		listaItens.appendChild(header);
+		dados.itens.forEach(item => {
+			const produtoVinculado = dicionario.find(p => p.ids_vinculados && p.ids_vinculados.includes(item.id_interno));
+			const temNomeAmigavel = !!produtoVinculado;
+			const temFoto = produtoVinculado && produtoVinculado.foto_url && !produtoVinculado.foto_url.includes('placeholder');
+			const precoUnitario = item.preco_unitario || 0;
+			const qtd = item.quantidade || 0;
+			const precoTotalItem = item.preco_total || (precoUnitario * qtd);
+			const itemDiv = document.createElement('div');
+			itemDiv.className = "flex justify-between items-center p-3 border-b border-gray-100 last:border-0";
+			itemDiv.innerHTML = `
+			<div class="flex-1 pr-2">
+				<p class="text-[11px] font-bold ${temNomeAmigavel ? 'text-gray-800' : 'text-orange-500'} uppercase leading-tight">
+					${temNomeAmigavel ? produtoVinculado.nome_comum : item.descricao}
+				</p>
+				<div class="flex flex-wrap gap-2 mt-1 items-center">
+					<span class="text-[8px] px-1 rounded font-bold ${temNomeAmigavel ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} uppercase">
+						${temNomeAmigavel ? 'ID Vinculado' : 'ID Novo'}
+					</span>
+					<span class="text-[8px] px-1 rounded font-bold ${temFoto ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} uppercase">
+						${temFoto ? 'Com Foto' : 'Sem Foto'}
+					</span>
+					<p class="text-[10px] font-black text-blue-600">${qtd}x R$ ${precoUnitario.toFixed(2)} = <span class="text-blue-800">R$ ${precoTotalItem.toFixed(2)}</span></p>
+				</div>
+			</div>
+			<button onclick="vincularID('${item.id_interno}', '${escapeHTML(item.descricao)}')" 
+				class="ml-2 p-3 ${(temNomeAmigavel && temFoto) ? 'bg-gray-100 text-gray-400' : 'bg-orange-500 text-white animate-pulse'} rounded-full shadow-sm active:scale-90 transition-transform">
+				${(temNomeAmigavel && temFoto) ? '✔️' : '✏️'}
+			</button>`;
+			listaItens.appendChild(itemDiv);
+		});
+	}
 
-function vincularID(id, desc) {
-    const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
-    const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
-    if (novoNome === null) return;
-    const nomeFinal = novoNome.trim().toUpperCase();
-    const categoriaSugerida = sugerirCategoria(nomeFinal);
-    const cat = prompt(`Categoria:`, categoriaSugerida);
-    if (cat === null) return;
-    const foto = prompt(`URL da Foto (Deixe vazio para manter a atual):`, "");
-    fetch('/api/VincularProdutos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idPrincipal: id, nomePadrao: nomeFinal, categoria: cat.toUpperCase(), fotoUrl: foto })
-    }).then(() => {
-        processarUrlManual();
-        renderizarDicionario();
-    });
-}
+	function vincularID(id, desc) {
+		const nomeSugerido = desc.split('*')[0].trim().toUpperCase();
+		const novoNome = prompt(`Nome padrão para "${desc}":`, nomeSugerido);
+		if (novoNome === null) return;
+		const nomeFinal = novoNome.trim().toUpperCase();
+		const categoriaSugerida = sugerirCategoria(nomeFinal);
+		const cat = prompt(`Categoria:`, categoriaSugerida);
+		if (cat === null) return;
+		const foto = prompt(`URL da Foto (Deixe vazio para manter a atual):`, "");
+		fetch('/api/VincularProdutos', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ idPrincipal: id, nomePadrao: nomeFinal, categoria: cat.toUpperCase(), fotoUrl: foto })
+		}).then(() => {
+			processarUrlManual();
+			renderizarDicionario();
+		});
+	}
 
-function sugerirCategoria(nome) {
-    const palavras = nome.toUpperCase();
-    if (palavras.match(/QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
-    if (palavras.match(/PÃO|ATUM|BISCOITO|GELEIA|LEITE|AVEIA|TORRADA/)) return "PADARIA E MATINAIS";
-    if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
-    if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
-    if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|SACOLA/)) return "DESCARTÁVEIS E EMBALAGENS";
-    if (palavras.match(/CARNE|FRANGO|LINGUICA|SALSICHA|COXA|PICANHA/)) return "AÇOUGUE";
-    if (palavras.match(/CAFÉ|ARROZ|FEIJAO|MACARRAO|OLEO|ACUCAR|SAL|FARINHA/)) return "MERCEARIA";
-    if (palavras.match(/SHAMPOO|CONDICIONADOR|SABONETE|CREME|PASTA/)) return "HIGIENE";
-    if (palavras.match(/BANANA|MACA|LARANJA|CEBOLA|BATATA|ALHO/)) return "HORTIFRUTI";
-    if (palavras.match(/SACO|VASSOURA|RODO/)) return "UTILIDADES DOMÉSTICAS";
-    return "OUTROS";
-}
+	function sugerirCategoria(nome) {
+		const palavras = nome.toUpperCase();
+		if (palavras.match(/QUEIJO|IOGURTE|MANTEIGA|REQUEIJAO|DANONE/)) return "FRIOS E CONGELADOS";
+		if (palavras.match(/PÃO|ATUM|BISCOITO|GELEIA|LEITE|AVEIA|TORRADA/)) return "PADARIA E MATINAIS";
+		if (palavras.match(/DETERGENTE|SABAO|AMACIANTE|DESINFETANTE|VEJA|LIMP/)) return "LIMPEZA";
+		if (palavras.match(/CERVEJA|REFRIGERANTE|SUCO|AGUA|VINHO|COCA/)) return "BEBIDAS";
+		if (palavras.match(/COPO DESCARTAVEL|PAPEL TOALHA|SACOLA/)) return "DESCARTÁVEIS E EMBALAGENS";
+		if (palavras.match(/CARNE|FRANGO|LINGUICA|SALSICHA|COXA|PICANHA/)) return "AÇOUGUE";
+		if (palavras.match(/CAFÉ|ARROZ|FEIJAO|MACARRAO|OLEO|ACUCAR|SAL|FARINHA/)) return "MERCEARIA";
+		if (palavras.match(/SHAMPOO|CONDICIONADOR|SABONETE|CREME|PASTA/)) return "HIGIENE";
+		if (palavras.match(/BANANA|MACA|LARANJA|CEBOLA|BATATA|ALHO/)) return "HORTIFRUTI";
+		if (palavras.match(/SACO|VASSOURA|RODO/)) return "UTILIDADES DOMÉSTICAS";
+		return "OUTROS";
+	}
 
-// ================== RANKING TOP 10 ==================
-async function renderizarRankingTopCompras() {
-    const container = document.getElementById('lista-gastos-detalhada');
-    if (!container) return;
-    container.innerHTML = '<p class="text-center text-gray-400 text-[10px] animate-pulse py-8">CALCULANDO...</p>';
-    try {
-        const response = await fetch('/api/ObterRankingTopCompras');
-        const dados = await response.json();
-        let html = `<div class="mt-8"><h3 class="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 text-center">🏆 TOP 10 PRODUTOS (VOLUME)</h3><div class="space-y-2">`;
-        dados.forEach((item, index) => {
-            html += `
-                <div onclick="abrirGrafico('${item._id}')" class="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 cursor-pointer hover:bg-blue-50 transition-colors">
-                    <span class="text-lg font-black text-blue-200">#${index + 1}</span>
-                    <img src="${item.foto || 'https://via.placeholder.com/50'}" class="w-10 h-10 rounded-lg object-cover bg-gray-50">
-                    <div class="flex-1"><p class="text-[10px] font-black text-gray-700 uppercase">${item._id}</p><p class="text-[9px] text-gray-400 font-bold">${item.vezesComprado} notas fiscais</p></div>
-                    <div class="text-right"><p class="text-sm font-black text-blue-600">${item.totalQtd} un</p><p class="text-[8px] text-gray-400">R$ ${item.totalGasto.toFixed(2)} total</p></div>
-                </div>`;
-        });
-        html += `</div></div>`;
-        container.innerHTML = html;
-    } catch (e) { console.error(e); }
-}
+	// ================== RANKING TOP 10 ==================
+	async function renderizarRankingTopCompras() {
+		const container = document.getElementById('lista-gastos-detalhada');
+		if (!container) return;
+		container.innerHTML = '<p class="text-center text-gray-400 text-[10px] animate-pulse py-8">CALCULANDO...</p>';
+		try {
+			const response = await fetch('/api/ObterRankingTopCompras');
+			const dados = await response.json();
+			let html = `<div class="mt-8"><h3 class="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 text-center">🏆 TOP 10 PRODUTOS (VOLUME)</h3><div class="space-y-2">`;
+			dados.forEach((item, index) => {
+				html += `
+					<div onclick="abrirGrafico('${item._id}')" class="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 cursor-pointer hover:bg-blue-50 transition-colors">
+						<span class="text-lg font-black text-blue-200">#${index + 1}</span>
+						<img src="${item.foto || 'https://via.placeholder.com/50'}" class="w-10 h-10 rounded-lg object-cover bg-gray-50">
+						<div class="flex-1"><p class="text-[10px] font-black text-gray-700 uppercase">${item._id}</p><p class="text-[9px] text-gray-400 font-bold">${item.vezesComprado} notas fiscais</p></div>
+						<div class="text-right"><p class="text-sm font-black text-blue-600">${item.totalQtd} un</p><p class="text-[8px] text-gray-400">R$ ${item.totalGasto.toFixed(2)} total</p></div>
+					</div>`;
+			});
+			html += `</div></div>`;
+			container.innerHTML = html;
+		} catch (e) { console.error(e); }
+	}
 
-async function renderizarGraficoMedias() {
-    const container = document.getElementById('lista-gastos-detalhada');
-    container.innerHTML = '<div class="h-64 w-full"><canvas id="chartMediasTop10"></canvas></div>';
-    try {
-        const response = await fetch('/api/ObterMediaPrecoTop10');
-        const dados = await response.json();
-        const ctx = document.getElementById('chartMediasTop10').getContext('2d');
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: dados.map(d => d._id.split(' ')[0] + '...'),
-                datasets: [{ label: 'Preço Médio (R$)', data: dados.map(d => d.precoMedio), backgroundColor: 'rgba(54, 162, 235, 0.6)', borderRadius: 8 }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (c) => dados[c[0].dataIndex]._id, label: (c) => `Média: R$ ${c.parsed.y.toFixed(2)}` } } } }
-        });
-    } catch (e) { console.error(e); }
-}
+	async function renderizarGraficoMedias() {
+		const container = document.getElementById('lista-gastos-detalhada');
+		container.innerHTML = '<div class="h-64 w-full"><canvas id="chartMediasTop10"></canvas></div>';
+		try {
+			const response = await fetch('/api/ObterMediaPrecoTop10');
+			const dados = await response.json();
+			const ctx = document.getElementById('chartMediasTop10').getContext('2d');
+			new Chart(ctx, {
+				type: 'bar',
+				data: {
+					labels: dados.map(d => d._id.split(' ')[0] + '...'),
+					datasets: [{ label: 'Preço Médio (R$)', data: dados.map(d => d.precoMedio), backgroundColor: 'rgba(54, 162, 235, 0.6)', borderRadius: 8 }]
+				},
+				options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (c) => dados[c[0].dataIndex]._id, label: (c) => `Média: R$ ${c.parsed.y.toFixed(2)}` } } } }
+			});
+		} catch (e) { console.error(e); }
+	}
 
-// ================== SUGESTÕES AUTOCOMPLETE ==================
-async function carregarSugestoes() {
-    try {
-        const response = await fetch('/api/VincularProdutos');
-        const produtos = await response.json();
-        const datalist = document.getElementById('sugestoes-produtos');
-        if (datalist) {
-            datalist.innerHTML = [...new Set(produtos.map(p => p.nome_comum))].map(nome => `<option value="${nome.toUpperCase()}">`).join('');
-        }
-    } catch (e) { }
-}
+	// ================== SUGESTÕES AUTOCOMPLETE ==================
+	async function carregarSugestoes() {
+		try {
+			const response = await fetch('/api/VincularProdutos');
+			const produtos = await response.json();
+			const datalist = document.getElementById('sugestoes-produtos');
+			if (datalist) {
+				datalist.innerHTML = [...new Set(produtos.map(p => p.nome_comum))].map(nome => `<option value="${nome.toUpperCase()}">`).join('');
+			}
+		} catch (e) { }
+	}
 
-async function hidratarPrecosTemporarios() {
-    try {
-        const response = await fetch('/api/GerenciarPrecosTemp');
-        const dados = await response.json();
+	async function hidratarPrecosTemporarios() {
+		try {
+			const response = await fetch('/api/GerenciarPrecosTemp');
+			const dados = await response.json();
 
-        if (dados && dados.length > 0) {
-            window.precosDigitadosNoMercado = {};
-            dados.forEach(reg => {
-                if (!window.precosDigitadosNoMercado[reg.item]) {
-                    window.precosDigitadosNoMercado[reg.item] = {};
-                }
-                window.precosDigitadosNoMercado[reg.item][reg.loja] = reg.preco;
-            });
-            recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
-        }
-    } catch (e) { console.error("Erro na sincronização:", e); }
-}
+			if (dados && dados.length > 0) {
+				window.precosDigitadosNoMercado = {};
+				dados.forEach(reg => {
+					if (!window.precosDigitadosNoMercado[reg.item]) {
+						window.precosDigitadosNoMercado[reg.item] = {};
+					}
+					window.precosDigitadosNoMercado[reg.item][reg.loja] = reg.preco;
+				});
+				recalcularRankingLive(window.dadosOriginaisDicionario?.ranking || []);
+			}
+		} catch (e) { console.error("Erro na sincronização:", e); }
+	}
 
-setInterval(() => {
-    if (!document.hidden) {
-        hidratarPrecosTemporarios();
-    }
-}, 5000);
+	setInterval(() => {
+		if (!document.hidden) {
+			hidratarPrecosTemporarios();
+		}
+	}, 5000);
 
-function renderizarFiltrosCategorias() {
-    const secaoFiltros = document.getElementById('secao-filtros-categorias');
-    const container = document.getElementById('container-categorias-filtro');
-    if (!container || !secaoFiltros) return;
+	function renderizarFiltrosCategorias() {
+		const secaoFiltros = document.getElementById('secao-filtros-categorias');
+		const container = document.getElementById('container-categorias-filtro');
+		if (!container || !secaoFiltros) return;
 
-    const todosOsCorredores = [
-        "TUDO", "HORTIFRUTI", "FRIOS E CONGELADOS", "MERCEARIA", "AÇOUGUE E PEIXARIA",
-        "BEBIDAS", "LIMPEZA", "HIGIENE E PERFUMARIA", "PADARIA E MATINAIS", "DESCARTÁVEIS E EMBALAGENS", "OUTROS"
-    ];
+		const todosOsCorredores = [
+			"TUDO", "HORTIFRUTI", "FRIOS E CONGELADOS", "MERCEARIA", "AÇOUGUE E PEIXARIA",
+			"BEBIDAS", "LIMPEZA", "HIGIENE E PERFUMARIA", "PADARIA E MATINAIS", "DESCARTÁVEIS E EMBALAGENS", "OUTROS"
+		];
 
-    secaoFiltros.classList.remove('hidden');
-    container.innerHTML = '';
+		secaoFiltros.classList.remove('hidden');
+		container.innerHTML = '';
 
-    todosOsCorredores.forEach(corredor => {
-        const label = corredor === "TUDO" ? "📍 TUDO" : corredor;
-        const btn = criarBotaoPilula(corredor, label);
-        container.appendChild(btn);
-    });
-}
+		todosOsCorredores.forEach(corredor => {
+			const label = corredor === "TUDO" ? "📍 TUDO" : corredor;
+			const btn = criarBotaoPilula(corredor, label);
+			container.appendChild(btn);
+		});
+	}
 
-function criarBotaoPilula(idCategoria, label) {
-    const botao = document.createElement('button');
-    const isActive = categoriaSelecionadaFiltro === idCategoria;
+	function criarBotaoPilula(idCategoria, label) {
+		const botao = document.createElement('button');
+		const isActive = categoriaSelecionadaFiltro === idCategoria;
 
-    botao.className = `px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border transition-all ${isActive
-        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-        }`;
-    botao.innerText = label;
-    botao.onclick = () => filtrarPorCorredor(idCategoria);
-    return botao;
-}
+		botao.className = `px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border transition-all ${isActive
+			? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+			: 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+			}`;
+		botao.innerText = label;
+		botao.onclick = () => filtrarPorCorredor(idCategoria);
+		return botao;
+	}
 
-function filtrarPorCorredor(idCategoria) {
-    categoriaSelecionadaFiltro = idCategoria;
+	function filtrarPorCorredor(idCategoria) {
+		categoriaSelecionadaFiltro = idCategoria;
 
-    const botoes = document.querySelectorAll('#container-categorias-filtro button');
-    botoes.forEach(btn => {
-        const text = btn.innerText.replace('📍 ', '').trim().toUpperCase();
-        if (text === idCategoria.toUpperCase()) {
-            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-blue-600 text-white border-blue-600 shadow-sm";
-        } else {
-            btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
-        }
-    });
+		const botoes = document.querySelectorAll('#container-categorias-filtro button');
+		botoes.forEach(btn => {
+			const text = btn.innerText.replace('📍 ', '').trim().toUpperCase();
+			if (text === idCategoria.toUpperCase()) {
+				btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-blue-600 text-white border-blue-600 shadow-sm";
+			} else {
+				btn.className = "px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase whitespace-nowrap border bg-white text-gray-500 border-gray-200 hover:bg-gray-50";
+			}
+		});
 
-    const headers = document.querySelectorAll('#lista-ativa .header-corredor');
-    headers.forEach(h => {
-        const catHeader = h.getAttribute('data-categoria');
-        if (idCategoria === "TUDO" || catHeader === idCategoria.toUpperCase()) {
-            h.classList.remove('hidden');
-        } else {
-            h.classList.add('hidden');
-        }
-    });
+		const headers = document.querySelectorAll('#lista-ativa .header-corredor');
+		headers.forEach(h => {
+			const catHeader = h.getAttribute('data-categoria');
+			if (idCategoria === "TUDO" || catHeader === idCategoria.toUpperCase()) {
+				h.classList.remove('hidden');
+			} else {
+				h.classList.add('hidden');
+			}
+		});
 
-    const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
-    cards.forEach(card => {
-        const catCard = card.getAttribute('data-categoria-produto');
-        if (idCategoria === "TUDO" || catCard === idCategoria.toUpperCase()) {
-            card.classList.remove('hidden');
-        } else {
-            card.classList.add('hidden');
-        }
-    });
+		const cards = document.querySelectorAll('#lista-ativa .card-produto-lista');
+		cards.forEach(card => {
+			const catCard = card.getAttribute('data-categoria-produto');
+			if (idCategoria === "TUDO" || catCard === idCategoria.toUpperCase()) {
+				card.classList.remove('hidden');
+			} else {
+				card.classList.add('hidden');
+			}
+		});
 
-    const itensDict = document.querySelectorAll('#container-dicionario .item-dicionario-lista, #tabela-dicionario tr[data-categoria-dict]');
-    itensDict.forEach(item => {
-        const catDict = item.getAttribute('data-categoria-dict');
-        if (idCategoria === "TUDO" || (catDict && catDict.toUpperCase() === idCategoria.toUpperCase())) {
-            item.classList.remove('hidden');
-        } else {
-            item.classList.add('hidden');
-        }
-    });
+		const itensDict = document.querySelectorAll('#container-dicionario .item-dicionario-lista, #tabela-dicionario tr[data-categoria-dict]');
+		itensDict.forEach(item => {
+			const catDict = item.getAttribute('data-categoria-dict');
+			if (idCategoria === "TUDO" || (catDict && catDict.toUpperCase() === idCategoria.toUpperCase())) {
+				item.classList.remove('hidden');
+			} else {
+				item.classList.add('hidden');
+			}
+		});
 
-    const blocosDict = document.querySelectorAll('.block-categoria-dicionario');
-    blocosDict.forEach(bloco => {
-        const catBloco = bloco.getAttribute('data-categoria-dict');
-        if (idCategoria === "TUDO" || (catBloco && catBloco.toUpperCase() === idCategoria.toUpperCase())) {
-            bloco.classList.remove('hidden'); 
-        } else {
-            bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden'); 
-        }
-    });
+		const blocosDict = document.querySelectorAll('.block-categoria-dicionario');
+		blocosDict.forEach(bloco => {
+			const catBloco = bloco.getAttribute('data-categoria-dict');
+			if (idCategoria === "TUDO" || (catBloco && catBloco.toUpperCase() === idCategoria.toUpperCase())) {
+				bloco.classList.remove('hidden');
+			} else {
+				bloco.setAttribute('class', 'mb-4 block-categoria-dicionario hidden');
+			}
+		});
 
-    if (window.dadosOriginaisDicionario) {
-        atualizarPrecosEPilulas();
-    }
-}
+		if (window.dadosOriginaisDicionario) {
+			atualizarPrecosEPilulas();
+		}
+	}
 
-// ==============================================================
-// FUNÇÕES DO ROBÔ DE PREÇOS (Atualizadas para o EAN)
-// ==============================================================
-window.salvarAlteracoesItem = async (id, elemento) => {
-    const container = elemento.closest('.item-dicionario-lista'); 
-    const monitorar = container.querySelector('.toggle-monitorar').checked;
-    const preco_alvo = container.querySelector('.input-alvo').value;
-    const ean = container.querySelector('.input-ean').value.trim();
-    
-    // Feedback visual enquanto salva
-    container.style.opacity = '0.5';
+	async function iniciarScannerEAN(botaoClicado) {
+		// Cria um modal ou container temporário na tela para a câmera
+		const container = document.createElement('div');
+		container.id = "scanner-container";
+		container.className = "fixed inset-0 z-[100] bg-black flex flex-col";
+		container.innerHTML = `<div id="reader" class="w-full h-full"></div>
+							   <button onclick="document.getElementById('scanner-container').remove()" class="absolute top-4 right-4 bg-white p-2 rounded-full">Fechar</button>`;
+		document.body.appendChild(container);
 
-    try {
-        await fetch('/api/GerenciarDicionario', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, monitorar, preco_alvo, ean })
-        });
-        
-        // Remove a cor laranja se o usuário preencheu o EAN, ou adiciona se apagou
-        if (ean === '') {
-            container.classList.add('border-orange-300', 'bg-orange-50');
-            container.classList.remove('bg-white', 'border-gray-100');
-        } else {
-            container.classList.remove('border-orange-300', 'bg-orange-50');
-            container.classList.add('bg-white', 'border-gray-100');
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Erro ao salvar! Verifique a conexão.");
-    } finally {
-        container.style.opacity = '1';
-    }
-};
+		const html5QrCode = new Html5Qrcode("reader");
+		html5QrCode.start(
+			{ facingMode: "environment" }, // Usa a câmera traseira
+			{ fps: 10, qrbox: { width: 250, height: 100 } },
+			(decodedText) => {
+				// Quando ler o código:
+				const inputEan = botaoClicado.parentElement.querySelector('.input-ean');
+				inputEan.value = decodedText;
+				inputEan.dispatchEvent(new Event('change')); // Dispara o salvamento automático
+				html5QrCode.stop();
+				document.getElementById('scanner-container').remove();
+			},
+			(errorMessage) => { /* ignora erros de leitura constante */ }
+		).catch(err => alert("Erro ao acessar câmera: " + err));
+	}
 
-window.limparTodaMonitoracao = async () => {
-    if(confirm("Tem certeza que deseja DESLIGAR O ROBÔ para todos os itens do catálogo?")) {
-        try {
-            await fetch('/api/GerenciarDicionario', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'desmarcar_todos' })
-            });
+	// ==============================================================
+	// FUNÇÕES DO ROBÔ DE PREÇOS (Atualizadas para o EAN)
+	// ==============================================================
+	window.salvarAlteracoesItem = async (id, elemento) => {
+		const container = elemento.closest('.item-dicionario-lista');
+		const monitorar = container.querySelector('.toggle-monitorar').checked;
+		const preco_alvo = container.querySelector('.input-alvo').value;
+		const ean = container.querySelector('.input-ean').value.trim();
 
-            const todasChavinhas = document.querySelectorAll('.toggle-monitorar');
-            todasChavinhas.forEach(chavinha => {
-                chavinha.checked = false; 
-            });
+		// Feedback visual enquanto salva
+		container.style.opacity = '0.5';
 
-            alert("Pronto! O robô foi desligado para todos os itens.");
-        } catch (e) {
-            console.error(e);
-            alert("Erro de conexão ao tentar desligar o robô!");
-        }
-    }
-};
+		try {
+			await fetch('/api/GerenciarDicionario', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id, monitorar, preco_alvo, ean })
+			});
 
-// ================== INICIALIZAÇÃO ==================
-renderizarFiltrosCategorias();
-carregarLista();
-carregarSugestoes();
-hidratarPrecosTemporarios();
+			// Remove a cor laranja se o usuário preencheu o EAN, ou adiciona se apagou
+			if (ean === '') {
+				container.classList.add('border-orange-300', 'bg-orange-50');
+				container.classList.remove('bg-white', 'border-gray-100');
+			} else {
+				container.classList.remove('border-orange-300', 'bg-orange-50');
+				container.classList.add('bg-white', 'border-gray-100');
+			}
+		} catch (e) {
+			console.error(e);
+			alert("Erro ao salvar! Verifique a conexão.");
+		} finally {
+			container.style.opacity = '1';
+		}
+	};
+
+	window.limparTodaMonitoracao = async () => {
+		if (confirm("Tem certeza que deseja DESLIGAR O ROBÔ para todos os itens do catálogo?")) {
+			try {
+				await fetch('/api/GerenciarDicionario', {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ action: 'desmarcar_todos' })
+				});
+
+				const todasChavinhas = document.querySelectorAll('.toggle-monitorar');
+				todasChavinhas.forEach(chavinha => {
+					chavinha.checked = false;
+				});
+
+				alert("Pronto! O robô foi desligado para todos os itens.");
+			} catch (e) {
+				console.error(e);
+				alert("Erro de conexão ao tentar desligar o robô!");
+			}
+		}
+	};
+
+	// ================== INICIALIZAÇÃO ==================
+	renderizarFiltrosCategorias();
+	carregarLista();
+	carregarSugestoes();
+	hidratarPrecosTemporarios();
