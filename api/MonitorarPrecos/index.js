@@ -8,14 +8,21 @@ async function obterMenorPrecoHistorico(db, nomeProduto) {
 }
 
 module.exports = async function (context, req) {
+    // Adicionamos o campo regionId específico para cada mercado se necessário
     const configs = [
-        { id: 'SAMS', nome: "Sam's Club", host: 'https://www.samsclub.com.br' },
-        { id: 'CARREFOUR', nome: "Carrefour", host: 'https://www.carrefour.com.br' },
-        { id: 'ATACADAO', nome: "Atacadão", host: 'https://www.atacadao.com.br' }
+        { id: 'SAMS', nome: "Sam's Club", host: 'https://www.samsclub.com.br', regionId: '' },
+        { id: 'CARREFOUR', nome: "Carrefour", host: 'https://www.carrefour.com.br', regionId: '' },
+        { 
+            id: 'ATACADAO', 
+            nome: "Atacadão", 
+            host: 'https://www.atacadao.com.br', 
+            // 💡 FORCE O ID QUE VOCÊ ENCONTROU NO PASSO 1 AQUI DENTRO DAS ASPAS:
+            regionId: 'v2.8CB7CC2FFB5F56CD19FB23952C3277A6' 
+        }
     ];
 
     let client = null;
-    let relatorio = []; // Array que vai mostrar o JSON no seu navegador
+    let relatorio = [];
 
     try {
         client = new MongoClient(process.env["MONGODB_URI"]);
@@ -35,7 +42,6 @@ module.exports = async function (context, req) {
             const precoReferencia = prod.preco_alvo || await obterMenorPrecoHistorico(db, prod.nome_comum);
             const temAlvo = precoReferencia !== Infinity;
 
-            // Se o produto não tiver EAN cadastrado, pula e avisa no relatório
             if (!prod.ean) {
                 relatorio.push({ produto: prod.nome_comum, status: "IGNORADO - SEM CÓDIGO EAN" });
                 continue; 
@@ -43,9 +49,14 @@ module.exports = async function (context, req) {
 
             for (const lojaConfig of configs) {
                 try {
-                    const urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}`;
+                    // Monta a URL base do EAN
+                    let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}`;
                     
-                    // Dispara a requisição padrão, sem forçar CEP, para não ser bloqueado
+                    // Se a loja tiver um regionId configurado no topo, adiciona de forma limpa na URL
+                    if (lojaConfig.regionId) {
+                        urlEan += `&regionId=${lojaConfig.regionId}`;
+                    }
+                    
                     const res = await fetch(urlEan, { headers: { 'User-Agent': 'Mozilla/5.0' } });
                     const textoRes = await res.text(); 
                     
@@ -61,11 +72,10 @@ module.exports = async function (context, req) {
                         let precoAtual = 0;
                         let linkCompra = item.link;
 
-                        // INTELIGÊNCIA: Procura o primeiro vendedor que tenha preço maior que zero
                         for (const seller of item.items[0].sellers) {
                             if (seller.commertialOffer.Price > 0) {
                                 precoAtual = seller.commertialOffer.Price;
-                                break; // Achou preço real, para de procurar
+                                break; 
                             }
                         }
 
@@ -77,7 +87,6 @@ module.exports = async function (context, req) {
                                 preco: precoAtual
                             });
 
-                            // Salva o alerta se estiver barato
                             if (temAlvo && precoAtual < precoReferencia) {
                                 const jaExiste = await alertasCol.findOne({
                                     produto_nome: prod.nome_comum, loja: lojaConfig.nome, preco_atual: precoAtual, status_notificacao: "pendente"
@@ -96,7 +105,6 @@ module.exports = async function (context, req) {
                                 }
                             }
                         } else {
-                            // Achou o produto no catálogo geral, mas todos os estoques estão zerados
                             relatorio.push({ 
                                 produto: prod.nome_comum, 
                                 loja: lojaConfig.nome, 
@@ -104,7 +112,6 @@ module.exports = async function (context, req) {
                             });
                         }
                     } else {
-                        // Não achou o EAN no site
                         relatorio.push({ produto: prod.nome_comum, loja: lojaConfig.nome, status: "NÃO ENCONTRADO NO CATÁLOGO" });
                     }
                 } catch (err) {
