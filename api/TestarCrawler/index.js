@@ -19,37 +19,42 @@ module.exports = async function (context, req) {
     // Função que encapsula a requisição em uma Promise
     const fetchData = (targetUrl, isRedirect = false) => {
         return new Promise((resolve, reject) => {
-            // Se for redirecionamento, mantemos a URL como está
             let fullUrl = targetUrl;
-
-            // Se for a primeira chamada e for Carrefour, forçamos o parâmetro de cache
             if (!isRedirect && fullUrl.includes('carrefour.com.br')) {
                 fullUrl += (fullUrl.includes('?') ? '&' : '?') + `_=${Date.now()}`;
             }
-
-            // Tratamento para URLs relativas
             if (fullUrl.startsWith('/')) {
                 fullUrl = `https://${hosts[loja]}${fullUrl}`;
             }
-
+            
             const urlObj = new URL(fullUrl);
             const options = {
                 hostname: urlObj.hostname,
                 path: urlObj.pathname + urlObj.search,
                 method: 'GET',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                headers: { 
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json'
                 }
             };
 
             const reqHttp = https.request(options, (res) => {
+                // Se for redirecionamento, segue
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                     return resolve(fetchData(res.headers.location, true));
                 }
 
+                // AQUI ESTÁ A MUDANÇA: Verifica se houve erro de status antes de ler
+                if (res.statusCode !== 200) {
+                    return reject(new Error("Status HTTP: " + res.statusCode));
+                }
+
                 let data = '';
                 res.on('data', (chunk) => data += chunk);
-                res.on('end', () => resolve(data));
+                res.on('end', () => {
+                    if (!data) reject(new Error("Resposta vazia do servidor"));
+                    else resolve(data);
+                });
             });
 
             reqHttp.on('error', (err) => reject(err));
