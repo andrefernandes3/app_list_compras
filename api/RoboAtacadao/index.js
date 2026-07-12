@@ -4,15 +4,14 @@ const { MongoClient } = require('mongodb');
 // Função de busca dedicada ao Atacadão (Espelho fiel do que funciona)
 const buscarNoAtacadao = (ean, regionId) => {
     return new Promise((resolve) => {
+        // Adicionamos o 'cache-control: no-cache' para garantir que não estamos recebendo um erro cacheado
         const url = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=1&regionId=${regionId}&_=${Date.now()}`;
         
-        // Log para você ver no console do Azure se a URL está correta
-        console.log("Tentando buscar na URL:", url);
-
         const options = {
             headers: { 
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache' // Força o servidor a nos dar o dado real, não o cacheado
             }
         };
 
@@ -20,17 +19,9 @@ const buscarNoAtacadao = (ean, regionId) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                // Log do status code
-                console.log("Status Code recebido:", res.statusCode);
-                try { 
-                    const json = JSON.parse(data);
-                    resolve(json); 
-                } catch (e) { resolve(null); }
+                try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
             });
-        }).on('error', (err) => {
-            console.error("Erro na requisição:", err);
-            resolve(null);
-        }).end();
+        }).on('error', () => resolve(null)).end();
     });
 };
 module.exports = async function (context, req) {
