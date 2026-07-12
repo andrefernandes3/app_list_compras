@@ -1,6 +1,53 @@
 const https = require('https');
 const { MongoClient } = require('mongodb');
 
+// Função para obter preço via scraping da página HTML
+async function obterPrecoPorScraping(urlProduto) {
+    return new Promise((resolve) => {
+        const urlObj = new URL(urlProduto);
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let html = '';
+            res.on('data', chunk => html += chunk);
+            res.on('end', () => {
+                // Tenta encontrar preço em JSON-LD
+                const regex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
+                let match;
+                while ((match = regex.exec(html)) !== null) {
+                    try {
+                        const json = JSON.parse(match[1]);
+                        // Busca por offers.price ou price
+                        if (json.offers && json.offers.price) {
+                            return resolve(parseFloat(json.offers.price));
+                        }
+                        if (json.price) {
+                            return resolve(parseFloat(json.price));
+                        }
+                    } catch (e) {}
+                }
+                // Tenta encontrar preço em atributos data
+                const priceRegex = /"price":"([\d,.]+)"/g;
+                const priceMatch = priceRegex.exec(html);
+                if (priceMatch) {
+                    const priceStr = priceMatch[1].replace(',', '.');
+                    return resolve(parseFloat(priceStr));
+                }
+                resolve(null);
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+    });
+}
+
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     const ultimoRegistro = await db.collection('historico_precos_web')
         .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
@@ -48,7 +95,7 @@ module.exports = async function (context, req) {
     const lojaConfig = {
         id: 'CARREFOUR',
         nome: "Carrefour",
-        host: 'https://mercado.carrefour.com.br', // subdomínio correto
+        host: 'https://mercado.carrefour.com.br',
         regionId: '',
         sc: '1'
     };
@@ -63,7 +110,6 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
-        // Busca produtos ativos (monitorar = true)
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
 
         if (monitorados.length === 0) {
@@ -76,69 +122,89 @@ module.exports = async function (context, req) {
             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb;
             const temAlvo = precoReferencia !== Infinity;
 
+            let precoEncontrado = 0;
+            let linkCompra = null;
+            let nomeLojaOrigem = "N/A";
+            let status = "NÃO ENCONTRADO";
             let dados = null;
 
-            // 1. Tenta buscar usando o primeiro ID de ids_vinculados (se existir)
+            // 1. Tenta buscar via API usando IDs_vinculados
             if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
                 const idInterno = prod.ids_vinculados[0];
-                let urlId = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=productId:${idInterno}&sc=${lojaConfig.sc}&_=${Date.now()}`;
-                dados = await buscarDadosVtex(urlId);
-                // Se não houver logs disponíveis, pode ignorar
+                // Tenta diferentes formatos de endpoint
+                const endpoints = [
+                    `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=productId:${idInterno}&sc=${lojaConfig.sc}`,
+                    `${lojaConfig.host}/api/catalog_system/pub/products/productid/${idInterno}?sc=${lojaConfig.sc}`,
+                    `${lojaConfig.host}/api/catalog_system/pub/products/variations?productId=${idInterno}&sc=${lojaConfig.sc}`
+                ];
+                for (const url of endpoints) {
+                    dados = await buscarDadosVtex(url);
+                    if (dados && (dados.length > 0 || dados.id)) break;
+                }
             }
 
             // 2. Se não achou, tenta por EAN
-            if (!dados || dados.length === 0) {
-                let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
+            if (!dados || (Array.isArray(dados) && dados.length === 0)) {
+                let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}`;
                 dados = await buscarDadosVtex(urlEan);
             }
 
-            // 3. Último recurso: busca por nome do produto
-            if (!dados || dados.length === 0) {
-                const nomeCodificado = encodeURIComponent(prod.nome_comum);
-                let urlNome = `${lojaConfig.host}/api/catalog_system/pub/products/search?q=${nomeCodificado}&sc=${lojaConfig.sc}&_=${Date.now()}`;
-                dados = await buscarDadosVtex(urlNome);
-            }
-
-            let resultado = null;
-
-            if (dados && dados.length > 0) {
-                const item = dados[0];
-                let precoAtual = 0;
-                let linkCompra = item.link;
-                let nomeLojaOrigem = "N/A";
-
-                if (item.items && item.items.length > 0) {
-                    for (const seller of item.items[0].sellers) {
-                        if (seller.commertialOffer && seller.commertialOffer.Price > 0) {
-                            precoAtual = seller.commertialOffer.Price;
-                            nomeLojaOrigem = seller.sellerName || "N/A";
-                            break;
-                        }
-                    }
+            // 3. Se ainda não, tenta scraping da página HTML usando o primeiro ID
+            if ((!dados || (Array.isArray(dados) && dados.length === 0)) && prod.ids_vinculados && prod.ids_vinculados.length > 0) {
+                const idInterno = prod.ids_vinculados[0];
+                const urlPagina = `${lojaConfig.host}/busca/${idInterno}`;
+                const precoScraping = await obterPrecoPorScraping(urlPagina);
+                if (precoScraping !== null && precoScraping > 0) {
+                    precoEncontrado = precoScraping;
+                    linkCompra = urlPagina;
+                    nomeLojaOrigem = "Carrefour (scraping)";
+                    status = "ENCONTRADO";
                 }
-
-                resultado = {
-                    produto: prod.nome_comum,
-                    loja: lojaConfig.nome,
-                    origem: nomeLojaOrigem,
-                    link: linkCompra,
-                    status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
-                    preco: precoAtual,
-                    precoReferencia,
-                    ultimoPrecoWeb,
-                    temAlvo
-                };
-            } else {
-                resultado = {
-                    produto: prod.nome_comum,
-                    loja: lojaConfig.nome,
-                    origem: "N/A",
-                    status: "NÃO ENCONTRADO",
-                    preco: 0
-                };
             }
 
-            // Monta relatório
+            // Se dados via API, extrai preço
+            if (dados) {
+                let item = Array.isArray(dados) ? dados[0] : dados;
+                if (item) {
+                    if (item.items && item.items.length > 0) {
+                        for (const seller of item.items[0].sellers) {
+                            if (seller.commertialOffer && seller.commertialOffer.Price > 0) {
+                                precoEncontrado = seller.commertialOffer.Price;
+                                nomeLojaOrigem = seller.sellerName || "N/A";
+                                break;
+                            }
+                        }
+                    } else if (item.price) {
+                        // Caso o endpoint retorne price diretamente
+                        precoEncontrado = item.price;
+                    }
+                    linkCompra = item.link || linkCompra;
+                    if (precoEncontrado > 0) status = "ENCONTRADO";
+                }
+            }
+
+            // Se ainda não encontrou preço, status permanece NÃO ENCONTRADO
+            if (precoEncontrado === 0) {
+                status = "NÃO ENCONTRADO";
+            } else if (precoEncontrado === 0 && status !== "ENCONTRADO") {
+                status = "NÃO ENCONTRADO";
+            } else {
+                status = "ENCONTRADO";
+            }
+
+            // Monta resultado
+            const resultado = {
+                produto: prod.nome_comum,
+                loja: lojaConfig.nome,
+                origem: nomeLojaOrigem,
+                link: linkCompra,
+                status: status,
+                preco: precoEncontrado,
+                precoReferencia,
+                ultimoPrecoWeb,
+                temAlvo
+            };
+
             relatorio.push({
                 produto: resultado.produto,
                 loja: resultado.loja,
@@ -147,7 +213,7 @@ module.exports = async function (context, req) {
                 ...(resultado.preco > 0 && { preco: resultado.preco, referencia_usada: resultado.precoReferencia })
             });
 
-            // Processa alertas e histórico (se encontrado)
+            // Processa alertas e histórico
             if (resultado.status === "ENCONTRADO" && resultado.preco > 0) {
                 if (resultado.temAlvo && resultado.preco < resultado.precoReferencia) {
                     const jaExiste = await alertasCol.findOne({
