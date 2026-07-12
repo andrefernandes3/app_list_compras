@@ -277,11 +277,22 @@ async function atualizarPrecosEPilulas() {
 }
 
 function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProduto, rede) {
+    // Verifica se há um valor digitado em memória para essa sessão
     const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
     const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
+    
+    // Define o indicador visual que ficará no cantinho da caixa
+    let indicador = '';
+    if (temDigitado && valorExibido !== '') {
+        indicador = '<span class="absolute top-0.5 right-0.5 text-[8px]" title="Você digitou agora">✍️</span>';
+    } else if (valorExibido !== '') {
+        indicador = '<span class="absolute top-0.5 right-0.5 text-[8px] opacity-50" title="Preço puxado do Robô/Banco">🤖</span>';
+    }
+
     return `
-        <div class="flex-1 p-1 rounded-lg border ${classes} text-center shadow-sm">
-            <div class="text-[7px] uppercase font-black tracking-wider opacity-75 mb-0.5">${label}</div>
+        <div class="flex-1 p-1 rounded-lg border ${classes} text-center shadow-sm relative">
+            ${indicador}
+            <div class="text-[7px] uppercase font-black tracking-wider opacity-75 mb-0.5 pr-2">${label}</div>
             <input type="number" step="0.01" value="${valorExibido}" placeholder="---"
                 class="w-full bg-transparent border-none text-center outline-none text-[10px] p-0 font-black text-gray-900"
                 oninput="registrarPrecoLive('${nomeProduto.replace(/'/g, "\\'")}', '${rede}', this.value)">
