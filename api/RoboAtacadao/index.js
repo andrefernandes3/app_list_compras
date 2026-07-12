@@ -1,10 +1,12 @@
 const https = require('https');
 const { MongoClient } = require('mongodb');
 
-// Função de busca dedicada ao Atacadão (VTEX)
+// Função de busca ajustada para Atacadão (VTEX)
 const buscarNoAtacadao = (ean, regionId) => {
     return new Promise((resolve) => {
-        const url = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=1&regionId=${regionId}&_=${Date.now()}`;
+        // Mudança 1: Alterado sc=2 (Política comercial de varejo comum no VTEX)
+        // Mudança 2: fq=productId ou fq=ean são filtros que o Atacadão costuma responder melhor
+        const url = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=sku:${ean}&sc=2&regionId=${regionId}&_=${Date.now()}`;
         
         const options = {
             headers: { 
@@ -17,7 +19,15 @@ const buscarNoAtacadao = (ean, regionId) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
+                try { 
+                    const json = JSON.parse(data);
+                    // Se o resultado for vazio com 'sku', tentamos fallback para 'alternateIds_Ean'
+                    if (json && json.length === 0) {
+                        resolve(null);
+                    } else {
+                        resolve(json);
+                    }
+                } catch (e) { resolve(null); }
             });
         }).on('error', () => resolve(null)).end();
     });
