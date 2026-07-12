@@ -6,7 +6,7 @@ const { MongoClient } = require('mongodb');
 // ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     // Busca o último registro de preço válido do produto nesta loja específica
-    const ultimoRegistro = await db.collection('historico_precos')
+    const ultimoRegistro = await db.collection('historico_precos_web')
         .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
         .sort({ data_verificacao: -1 }) // Pega o mais recente
         .limit(1)
@@ -172,7 +172,7 @@ module.exports = async function (context, req) {
                     }
 
                     // 2. MEMÓRIA: Salva o preço de hoje no histórico para basear a próxima rodada
-                    await db.collection('historico_precos').insertOne({
+                    await db.collection('historico_precos_web').insertOne({
                         nome: res.produto, 
                         ean: prod.ean,
                         loja: res.loja,
