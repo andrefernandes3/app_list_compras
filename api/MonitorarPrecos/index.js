@@ -9,23 +9,19 @@ const configs = [
         id: 'SAMS', 
         nome: "Sam's Club", 
         host: 'https://www.samsclub.com.br', 
-        // sc: '1' -> Padrão Nacional (Costuma trazer Cotia ou estoque central)
-        // Substitua pelo SC de Osasco quando descobrir no console (ex: sc: '3')
+        // sc: '1' -> Padrão Nacional. Para forçar Osasco, coloque o número correspondente (ex: sc: '3')
         sc: '1' 
     },
     { 
         id: 'CARREFOUR', 
         nome: "Carrefour", 
         host: 'https://www.carrefour.com.br', 
-        // Carrefour costuma funcionar bem com o SC 1 para todas as regiões
         sc: '1' 
     },
     { 
         id: 'ATACADAO', 
         nome: "Atacadão", 
         host: 'https://www.atacadao.com.br', 
-        // sc: '1' -> Padrão Nacional
-        // Se retornar "SEM ESTOQUE", coloque o SC da loja física de Osasco aqui
         sc: '1' 
     }
 ];
@@ -41,19 +37,20 @@ const buscarDadosVtex = (targetUrl) => {
             path: urlObj.pathname + urlObj.search,
             method: 'GET',
             headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
             }
         };
 
         const reqHttp = https.request(options, (res) => {
-            // Se o servidor tentar redirecionar (301/302), o robô segue a nova URL
+            // Segue redirecionamentos (301/302)
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let novaUrl = res.headers.location;
                 if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
                 return resolve(buscarDadosVtex(novaUrl));
             }
 
-            // Se der erro de firewall (403) ou não encontrado (404), resolve nulo suavemente
+            // Ignora erros de bloqueio e retorna null silenciosamente
             if (res.statusCode !== 200) {
                 return resolve(null);
             }
@@ -72,7 +69,7 @@ const buscarDadosVtex = (targetUrl) => {
 };
 
 // ============================================================================
-// 3. FUNÇÃO PRINCIPAL (Loop e Processamento)
+// 3. FUNÇÃO PRINCIPAL (Loop, Processamento e Gravação no Banco)
 // ============================================================================
 module.exports = async function (context, req) {
     let client = null;
@@ -83,17 +80,18 @@ module.exports = async function (context, req) {
         await client.connect();
         const db = client.db('app_compras');
         
-        // Melhoria: Traz do banco APENAS os itens com monitorar: true e que possuem um EAN válido
+        // Traz do banco APENAS os itens que devem ser monitorados e que possuem EAN válido
         const monitorados = await db.collection('dicionario_produtos')
             .find({ monitorar: true, ean: { $exists: true, $ne: "" } })
             .toArray();
 
+        const dataAtual = new Date(); // Data padrão para as inserções no banco
+
         for (const prod of monitorados) {
             
-            // MELHORIA DE PERFORMANCE: Dispara a busca nas 3 lojas SIMULTANEAMENTE
+            // Dispara a busca nas 3 lojas SIMULTANEAMENTE (Ganho enorme de performance)
             const promessasBusca = configs.map(async (lojaConfig) => {
                 try {
-                    // Monta a URL garantindo o EAN, o SC correto e ignorando cache da loja (_)
                     const urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
                     
                     const data = await buscarDadosVtex(urlEan);
@@ -103,10 +101,10 @@ module.exports = async function (context, req) {
                         const sellerAtivo = item.items[0].sellers[0];
                         
                         const precoAtual = sellerAtivo.commertialOffer.Price;
-                        // Extrai a origem real para você confirmar se é Osasco, Cotia, etc.
                         const nomeLojaOrigem = sellerAtivo.sellerName; 
 
                         return {
+                            ean: prod.ean,
                             produto: prod.nome_comum,
                             loja: lojaConfig.nome,
                             origem: nomeLojaOrigem, 
@@ -115,20 +113,57 @@ module.exports = async function (context, req) {
                         };
                     } else {
                         return { 
+                            ean: prod.ean,
                             produto: prod.nome_comum, 
                             loja: lojaConfig.nome, 
                             origem: "N/A", 
-                            status: "NÃO ENCONTRADO" 
+                            status: "NÃO ENCONTRADO",
+                            preco: 0
                         };
                     }
                 } catch (err) {
-                    return { produto: prod.nome_comum, loja: lojaConfig.nome, origem: "ERRO", status: "ERRO" };
+                    return { ean: prod.ean, produto: prod.nome_comum, loja: lojaConfig.nome, origem: "ERRO", status: "ERRO", preco: 0 };
                 }
             });
 
-            // Aguarda a resposta simultânea das 3 lojas para este produto antes de prosseguir
+            // Aguarda a resposta das 3 lojas para este produto antes de prosseguir
             const resultadosDoProduto = await Promise.all(promessasBusca);
             relatorio.push(...resultadosDoProduto);
+
+            // ================================================================
+            // SALVA NO BANCO DE DADOS PARA A API DE ALERTAS FUNCIONAR
+            // ================================================================
+            for (const res of resultadosDoProduto) {
+                // Só atualiza o banco se o produto realmente tem um preço válido na loja
+                if (res.status === "ENCONTRADO" && res.preco > 0) {
+                    
+                    // 1. Atualiza a tabela temporária (Geralmente usada para comparar com o preço anterior no alerta)
+                    await db.collection('precos_temp').updateOne(
+                        { ean: res.ean, loja: res.loja },
+                        { 
+                            $set: { 
+                                ean: res.ean,
+                                produto: res.produto,
+                                loja: res.loja,
+                                origem: res.origem,
+                                preco: res.preco,
+                                data_verificacao: dataAtual
+                            } 
+                        },
+                        { upsert: true }
+                    );
+
+                    // 2. Grava um registro no histórico de preços (para gerar gráficos/histórico)
+                    await db.collection('historico_precos').insertOne({
+                        ean: res.ean,
+                        produto: res.produto,
+                        loja: res.loja,
+                        origem: res.origem,
+                        preco: res.preco,
+                        data_verificacao: dataAtual
+                    });
+                }
+            }
         }
 
         context.res = { 
