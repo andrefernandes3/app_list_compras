@@ -4,9 +4,11 @@ const { MongoClient } = require('mongodb');
 // Função de busca dedicada ao Atacadão (Espelho fiel do que funciona)
 const buscarNoAtacadao = (ean, regionId) => {
     return new Promise((resolve) => {
-        // Voltei para alternateIds_Ean e sc=1 conforme o seu script principal
         const url = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=1&regionId=${regionId}&_=${Date.now()}`;
         
+        // Log para você ver no console do Azure se a URL está correta
+        console.log("Tentando buscar na URL:", url);
+
         const options = {
             headers: { 
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -18,12 +20,19 @@ const buscarNoAtacadao = (ean, regionId) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
+                // Log do status code
+                console.log("Status Code recebido:", res.statusCode);
+                try { 
+                    const json = JSON.parse(data);
+                    resolve(json); 
+                } catch (e) { resolve(null); }
             });
-        }).on('error', () => resolve(null)).end();
+        }).on('error', (err) => {
+            console.error("Erro na requisição:", err);
+            resolve(null);
+        }).end();
     });
 };
-
 module.exports = async function (context, req) {
     let client = null;
     try {
