@@ -1,53 +1,55 @@
 const https = require('https');
 const { MongoClient } = require('mongodb');
 
-// Função para obter preço via scraping da página HTML
-async function obterPrecoPorScraping(urlProduto) {
+// ============================================================================
+// FUNÇÃO AUXILIAR: REQUISIÇÃO HTTPS (com redirecionamento)
+// ============================================================================
+const request = (url, options = {}) => {
     return new Promise((resolve) => {
-        const urlObj = new URL(urlProduto);
-        const options = {
+        const urlObj = new URL(url);
+        const reqOptions = {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
             method: 'GET',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                ...options.headers
+            },
+            ...options
         };
 
-        const req = https.request(options, (res) => {
-            let html = '';
-            res.on('data', chunk => html += chunk);
+        const reqHttp = https.request(reqOptions, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                let novaUrl = res.headers.location;
+                if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
+                return resolve(request(novaUrl, options));
+            }
+            if (res.statusCode !== 200) {
+                return resolve({ status: res.statusCode, data: null });
+            }
+
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                // Tenta encontrar preço em JSON-LD
-                const regex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
-                let match;
-                while ((match = regex.exec(html)) !== null) {
-                    try {
-                        const json = JSON.parse(match[1]);
-                        // Busca por offers.price ou price
-                        if (json.offers && json.offers.price) {
-                            return resolve(parseFloat(json.offers.price));
-                        }
-                        if (json.price) {
-                            return resolve(parseFloat(json.price));
-                        }
-                    } catch (e) {}
+                try {
+                    const json = JSON.parse(data);
+                    resolve({ status: 200, data: json });
+                } catch (e) {
+                    // Se não for JSON, retorna o HTML como string
+                    resolve({ status: 200, data: data });
                 }
-                // Tenta encontrar preço em atributos data
-                const priceRegex = /"price":"([\d,.]+)"/g;
-                const priceMatch = priceRegex.exec(html);
-                if (priceMatch) {
-                    const priceStr = priceMatch[1].replace(',', '.');
-                    return resolve(parseFloat(priceStr));
-                }
-                resolve(null);
             });
         });
-        req.on('error', () => resolve(null));
-        req.end();
-    });
-}
 
+        reqHttp.on('error', () => resolve({ status: 500, data: null }));
+        reqHttp.end();
+    });
+};
+
+// ============================================================================
+// 1. BUSCAR ÚLTIMO PREÇO HISTÓRICO
+// ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     const ultimoRegistro = await db.collection('historico_precos_web')
         .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
@@ -57,48 +59,64 @@ async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     return ultimoRegistro.length === 0 ? Infinity : ultimoRegistro[0].preco;
 }
 
-const buscarDadosVtex = (targetUrl) => {
-    return new Promise((resolve) => {
-        const urlObj = new URL(targetUrl);
-        const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
-            }
-        };
+// ============================================================================
+// 2. EXTRAIR PREÇO DO HTML (JSON-LD ou microdados)
+// ============================================================================
+function extrairPrecoDoHTML(html) {
+    try {
+        // Tenta encontrar JSON-LD com @type = Product
+        const jsonLdRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
+        let match;
+        while ((match = jsonLdRegex.exec(html)) !== null) {
+            try {
+                const json = JSON.parse(match[1]);
+                if (json && json.offers && json.offers.price) {
+                    return parseFloat(json.offers.price);
+                }
+                // Se for um array, verifica cada item
+                if (Array.isArray(json)) {
+                    for (const item of json) {
+                        if (item.offers && item.offers.price) {
+                            return parseFloat(item.offers.price);
+                        }
+                    }
+                }
+            } catch (e) { /* ignora */ }
+        }
 
-        const reqHttp = https.request(options, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                let novaUrl = res.headers.location;
-                if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
-                return resolve(buscarDadosVtex(novaUrl));
-            }
-            if (res.statusCode !== 200) return resolve(null);
+        // Tenta extrair do atributo data-price (comum em VTEX)
+        const priceRegex = /data-price="?([0-9,.]+)"?/;
+        const matchPrice = html.match(priceRegex);
+        if (matchPrice) {
+            return parseFloat(matchPrice[1].replace(',', '.'));
+        }
 
-            let data = '';
-            res.on('data', (chunk) => data += chunk);
-            res.on('end', () => {
-                try { resolve(JSON.parse(data)); }
-                catch (e) { resolve(null); }
-            });
-        });
+        // Tenta encontrar span com classe de preço (genérico)
+        const spanRegex = /<span[^>]*class="[^"]*price[^"]*"[^>]*>([0-9,.]+)<\/span>/i;
+        const spanMatch = html.match(spanRegex);
+        if (spanMatch) {
+            return parseFloat(spanMatch[1].replace(',', '.'));
+        }
 
-        reqHttp.on('error', () => resolve(null));
-        reqHttp.end();
-    });
-};
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
 
+// ============================================================================
+// 3. FUNÇÃO PRINCIPAL
+// ============================================================================
 module.exports = async function (context, req) {
-    const lojaConfig = {
-        id: 'CARREFOUR',
-        nome: "Carrefour",
-        host: 'https://mercado.carrefour.com.br',
-        regionId: '',
-        sc: '1'
-    };
+    // Configurações para tentar diferentes hosts e regionIds
+    const hosts = [
+        { host: 'https://mercado.carrefour.com.br', regionId: '' },
+        { host: 'https://www.carrefour.com.br', regionId: '' }
+        // Se descobrir um regionId, adicione aqui como {'host': ..., 'regionId': 'v2.xxx'}
+    ];
+
+    const sc = '1';
+    const camposBusca = ['productId', 'skuId', 'alternateIds_RefId', 'id'];
 
     let client = null;
     let relatorio = [];
@@ -110,6 +128,7 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
+        // Busca produtos ativos
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
 
         if (monitorados.length === 0) {
@@ -118,102 +137,143 @@ module.exports = async function (context, req) {
         }
 
         for (const prod of monitorados) {
-            const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, lojaConfig.nome);
+            const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, "Carrefour");
             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb;
             const temAlvo = precoReferencia !== Infinity;
 
-            let precoEncontrado = 0;
-            let linkCompra = null;
-            let nomeLojaOrigem = "N/A";
-            let status = "NÃO ENCONTRADO";
             let dados = null;
+            let precoEncontrado = null;
+            let linkCompra = null;
+            let origem = "N/A";
+            let metodoUsado = "";
 
-            // 1. Tenta buscar via API usando IDs_vinculados
-            if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
-                const idInterno = prod.ids_vinculados[0];
-                // Tenta diferentes formatos de endpoint
-                const endpoints = [
-                    `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=productId:${idInterno}&sc=${lojaConfig.sc}`,
-                    `${lojaConfig.host}/api/catalog_system/pub/products/productid/${idInterno}?sc=${lojaConfig.sc}`,
-                    `${lojaConfig.host}/api/catalog_system/pub/products/variations?productId=${idInterno}&sc=${lojaConfig.sc}`
-                ];
-                for (const url of endpoints) {
-                    dados = await buscarDadosVtex(url);
-                    if (dados && (dados.length > 0 || dados.id)) break;
+            // Obtém lista de IDs internos (se houver)
+            let idsInternos = [];
+            if (prod.ids_vinculados && Array.isArray(prod.ids_vinculados)) {
+                idsInternos = prod.ids_vinculados.map(id => String(id).trim()).filter(id => id);
+            }
+
+            // Caso não tenha ID interno, usa o EAN como fallback
+            if (idsInternos.length === 0) {
+                // Busca por EAN (já tentamos, mas mantemos)
+                for (const hostConfig of hosts) {
+                    for (const campo of ['alternateIds_Ean', 'ean']) {
+                        const url = `${hostConfig.host}/api/catalog_system/pub/products/search?fq=${campo}:${prod.ean}&sc=${sc}&_=${Date.now()}`;
+                        const result = await request(url);
+                        if (result.status === 200 && result.data && result.data.length > 0) {
+                            dados = result.data;
+                            linkCompra = dados[0].link;
+                            metodoUsado = `EAN (${campo}) em ${hostConfig.host}`;
+                            break;
+                        }
+                    }
+                    if (dados) break;
                 }
-            }
-
-            // 2. Se não achou, tenta por EAN
-            if (!dados || (Array.isArray(dados) && dados.length === 0)) {
-                let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}`;
-                dados = await buscarDadosVtex(urlEan);
-            }
-
-            // 3. Se ainda não, tenta scraping da página HTML usando o primeiro ID
-            if ((!dados || (Array.isArray(dados) && dados.length === 0)) && prod.ids_vinculados && prod.ids_vinculados.length > 0) {
-                const idInterno = prod.ids_vinculados[0];
-                const urlPagina = `${lojaConfig.host}/busca/${idInterno}`;
-                const precoScraping = await obterPrecoPorScraping(urlPagina);
-                if (precoScraping !== null && precoScraping > 0) {
-                    precoEncontrado = precoScraping;
-                    linkCompra = urlPagina;
-                    nomeLojaOrigem = "Carrefour (scraping)";
-                    status = "ENCONTRADO";
-                }
-            }
-
-            // Se dados via API, extrai preço
-            if (dados) {
-                let item = Array.isArray(dados) ? dados[0] : dados;
-                if (item) {
-                    if (item.items && item.items.length > 0) {
-                        for (const seller of item.items[0].sellers) {
-                            if (seller.commertialOffer && seller.commertialOffer.Price > 0) {
-                                precoEncontrado = seller.commertialOffer.Price;
-                                nomeLojaOrigem = seller.sellerName || "N/A";
+            } else {
+                // Tenta cada ID interno
+                for (const id of idsInternos) {
+                    for (const hostConfig of hosts) {
+                        // Tenta cada campo de busca
+                        for (const campo of camposBusca) {
+                            let url = `${hostConfig.host}/api/catalog_system/pub/products/search?fq=${campo}:${id}&sc=${sc}&_=${Date.now()}`;
+                            if (hostConfig.regionId) url += `&regionId=${hostConfig.regionId}`;
+                            const result = await request(url);
+                            if (result.status === 200 && result.data && result.data.length > 0) {
+                                dados = result.data;
+                                linkCompra = dados[0].link;
+                                metodoUsado = `ID (${campo}) em ${hostConfig.host}`;
                                 break;
                             }
                         }
-                    } else if (item.price) {
-                        // Caso o endpoint retorne price diretamente
-                        precoEncontrado = item.price;
+                        if (dados) break;
                     }
-                    linkCompra = item.link || linkCompra;
-                    if (precoEncontrado > 0) status = "ENCONTRADO";
+                    if (dados) break;
+                }
+
+                // Se ainda não achou, tenta buscar pela página HTML (scraping)
+                if (!dados) {
+                    for (const id of idsInternos) {
+                        for (const hostConfig of hosts) {
+                            const urlHtml = `${hostConfig.host}/busca/${id}`;
+                            const result = await request(urlHtml, { headers: { 'Accept': 'text/html' } });
+                            if (result.status === 200 && typeof result.data === 'string') {
+                                const preco = extrairPrecoDoHTML(result.data);
+                                if (preco !== null) {
+                                    // Monta um objeto simulado para usar no fluxo
+                                    dados = [{
+                                        link: urlHtml,
+                                        items: [{
+                                            sellers: [{
+                                                commertialOffer: { Price: preco },
+                                                sellerName: "Carrefour (HTML)"
+                                            }]
+                                        }]
+                                    }];
+                                    linkCompra = urlHtml;
+                                    metodoUsado = `Scraping HTML em ${hostConfig.host}`;
+                                    break;
+                                }
+                            }
+                        }
+                        if (dados) break;
+                    }
                 }
             }
 
-            // Se ainda não encontrou preço, status permanece NÃO ENCONTRADO
-            if (precoEncontrado === 0) {
-                status = "NÃO ENCONTRADO";
-            } else if (precoEncontrado === 0 && status !== "ENCONTRADO") {
-                status = "NÃO ENCONTRADO";
-            } else {
-                status = "ENCONTRADO";
-            }
+            let resultado = null;
 
-            // Monta resultado
-            const resultado = {
-                produto: prod.nome_comum,
-                loja: lojaConfig.nome,
-                origem: nomeLojaOrigem,
-                link: linkCompra,
-                status: status,
-                preco: precoEncontrado,
-                precoReferencia,
-                ultimoPrecoWeb,
-                temAlvo
-            };
+            if (dados && dados.length > 0) {
+                const item = dados[0];
+                let precoAtual = 0;
+
+                // Tenta extrair preço do JSON da API
+                if (item.items && item.items.length > 0) {
+                    for (const seller of item.items[0].sellers) {
+                        if (seller.commertialOffer && seller.commertialOffer.Price > 0) {
+                            precoAtual = seller.commertialOffer.Price;
+                            origem = seller.sellerName || "N/A";
+                            break;
+                        }
+                    }
+                }
+
+                // Se o preço ainda for 0, tenta usar o preço extraído (caso scraping)
+                if (precoAtual === 0 && item.preco) {
+                    precoAtual = item.preco;
+                }
+
+                resultado = {
+                    produto: prod.nome_comum,
+                    loja: "Carrefour",
+                    origem: origem,
+                    link: linkCompra,
+                    status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
+                    preco: precoAtual,
+                    precoReferencia,
+                    ultimoPrecoWeb,
+                    temAlvo,
+                    metodoUsado // útil para depuração
+                };
+            } else {
+                resultado = {
+                    produto: prod.nome_comum,
+                    loja: "Carrefour",
+                    origem: "N/A",
+                    status: "NÃO ENCONTRADO",
+                    preco: 0,
+                    metodoUsado: "Nenhum método funcionou"
+                };
+            }
 
             relatorio.push({
                 produto: resultado.produto,
                 loja: resultado.loja,
                 origem: resultado.origem,
                 status: resultado.status,
-                ...(resultado.preco > 0 && { preco: resultado.preco, referencia_usada: resultado.precoReferencia })
+                ...(resultado.preco > 0 && { preco: resultado.preco, referencia_usada: resultado.precoReferencia }),
+                metodo: resultado.metodoUsado // opcional, pode ser removido depois
             });
 
-            // Processa alertas e histórico
             if (resultado.status === "ENCONTRADO" && resultado.preco > 0) {
                 if (resultado.temAlvo && resultado.preco < resultado.precoReferencia) {
                     const jaExiste = await alertasCol.findOne({
