@@ -2,17 +2,17 @@ const https = require('https');
 const { MongoClient } = require('mongodb');
 
 // ============================================================================
-// 1. FUNÇÃO: OBTER O ÚLTIMO PREÇO (Inteligência Automática por Loja)
+// 1. FUNÇÃO: OBTER O ÚLTIMO PREÇO DA WEB (Inteligência Automática por Loja)
 // ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
-    // Busca o último registro de preço válido do produto nesta loja específica
+    // Busca na coleção correta da internet (para não misturar com as notas fiscais)
     const ultimoRegistro = await db.collection('historico_precos_web')
         .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
-        .sort({ data_verificacao: -1 }) // Pega o mais recente
+        .sort({ data_verificacao: -1 })
         .limit(1)
         .toArray();
         
-    if (ultimoRegistro.length === 0) return Infinity; // Sem histórico = Infinity
+    if (ultimoRegistro.length === 0) return Infinity; 
     return ultimoRegistro[0].preco;
 }
 
@@ -64,7 +64,7 @@ module.exports = async function (context, req) {
             id: 'ATACADAO', 
             nome: "Atacadão", 
             host: 'https://www.atacadao.com.br', 
-            regionId: 'v2.8CB7CC2FFB5F56CD19FB23952C3277A6', // Configurado para sua região
+            regionId: 'v2.8CB7CC2FFB5F56CD19FB23952C3277A6', 
             sc: '1'
         }
     ];
@@ -79,7 +79,7 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
         
-        // Busca apenas produtos ativos e com EAN
+        // Busca apenas produtos ativos e com EAN preenchido
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
 
         if (monitorados.length === 0) {
@@ -92,8 +92,11 @@ module.exports = async function (context, req) {
             // Busca nas 3 lojas em paralelo
             const promessasBusca = configs.map(async (lojaConfig) => {
                 try {
-                    // LÓGICA DE ALVO: Usa o alvo manual, ou então busca o último preço da loja
-                    const precoReferencia = prod.preco_alvo || await obterUltimoPrecoValido(db, prod.nome_comum, lojaConfig.nome);
+                    // Separa o último preço da web para podermos comparar se houve mudança depois
+                    const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, lojaConfig.nome);
+                    
+                    // LÓGICA DE ALVO: Usa o alvo manual, ou então usa o último preço da web
+                    const precoReferencia = prod.preco_alvo || ultimoPrecoWeb;
                     const temAlvo = precoReferencia !== Infinity;
 
                     let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
@@ -107,7 +110,6 @@ module.exports = async function (context, req) {
                         let linkCompra = item.link;
                         let nomeLojaOrigem = "N/A";
 
-                        // Busca o seller com preço válido
                         for (const seller of item.items[0].sellers) {
                             if (seller.commertialOffer.Price > 0) {
                                 precoAtual = seller.commertialOffer.Price;
@@ -123,21 +125,20 @@ module.exports = async function (context, req) {
                             link: linkCompra,
                             status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
                             preco: precoAtual,
-                            precoReferencia, // Repassa a meta (manual ou automática)
+                            precoReferencia, 
+                            ultimoPrecoWeb,
                             temAlvo
                         };
                     } else {
-                        return { produto: prod.nome_comum, loja: lojaConfig.nome, origem: "N/A", status: "NÃO ENCONTRADO NO CATÁLOGO", preco: 0 };
+                        return { produto: prod.nome_comum, loja: lojaConfig.nome, origem: "N/A", status: "NÃO ENCONTRADO", preco: 0 };
                     }
                 } catch (err) {
                     return { produto: prod.nome_comum, loja: lojaConfig.nome, origem: "ERRO", status: "ERRO DE CONEXÃO", preco: 0 };
                 }
             });
 
-            // Aguarda a resposta do Sam's, Carrefour e Atacadão
             const resultadosDoProduto = await Promise.all(promessasBusca);
             
-            // Processa o resultado, gera alertas e grava o histórico
             for (const res of resultadosDoProduto) {
                 relatorio.push({
                     produto: res.produto,
@@ -149,7 +150,7 @@ module.exports = async function (context, req) {
 
                 if (res.status === "ENCONTRADO" && res.preco > 0) {
                     
-                    // 1. DISPARO DE ALERTAS: Se atingiu a meta (manual ou quebra de preço anterior)
+                    // 1. DISPARO DE ALERTAS: Verifica se o preço caiu (em relação à meta ou ao último preço)
                     if (res.temAlvo && res.preco < res.precoReferencia) {
                         const jaExiste = await alertasCol.findOne({
                             produto_nome: res.produto, 
@@ -162,7 +163,7 @@ module.exports = async function (context, req) {
                             await alertasCol.insertOne({
                                 produto_nome: res.produto, 
                                 loja: res.loja, 
-                                preco_historico: res.precoReferencia, // Salva se a meta era manual ou o preço passado
+                                preco_historico: res.precoReferencia, 
                                 preco_atual: res.preco, 
                                 link_compra: res.link, 
                                 data_alerta: new Date(), 
@@ -171,15 +172,17 @@ module.exports = async function (context, req) {
                         }
                     }
 
-                    // 2. MEMÓRIA: Salva o preço de hoje no histórico para basear a próxima rodada
-                    await db.collection('historico_precos_web').insertOne({
-                        nome: res.produto, 
-                        ean: prod.ean,
-                        loja: res.loja,
-                        origem: res.origem,
-                        preco: res.preco,
-                        data_verificacao: new Date()
-                    });
+                    // 2. MEMÓRIA OTIMIZADA: Salva o preço APENAS se houve mudança na loja
+                    if (res.preco !== res.ultimoPrecoWeb) {
+                        await db.collection('historico_precos_web').insertOne({
+                            nome: res.produto, 
+                            ean: prod.ean,
+                            loja: res.loja,
+                            origem: res.origem,
+                            preco: res.preco,
+                            data_verificacao: new Date()
+                        });
+                    }
                 }
             }
         }
