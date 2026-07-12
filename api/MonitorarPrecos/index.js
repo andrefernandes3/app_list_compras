@@ -2,29 +2,13 @@ const https = require('https');
 const { MongoClient } = require('mongodb');
 
 // ============================================================================
-// 1. CONFIGURAÇÕES DAS LOJAS E REGIÕES (SC - Sales Channel)
+// 1. FUNÇÃO: MENOR PREÇO HISTÓRICO
 // ============================================================================
-const configs = [
-    { 
-        id: 'SAMS', 
-        nome: "Sam's Club", 
-        host: 'https://www.samsclub.com.br', 
-        // sc: '1' -> Padrão Nacional. Para forçar Osasco, coloque o número correspondente (ex: sc: '3')
-        sc: '1' 
-    },
-    { 
-        id: 'CARREFOUR', 
-        nome: "Carrefour", 
-        host: 'https://www.carrefour.com.br', 
-        sc: '1' 
-    },
-    { 
-        id: 'ATACADAO', 
-        nome: "Atacadão", 
-        host: 'https://www.atacadao.com.br', 
-        sc: '1' 
-    }
-];
+async function obterMenorPrecoHistorico(db, nomeProduto) {
+    const historico = await db.collection('historico_precos').find({ nome: nomeProduto }).toArray();
+    if (historico.length === 0) return Infinity;
+    return Math.min(...historico.map(h => h.preco));
+}
 
 // ============================================================================
 // 2. FUNÇÃO AUXILIAR DE REQUISIÇÃO (Blindada contra erros e redirecionamentos)
@@ -43,17 +27,12 @@ const buscarDadosVtex = (targetUrl) => {
         };
 
         const reqHttp = https.request(options, (res) => {
-            // Segue redirecionamentos (301/302)
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let novaUrl = res.headers.location;
                 if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
                 return resolve(buscarDadosVtex(novaUrl));
             }
-
-            // Ignora erros de bloqueio e retorna null silenciosamente
-            if (res.statusCode !== 200) {
-                return resolve(null);
-            }
+            if (res.statusCode !== 200) return resolve(null);
 
             let data = '';
             res.on('data', (chunk) => data += chunk);
@@ -69,9 +48,21 @@ const buscarDadosVtex = (targetUrl) => {
 };
 
 // ============================================================================
-// 3. FUNÇÃO PRINCIPAL (Loop, Processamento e Gravação no Banco)
+// 3. FUNÇÃO PRINCIPAL
 // ============================================================================
 module.exports = async function (context, req) {
+    const configs = [
+        { id: 'SAMS', nome: "Sam's Club", host: 'https://www.samsclub.com.br', regionId: '', sc: '1' },
+        { id: 'CARREFOUR', nome: "Carrefour", host: 'https://www.carrefour.com.br', regionId: '', sc: '1' },
+        { 
+            id: 'ATACADAO', 
+            nome: "Atacadão", 
+            host: 'https://www.atacadao.com.br', 
+            regionId: 'v2.8CB7CC2FFB5F56CD19FB23952C3277A6',
+            sc: '1'
+        }
+    ];
+
     let client = null;
     let relatorio = [];
 
@@ -79,89 +70,96 @@ module.exports = async function (context, req) {
         client = new MongoClient(process.env["MONGODB_URI"]);
         await client.connect();
         const db = client.db('app_compras');
+        const dicionarioCol = db.collection('dicionario_produtos');
+        const alertasCol = db.collection('alertas_preco');
         
-        // Traz do banco APENAS os itens que devem ser monitorados e que possuem EAN válido
-        const monitorados = await db.collection('dicionario_produtos')
-            .find({ monitorar: true, ean: { $exists: true, $ne: "" } })
-            .toArray();
+        const monitorados = await dicionarioCol.find({ monitorar: true }).toArray();
 
-        const dataAtual = new Date(); // Data padrão para as inserções no banco
+        if (monitorados.length === 0) {
+            context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { aviso: "Nenhum produto marcado para monitorar." } };
+            return;
+        }
 
         for (const prod of monitorados) {
-            
-            // Dispara a busca nas 3 lojas SIMULTANEAMENTE (Ganho enorme de performance)
+            if (!prod.ean) {
+                relatorio.push({ produto: prod.nome_comum, status: "IGNORADO - SEM CÓDIGO EAN" });
+                continue; 
+            }
+
+            const precoReferencia = prod.preco_alvo || await obterMenorPrecoHistorico(db, prod.nome_comum);
+            const temAlvo = precoReferencia !== Infinity;
+
+            // Busca nas 3 lojas simultaneamente
             const promessasBusca = configs.map(async (lojaConfig) => {
                 try {
-                    const urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
+                    let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
+                    if (lojaConfig.regionId) urlEan += `&regionId=${lojaConfig.regionId}`;
                     
                     const data = await buscarDadosVtex(urlEan);
 
                     if (data && data.length > 0) {
                         const item = data[0];
-                        const sellerAtivo = item.items[0].sellers[0];
-                        
-                        const precoAtual = sellerAtivo.commertialOffer.Price;
-                        const nomeLojaOrigem = sellerAtivo.sellerName; 
+                        let precoAtual = 0;
+                        let linkCompra = item.link;
+                        let nomeLojaOrigem = "N/A";
+
+                        // Loop seguro para achar o primeiro seller com estoque (Sua lógica original)
+                        for (const seller of item.items[0].sellers) {
+                            if (seller.commertialOffer.Price > 0) {
+                                precoAtual = seller.commertialOffer.Price;
+                                nomeLojaOrigem = seller.sellerName;
+                                break; 
+                            }
+                        }
 
                         return {
-                            ean: prod.ean,
                             produto: prod.nome_comum,
                             loja: lojaConfig.nome,
-                            origem: nomeLojaOrigem, 
-                            status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE",
-                            preco: precoAtual > 0 ? precoAtual : 0
+                            origem: nomeLojaOrigem,
+                            link: linkCompra,
+                            status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
+                            preco: precoAtual
                         };
                     } else {
-                        return { 
-                            ean: prod.ean,
-                            produto: prod.nome_comum, 
-                            loja: lojaConfig.nome, 
-                            origem: "N/A", 
-                            status: "NÃO ENCONTRADO",
-                            preco: 0
-                        };
+                        return { produto: prod.nome_comum, loja: lojaConfig.nome, origem: "N/A", status: "NÃO ENCONTRADO NO CATÁLOGO", preco: 0 };
                     }
                 } catch (err) {
-                    return { ean: prod.ean, produto: prod.nome_comum, loja: lojaConfig.nome, origem: "ERRO", status: "ERRO", preco: 0 };
+                    return { produto: prod.nome_comum, loja: lojaConfig.nome, origem: "ERRO", status: "ERRO DE CONEXÃO", preco: 0 };
                 }
             });
 
-            // Aguarda a resposta das 3 lojas para este produto antes de prosseguir
             const resultadosDoProduto = await Promise.all(promessasBusca);
-            relatorio.push(...resultadosDoProduto);
-
-            // ================================================================
-            // SALVA NO BANCO DE DADOS PARA A API DE ALERTAS FUNCIONAR
-            // ================================================================
+            
+            // Processa o resultado e gera os alertas
             for (const res of resultadosDoProduto) {
-                // Só atualiza o banco se o produto realmente tem um preço válido na loja
-                if (res.status === "ENCONTRADO" && res.preco > 0) {
-                    
-                    // 1. Atualiza a tabela temporária (Geralmente usada para comparar com o preço anterior no alerta)
-                    await db.collection('precos_temp').updateOne(
-                        { ean: res.ean, loja: res.loja },
-                        { 
-                            $set: { 
-                                ean: res.ean,
-                                produto: res.produto,
-                                loja: res.loja,
-                                origem: res.origem,
-                                preco: res.preco,
-                                data_verificacao: dataAtual
-                            } 
-                        },
-                        { upsert: true }
-                    );
+                relatorio.push({
+                    produto: res.produto,
+                    loja: res.loja,
+                    origem: res.origem,
+                    status: res.status,
+                    ...(res.preco > 0 && { preco: res.preco })
+                });
 
-                    // 2. Grava um registro no histórico de preços (para gerar gráficos/histórico)
-                    await db.collection('historico_precos').insertOne({
-                        ean: res.ean,
-                        produto: res.produto,
-                        loja: res.loja,
-                        origem: res.origem,
-                        preco: res.preco,
-                        data_verificacao: dataAtual
+                // A sua lógica original de disparo de alertas
+                if (res.status === "ENCONTRADO" && temAlvo && res.preco < precoReferencia) {
+                    const jaExiste = await alertasCol.findOne({
+                        produto_nome: res.produto, 
+                        loja: res.loja, 
+                        preco_atual: res.preco, 
+                        status_notificacao: "pendente"
                     });
+                    
+                    if (!jaExiste) {
+                        await alertasCol.insertOne({
+                            produto_nome: res.produto, 
+                            loja: res.loja, 
+                            preco_historico: precoReferencia,
+                            preco_atual: res.preco, 
+                            link_compra: res.link, 
+                            data_alerta: new Date(), 
+                            status_notificacao: "pendente"
+                        });
+                    }
                 }
             }
         }
@@ -173,7 +171,7 @@ module.exports = async function (context, req) {
         };
         
     } catch (e) {
-        context.res = { status: 500, body: { erro: e.message } };
+        context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { erro: "Erro Crítico: " + e.message } };
     } finally {
         if (client) await client.close();
     }
