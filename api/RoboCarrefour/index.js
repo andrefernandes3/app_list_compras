@@ -1,9 +1,6 @@
 const https = require('https');
 const { MongoClient } = require('mongodb');
 
-// ============================================================================
-// 1. BUSCAR ÚLTIMO PREÇO HISTÓRICO
-// ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     const ultimoRegistro = await db.collection('historico_precos_web')
         .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
@@ -13,10 +10,7 @@ async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     return ultimoRegistro.length === 0 ? Infinity : ultimoRegistro[0].preco;
 }
 
-// ============================================================================
-// 2. REQUISIÇÃO HTTPS (com logs)
-// ============================================================================
-const buscarDadosVtex = async (targetUrl, context) => {
+const buscarDadosVtex = (targetUrl) => {
     return new Promise((resolve) => {
         const urlObj = new URL(targetUrl);
         const options = {
@@ -29,50 +23,33 @@ const buscarDadosVtex = async (targetUrl, context) => {
             }
         };
 
-        context.log(`[REQUEST] ${targetUrl}`);
         const reqHttp = https.request(options, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let novaUrl = res.headers.location;
                 if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
-                return resolve(buscarDadosVtex(novaUrl, context));
+                return resolve(buscarDadosVtex(novaUrl));
             }
-            if (res.statusCode !== 200) {
-                context.log(`[RESPONSE] status ${res.statusCode} - não OK`);
-                return resolve(null);
-            }
+            if (res.statusCode !== 200) return resolve(null);
 
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    context.log(`[RESPONSE] tamanho: ${json.length} itens`);
-                    resolve(json);
-                } catch (e) {
-                    context.log(`[RESPONSE] erro ao parsear JSON: ${e.message}`);
-                    resolve(null);
-                }
+                try { resolve(JSON.parse(data)); }
+                catch (e) { resolve(null); }
             });
         });
 
-        reqHttp.on('error', (e) => {
-            context.log(`[ERRO] ${e.message}`);
-            resolve(null);
-        });
+        reqHttp.on('error', () => resolve(null));
         reqHttp.end();
     });
 };
 
-// ============================================================================
-// 3. FUNÇÃO PRINCIPAL – CARREFOUR APENAS
-// ============================================================================
 module.exports = async function (context, req) {
-    // Configuração do Carrefour
     const lojaConfig = {
         id: 'CARREFOUR',
         nome: "Carrefour",
-        host: 'https://www.carrefour.com.br',
-        regionId: '',   // ← se você descobrir um valor fixo, coloque aqui (ex: 'v2.xxxx')
+        host: 'https://mercado.carrefour.com.br', // subdomínio correto
+        regionId: '',
         sc: '1'
     };
 
@@ -86,49 +63,43 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
+        // Busca produtos ativos (monitorar = true)
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
+
         if (monitorados.length === 0) {
             context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { aviso: "Nenhum produto válido." } };
             return;
         }
 
         for (const prod of monitorados) {
-            context.log(`\n=== Processando: ${prod.nome_comum} (EAN: ${prod.ean}) ===`);
-
-            // 1. Último preço web e referência
             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, lojaConfig.nome);
             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb;
             const temAlvo = precoReferencia !== Infinity;
 
-            let resultado = null;
-
-            // 2. Tenta buscar por EAN em vários campos
-            const camposEAN = ['alternateIds_Ean', 'ean', 'alternateIds_ean'];
             let dados = null;
-            for (const campo of camposEAN) {
-                let url = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=${campo}:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
-                if (lojaConfig.regionId) url += `&regionId=${lojaConfig.regionId}`;
-                dados = await buscarDadosVtex(url, context);
-                if (dados && dados.length > 0) break;
+
+            // 1. Tenta buscar usando o primeiro ID de ids_vinculados (se existir)
+            if (prod.ids_vinculados && prod.ids_vinculados.length > 0) {
+                const idInterno = prod.ids_vinculados[0];
+                let urlId = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=productId:${idInterno}&sc=${lojaConfig.sc}&_=${Date.now()}`;
+                dados = await buscarDadosVtex(urlId);
+                // Se não houver logs disponíveis, pode ignorar
             }
 
-            // 3. Se não encontrou por EAN, tenta busca por nome (fallback)
+            // 2. Se não achou, tenta por EAN
             if (!dados || dados.length === 0) {
-                context.log(`[FALLBACK] Buscando por nome do produto: ${prod.nome_comum}`);
+                let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
+                dados = await buscarDadosVtex(urlEan);
+            }
+
+            // 3. Último recurso: busca por nome do produto
+            if (!dados || dados.length === 0) {
                 const nomeCodificado = encodeURIComponent(prod.nome_comum);
                 let urlNome = `${lojaConfig.host}/api/catalog_system/pub/products/search?q=${nomeCodificado}&sc=${lojaConfig.sc}&_=${Date.now()}`;
-                if (lojaConfig.regionId) urlNome += `&regionId=${lojaConfig.regionId}`;
-                dados = await buscarDadosVtex(urlNome, context);
-                // Se houver múltiplos, tenta encontrar o que tem o nome mais parecido (opcional)
-                if (dados && dados.length > 0) {
-                    // Filtra os que têm EAN (se vier) ou escolhe o primeiro
-                    // Aqui você pode implementar uma lógica de similaridade
-                    const produtoEncontrado = dados.find(item => 
-                        item.productName && item.productName.toLowerCase().includes(prod.nome_comum.toLowerCase())
-                    ) || dados[0];
-                    dados = [produtoEncontrado];
-                }
+                dados = await buscarDadosVtex(urlNome);
             }
+
+            let resultado = null;
 
             if (dados && dados.length > 0) {
                 const item = dados[0];
@@ -165,10 +136,9 @@ module.exports = async function (context, req) {
                     status: "NÃO ENCONTRADO",
                     preco: 0
                 };
-                context.log(`[FINAL] Produto NÃO ENCONTRADO`);
             }
 
-            // 4. Adiciona ao relatório e processa alertas
+            // Monta relatório
             relatorio.push({
                 produto: resultado.produto,
                 loja: resultado.loja,
@@ -177,8 +147,8 @@ module.exports = async function (context, req) {
                 ...(resultado.preco > 0 && { preco: resultado.preco, referencia_usada: resultado.precoReferencia })
             });
 
+            // Processa alertas e histórico (se encontrado)
             if (resultado.status === "ENCONTRADO" && resultado.preco > 0) {
-                // Alerta se preço caiu
                 if (resultado.temAlvo && resultado.preco < resultado.precoReferencia) {
                     const jaExiste = await alertasCol.findOne({
                         produto_nome: resultado.produto,
@@ -198,7 +168,6 @@ module.exports = async function (context, req) {
                         });
                     }
                 }
-                // Salva histórico se mudou
                 if (resultado.preco !== resultado.ultimoPrecoWeb) {
                     await db.collection('historico_precos_web').insertOne({
                         nome: resultado.produto,
