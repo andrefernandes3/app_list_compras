@@ -1,24 +1,15 @@
 const https = require('https');
 const { MongoClient } = require('mongodb');
 
-// ============================================================================
-// 1. FUNÇÃO: OBTER O ÚLTIMO PREÇO DA WEB (Inteligência Automática por Loja)
-// ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
-    // Busca na coleção correta da internet (para não misturar com as notas fiscais)
     const ultimoRegistro = await db.collection('historico_precos_web')
         .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
         .sort({ data_verificacao: -1 })
         .limit(1)
         .toArray();
-        
-    if (ultimoRegistro.length === 0) return Infinity; 
-    return ultimoRegistro[0].preco;
+    return ultimoRegistro.length === 0 ? Infinity : ultimoRegistro[0].preco;
 }
 
-// ============================================================================
-// 2. FUNÇÃO AUXILIAR DE REQUISIÇÃO (Blindada contra bloqueios e cache)
-// ============================================================================
 const buscarDadosVtex = (targetUrl) => {
     return new Promise((resolve) => {
         const urlObj = new URL(targetUrl);
@@ -26,7 +17,7 @@ const buscarDadosVtex = (targetUrl) => {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
             method: 'GET',
-            headers: { 
+            headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/json'
             }
@@ -43,7 +34,7 @@ const buscarDadosVtex = (targetUrl) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                try { resolve(JSON.parse(data)); } 
+                try { resolve(JSON.parse(data)); }
                 catch (e) { resolve(null); }
             });
         });
@@ -53,17 +44,13 @@ const buscarDadosVtex = (targetUrl) => {
     });
 };
 
-// ============================================================================
-// 3. FUNÇÃO PRINCIPAL – AGORA APENAS CARREFOUR
-// ============================================================================
 module.exports = async function (context, req) {
-    // Configuração única: somente Carrefour (regionId vazio)
     const configs = [
-        { 
-            id: 'CARREFOUR', 
-            nome: "Carrefour", 
-            host: 'https://www.carrefour.com.br', 
-            regionId: '',   // Carrefour não precisa de regionId
+        {
+            id: 'CARREFOUR',
+            nome: "Carrefour",
+            host: 'https://www.carrefour.com.br',
+            regionId: '',   // pode ser que precise de um valor; teste sem primeiro
             sc: '1'
         }
     ];
@@ -77,36 +64,40 @@ module.exports = async function (context, req) {
         const db = client.db('app_compras');
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
-        
-        // Busca apenas produtos ativos e com EAN preenchido
+
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
 
         if (monitorados.length === 0) {
-            context.res = { 
-                status: 200, 
-                headers: { "Content-Type": "application/json" }, 
-                body: { aviso: "Nenhum produto válido para monitorar." } 
-            };
+            context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { aviso: "Nenhum produto válido para monitorar." } };
             return;
         }
 
         for (const prod of monitorados) {
-            
-            // Busca apenas na loja Carrefour (configs possui apenas um elemento)
             const promessasBusca = configs.map(async (lojaConfig) => {
                 try {
-                    // Último preço web para comparação
                     const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, lojaConfig.nome);
-                    
-                    // Preço de referência: alvo manual ou último preço web
                     const precoReferencia = prod.preco_alvo || ultimoPrecoWeb;
                     const temAlvo = precoReferencia !== Infinity;
 
-                    // Monta URL para busca por EAN (sem regionId, pois é vazio)
-                    let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
-                    if (lojaConfig.regionId) urlEan += `&regionId=${lojaConfig.regionId}`;
-                    
-                    const data = await buscarDadosVtex(urlEan);
+                    // Função auxiliar para tentar diferentes campos de busca
+                    const tentarBuscarPorCampo = async (campo) => {
+                        let url = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=${campo}:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
+                        if (lojaConfig.regionId) url += `&regionId=${lojaConfig.regionId}`;
+                        
+                        context.log(`[DEBUG] Buscando no Carrefour com ${campo} -> ${url}`);
+                        const data = await buscarDadosVtex(url);
+                        if (data && data.length > 0) {
+                            return data;
+                        }
+                        return null;
+                    };
+
+                    // Tenta primeiro alternateIds_Ean (padrão VTEX), depois ean (alternativa)
+                    let data = await tentarBuscarPorCampo('alternateIds_Ean');
+                    if (!data) {
+                        context.log(`[DEBUG] alternateIds_Ean não retornou dados, tentando 'ean'`);
+                        data = await tentarBuscarPorCampo('ean');
+                    }
 
                     if (data && data.length > 0) {
                         const item = data[0];
@@ -118,7 +109,7 @@ module.exports = async function (context, req) {
                             if (seller.commertialOffer.Price > 0) {
                                 precoAtual = seller.commertialOffer.Price;
                                 nomeLojaOrigem = seller.sellerName;
-                                break; 
+                                break;
                             }
                         }
 
@@ -129,34 +120,35 @@ module.exports = async function (context, req) {
                             link: linkCompra,
                             status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
                             preco: precoAtual,
-                            precoReferencia, 
+                            precoReferencia,
                             ultimoPrecoWeb,
                             temAlvo
                         };
                     } else {
-                        return { 
-                            produto: prod.nome_comum, 
-                            loja: lojaConfig.nome, 
-                            origem: "N/A", 
-                            status: "NÃO ENCONTRADO", 
-                            preco: 0 
+                        context.log(`[DEBUG] Produto ${prod.nome_comum} não encontrado no Carrefour (ambos os campos)`);
+                        return {
+                            produto: prod.nome_comum,
+                            loja: lojaConfig.nome,
+                            origem: "N/A",
+                            status: "NÃO ENCONTRADO",
+                            preco: 0
                         };
                     }
                 } catch (err) {
-                    return { 
-                        produto: prod.nome_comum, 
-                        loja: lojaConfig.nome, 
-                        origem: "ERRO", 
-                        status: "ERRO DE CONEXÃO", 
-                        preco: 0 
+                    context.log(`[ERRO] Falha ao processar ${prod.nome_comum} no Carrefour: ${err.message}`);
+                    return {
+                        produto: prod.nome_comum,
+                        loja: lojaConfig.nome,
+                        origem: "ERRO",
+                        status: "ERRO DE CONEXÃO",
+                        preco: 0
                     };
                 }
             });
 
             const resultadosDoProduto = await Promise.all(promessasBusca);
-            
+
             for (const res of resultadosDoProduto) {
-                // Adiciona ao relatório (apenas Carrefour)
                 relatorio.push({
                     produto: res.produto,
                     loja: res.loja,
@@ -166,33 +158,28 @@ module.exports = async function (context, req) {
                 });
 
                 if (res.status === "ENCONTRADO" && res.preco > 0) {
-                    
-                    // 1. DISPARO DE ALERTAS: Verifica se o preço caiu (em relação à meta ou ao último preço)
                     if (res.temAlvo && res.preco < res.precoReferencia) {
                         const jaExiste = await alertasCol.findOne({
-                            produto_nome: res.produto, 
-                            loja: res.loja, 
-                            preco_atual: res.preco, 
+                            produto_nome: res.produto,
+                            loja: res.loja,
+                            preco_atual: res.preco,
                             status_notificacao: "pendente"
                         });
-                        
                         if (!jaExiste) {
                             await alertasCol.insertOne({
-                                produto_nome: res.produto, 
-                                loja: res.loja, 
-                                preco_historico: res.precoReferencia, 
-                                preco_atual: res.preco, 
-                                link_compra: res.link, 
-                                data_alerta: new Date(), 
+                                produto_nome: res.produto,
+                                loja: res.loja,
+                                preco_historico: res.precoReferencia,
+                                preco_atual: res.preco,
+                                link_compra: res.link,
+                                data_alerta: new Date(),
                                 status_notificacao: "pendente"
                             });
                         }
                     }
-
-                    // 2. MEMÓRIA OTIMIZADA: Salva o preço APENAS se houve mudança na loja
                     if (res.preco !== res.ultimoPrecoWeb) {
                         await db.collection('historico_precos_web').insertOne({
-                            nome: res.produto, 
+                            nome: res.produto,
                             ean: prod.ean,
                             loja: res.loja,
                             origem: res.origem,
@@ -204,18 +191,17 @@ module.exports = async function (context, req) {
             }
         }
 
-        // Retorna o relatório em JSON
-        context.res = { 
-            status: 200, 
+        context.res = {
+            status: 200,
             headers: { "Content-Type": "application/json" },
-            body: relatorio 
+            body: relatorio
         };
-        
+
     } catch (e) {
-        context.res = { 
-            status: 500, 
-            headers: { "Content-Type": "application/json" }, 
-            body: { erro: "Erro Crítico: " + e.message } 
+        context.res = {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+            body: { erro: "Erro Crítico: " + e.message }
         };
     } finally {
         if (client) await client.close();
