@@ -49,55 +49,66 @@ function ampliarImagem(url, nome) {
 }
 
 // ============================================================================
-// 3. INTELIGÊNCIA DE CORES (PERCENTIL P25 / P75)
+// 3. INTELIGÊNCIA DE CORES (ESCALA MIN-MAX COM CACHE)
 // ============================================================================
-function avaliarPrecoPercentil(precoAtual, historicoPrecos) {
-    if (!precoAtual || precoAtual <= 0 || !historicoPrecos || historicoPrecos.length < 3) {
-        return { cor: 'border-gray-200 bg-white', status: 'Sem Histórico' };
+window.cacheHistorico = {}; // Memória temporária para não travar a digitação
+
+async function avaliarPrecoReal(precoAtual, nomeProduto) {
+    if (!precoAtual || precoAtual <= 0) return { cor: 'border-gray-200 bg-white', status: '---' };
+
+    let precos = window.cacheHistorico[nomeProduto];
+
+    // Se a memória não tem o histórico desse produto ainda, busca no banco de dados silenciosamente
+    if (!precos) {
+        try {
+            const res = await fetch(`/api/ObterHistoricoProduto?nome=${encodeURIComponent(nomeProduto)}`);
+            const dados = await res.json();
+            precos = dados.map(d => d.preco);
+            window.cacheHistorico[nomeProduto] = precos; // Salva na memória
+        } catch (e) {
+            precos = [];
+        }
     }
 
-    const precosOrdenados = [...historicoPrecos].sort((a, b) => a - b);
+    if (!precos || precos.length === 0) return { cor: 'border-gray-200 bg-white', status: 'SEM HISTÓRICO' };
 
-    const calcPercentil = (p, arr) => {
-        const index = (p / 100) * (arr.length - 1);
-        const lower = Math.floor(index);
-        const upper = Math.ceil(index);
-        if (upper >= arr.length) return arr[lower];
-        return arr[lower] + (index - lower) * (arr[upper] - arr[lower]);
-    };
+    const min = Math.min(...precos);
+    const max = Math.max(...precos);
 
-    const p25 = calcPercentil(25, precosOrdenados);
-    const p75 = calcPercentil(75, precosOrdenados);
+    // Se o preço nunca mudou na vida do produto
+    if (min === max) {
+        if (precoAtual < min) return { cor: 'border-green-400 bg-green-50', status: 'NOVO RECORDE!' };
+        if (precoAtual > max) return { cor: 'border-red-400 bg-red-50', status: 'CARO' };
+        return { cor: 'border-yellow-400 bg-yellow-50', status: 'PREÇO NA MÉDIA' };
+    }
 
-    if (precoAtual <= p25) return { cor: 'border-green-400 bg-green-50', status: 'COMPRE - BARATO' };
-    if (precoAtual >= p75) return { cor: 'border-red-400 bg-red-50', status: 'EVITE - CARO' };
-    return { cor: 'border-yellow-400 bg-yellow-50', status: 'PREÇO NA MÉDIA' };
+    // O CÁLCULO EXATO (Normalização Min-Max):
+    const percentil = Math.round(((precoAtual - min) / (max - min)) * 100);
+
+    // Classificação pelas faixas (Terços)
+    if (percentil <= 33) {
+        return { cor: 'border-green-400 bg-green-50', status: `BARATO (${percentil}%)` };
+    } else if (percentil > 33 && percentil <= 66) {
+        return { cor: 'border-yellow-400 bg-yellow-50', status: `JUSTO (${percentil}%)` };
+    } else {
+        return { cor: 'border-red-400 bg-red-50', status: `CARO (${percentil}%)` };
+    }
 }
 
-window.atualizarCoresCard = function (inputElement, menorHistoricoBackend = null) {
+window.atualizarCoresCard = async function (inputElement, nomeProduto) {
     const card = inputElement.closest('.card-produto-lista');
     if (!card) return;
 
-    // Converte a vírgula do padrão BR para ponto americano antes do cálculo matemático
+    // Trata a vírgula do padrão brasileiro para fazer a matemática
     const precoAtual = parseFloat(inputElement.value.replace(',', '.')) || 0;
 
-    if (menorHistoricoBackend === null) {
-        const bar = card.querySelector('.status-percentil-bar span:last-child');
-        menorHistoricoBackend = bar ? parseFloat(bar.innerText.replace('R$ ', '').replace(',', '.')) : 0;
-    }
+    // Faz a avaliação baseada no histórico REAL do produto
+    const avaliacao = await avaliarPrecoReal(precoAtual, nomeProduto);
 
-    const menorHistorico = isNaN(menorHistoricoBackend) ? 0 : menorHistoricoBackend;
-
-    // Simula a curvatura de preços históricos baseando-se no menor para cálculo
-    let historicoSimulado = [];
-    if (menorHistorico > 0) historicoSimulado = [menorHistorico, menorHistorico * 1.15, menorHistorico * 1.30];
-
-    const avaliacao = avaliarPrecoPercentil(precoAtual, historicoSimulado);
-
-    // Atualiza a borda do Card Principal
+    // Aplica as cores no card principal
     card.className = `card-produto-lista p-2 rounded-xl border-2 transition-all flex flex-col gap-2 shadow-sm mb-3 ${avaliacao.cor} ${card.classList.contains('opacity-60') ? 'opacity-60' : ''}`;
 
-    // Atualiza a barra inferior de status
+    // Aplica as cores na barrinha inferior e adiciona a porcentagem
     const statusBar = card.querySelector('.status-percentil-bar');
     if (statusBar) {
         statusBar.className = `status-percentil-bar mt-2 text-[9px] p-1.5 px-2 rounded-lg border flex justify-between items-center shadow-sm ${avaliacao.cor}`;
@@ -205,7 +216,7 @@ async function carregarLista() {
                             oninput="calcularTotalReal(); agendarSalvarQtd('${nomeSeguro}', this.value)">
                         <span class="text-[9px] text-gray-400 font-bold px-1">x</span>
                         <input type="number" step="0.01" value="${precoManual}" placeholder="0,00"
-                            oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); atualizarCoresCard(this)" 
+                            oninput="calcularTotalReal(); salvarPrecoNoBanco('${nomeSeguro}', this.value); atualizarCoresCard(this, '${nomeSeguro}')" 
                             class="input-preco-real w-16 p-1 text-[11px] font-black border border-gray-300 rounded text-center outline-none bg-white focus:ring-2 focus:ring-blue-500">
                         <button onclick="alternarStatus('${nomeSeguro}', ${!isComprado})" class="text-sm ml-1 w-6 h-6 flex items-center justify-center rounded border ${isComprado ? 'bg-green-100 border-green-300' : 'bg-gray-100 border-gray-300'} active:scale-90 transition-transform">${isComprado ? '✅' : '☑️'}</button>
                         <button onclick="deletarItem('${nomeSeguro}')" class="text-sm ml-1 text-gray-400 hover:text-red-500">🗑️</button>
@@ -258,7 +269,7 @@ async function atualizarPrecosEPilulas() {
             // Ativa a cor baseada no menor histórico
             const inputPrecoManual = card.querySelector('.input-preco-real');
             if (inputPrecoManual.value) {
-                atualizarCoresCard(inputPrecoManual, menorH);
+                atualizarCoresCard(inputPrecoManual, nomeProduto);
             }
         });
         recalcularRankingLive(data.ranking || []);
