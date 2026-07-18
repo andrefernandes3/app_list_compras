@@ -232,7 +232,7 @@ async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
 }
 
 // ============================================================================
-// 7. FUNÇÃO PRINCIPAL BLINDADA CONTRA FALHAS (RESILIÊNCIA)
+// 7. FUNÇÃO PRINCIPAL EM "FILA INDIANA" (MÁXIMA ESTABILIDADE)
 // ============================================================================
 
 module.exports = async function (context, req) {
@@ -269,95 +269,89 @@ module.exports = async function (context, req) {
 
         const monitorados = await db.collection('dicionario_produtos').find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
-            context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
+            context.res = { status: 200, body: { aviso: "Nenhum produto válido para monitorar." } };
             return;
         }
 
-        for (let i = 0; i < monitorados.length; i += CONCURRENT_LIMIT) {
-            const batch = monitorados.slice(i, i + CONCURRENT_LIMIT);
+        context.log(`🤖 Iniciando varredura sequencial para ${monitorados.length} produtos...`);
 
-            const batchPromises = batch.map(async (prod) => {
-                const promessasLojas = configs.map(async (cfg) => {
-                    
-                    // ========================================================
-                    // 🚨 TRY/CATCH ISOLADO AQUI (O SEGREDO DA RESILIÊNCIA) 🚨
-                    // ========================================================
-                    try {
-                        let encontrado = false;
-                        const cookies = cookiesMap[cfg.id];
-                        const regionId = regionIds[cfg.id];
+        // ========================================================
+        // LOOP SEQUENCIAL: 1 Produto por vez, 1 Loja por vez
+        // ========================================================
+        for (const prod of monitorados) {
+            for (const cfg of configs) {
+                try {
+                    let encontrado = false;
+                    const cookies = cookiesMap[cfg.id];
+                    const regionId = regionIds[cfg.id];
 
-                        const sellerPreferido = prod.seller_preferido || null;
-                        let sellersToTry = cfg.sellers;
-                        if (sellerPreferido && cfg.sellers.includes(sellerPreferido)) {
-                            sellersToTry = [sellerPreferido, ...cfg.sellers.filter(s => s !== sellerPreferido)];
-                        }
+                    const sellerPreferido = prod.seller_preferido || null;
+                    let sellersToTry = cfg.sellers;
+                    if (sellerPreferido && cfg.sellers.includes(sellerPreferido)) {
+                        sellersToTry = [sellerPreferido, ...cfg.sellers.filter(s => s !== sellerPreferido)];
+                    }
 
-                        for (const sc of cfg.scList) {
-                            const resultado = await buscarProdutoNaLoja(cfg.host, regionId, sc, prod.ean, prod.nome_comum, sellersToTry, cookies, cfg.binding);
-                            
-                            if (resultado) {
-                                if (resultado.seller && resultado.seller !== sellerPreferido) {
-                                    await db.collection('dicionario_produtos').updateOne({ _id: prod._id }, { $set: { seller_preferido: resultado.seller } });
-                                }
+                    for (const sc of cfg.scList) {
+                        const resultado = await buscarProdutoNaLoja(cfg.host, regionId, sc, prod.ean, prod.nome_comum, sellersToTry, cookies, cfg.binding);
+                        
+                        if (resultado) {
+                            if (resultado.seller && resultado.seller !== sellerPreferido) {
+                                await db.collection('dicionario_produtos').updateOne({ _id: prod._id }, { $set: { seller_preferido: resultado.seller } });
+                            }
 
-                                const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
-                                const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
+                            const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
+                            const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
 
-                                const entry = {
-                                    produto: prod.nome_comum, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A', status: 'ENCONTRADO',
-                                    preco: resultado.preco, referencia_usada: precoReferencia !== Infinity ? precoReferencia : null,
-                                    ultimoPrecoWeb: ultimoPrecoWeb !== Infinity ? ultimoPrecoWeb : null, link: resultado.link || ''
-                                };
+                            const entry = {
+                                produto: prod.nome_comum, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A', status: 'ENCONTRADO',
+                                preco: resultado.preco, referencia_usada: precoReferencia !== Infinity ? precoReferencia : null,
+                                ultimoPrecoWeb: ultimoPrecoWeb !== Infinity ? ultimoPrecoWeb : null, link: resultado.link || ''
+                            };
 
-                                if (resultado.preco > 0 && precoReferencia !== Infinity && resultado.preco < precoReferencia) {
-                                    const jaExiste = await db.collection('alertas_preco').findOne({ produto_nome: prod.nome_comum, loja: cfg.nome, preco_atual: resultado.preco, status_notificacao: "pendente" });
-                                    if (!jaExiste) {
-                                        await db.collection('alertas_preco').insertOne({
-                                            produto_nome: prod.nome_comum, loja: cfg.nome, preco_historico: precoReferencia, preco_atual: resultado.preco,
-                                            link_compra: resultado.link, data_alerta: new Date(), status_notificacao: "pendente"
-                                        });
-                                    }
-                                }
-
-                                if (ultimoPrecoWeb === Infinity || resultado.preco !== ultimoPrecoWeb) {
-                                    await db.collection('historico_precos_web').insertOne({
-                                        nome: prod.nome_comum, ean: prod.ean, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A',
-                                        preco: resultado.preco, data_verificacao: new Date()
+                            if (resultado.preco > 0 && precoReferencia !== Infinity && resultado.preco < precoReferencia) {
+                                const jaExiste = await db.collection('alertas_preco').findOne({ produto_nome: prod.nome_comum, loja: cfg.nome, preco_atual: resultado.preco, status_notificacao: "pendente" });
+                                if (!jaExiste) {
+                                    await db.collection('alertas_preco').insertOne({
+                                        produto_nome: prod.nome_comum, loja: cfg.nome, preco_historico: precoReferencia, preco_atual: resultado.preco,
+                                        link_compra: resultado.link, data_alerta: new Date(), status_notificacao: "pendente"
                                     });
                                 }
-                                encontrado = true;
-                                return entry; 
                             }
-                        }
 
-                        if (!encontrado) {
-                            return {
-                                produto: prod.nome_comum, loja: cfg.nome, origem: 'N/A', status: 'NÃO ENCONTRADO', preco: 0,
-                                referencia_usada: null, ultimoPrecoWeb: null, link: ''
-                            };
+                            if (ultimoPrecoWeb === Infinity || resultado.preco !== ultimoPrecoWeb) {
+                                await db.collection('historico_precos_web').insertOne({
+                                    nome: prod.nome_comum, ean: prod.ean, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A',
+                                    preco: resultado.preco, data_verificacao: new Date()
+                                });
+                            }
+                            
+                            encontrado = true;
+                            relatorio.push(entry);
+                            break; // Se achou neste SC, não precisa buscar nos outros SCs desta mesma loja
                         }
-
-                    } catch (erroLoja) {
-                        // Se este produto der erro nesta loja, anota e não quebra o sistema!
-                        context.log.warn(`⚠️ Erro isolado no produto ${prod.nome_comum} (Loja: ${cfg.nome}): ${erroLoja.message}`);
-                        return {
-                            produto: prod.nome_comum, loja: cfg.nome, origem: 'ERRO', status: 'FALHA DE CONEXÃO', preco: 0,
-                            referencia_usada: null, ultimoPrecoWeb: null, link: ''
-                        };
                     }
-                });
 
-                return await Promise.all(promessasLojas);
-            });
+                    if (!encontrado) {
+                        relatorio.push({
+                            produto: prod.nome_comum, loja: cfg.nome, origem: 'N/A', status: 'NÃO ENCONTRADO', preco: 0,
+                            referencia_usada: null, ultimoPrecoWeb: null, link: ''
+                        });
+                    }
 
-            const batchResultsMatrix = await Promise.all(batchPromises);
-            for (const resArray of batchResultsMatrix) relatorio.push(...resArray);
-
-            // Respiro entre lotes
-            if (i + CONCURRENT_LIMIT < monitorados.length) {
-                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+                } catch (erroLoja) {
+                    context.log.warn(`⚠️ Erro no produto ${prod.nome_comum} (Loja: ${cfg.nome}): ${erroLoja.message}`);
+                    relatorio.push({
+                        produto: prod.nome_comum, loja: cfg.nome, origem: 'ERRO', status: 'FALHA DE CONEXÃO', preco: 0,
+                        referencia_usada: null, ultimoPrecoWeb: null, link: ''
+                    });
+                }
+                
+                // Pequena pausa entre uma loja e outra (300 milissegundos)
+                await new Promise(resolve => setTimeout(resolve, 300));
             }
+            
+            // Pausa entre um produto e outro (500 milissegundos)
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: relatorio };
