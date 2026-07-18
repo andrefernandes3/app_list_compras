@@ -280,7 +280,7 @@ function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProdu
     // Verifica se há um valor digitado em memória para essa sessão
     const temDigitado = valorDigitado !== undefined && valorDigitado !== null && valorDigitado !== '';
     const valorExibido = temDigitado ? valorDigitado : (valorBanco || '');
-    
+
     // Define o indicador visual que ficará no cantinho da caixa
     let indicador = '';
     if (temDigitado && valorExibido !== '') {
@@ -294,7 +294,9 @@ function renderInputMercado(label, valorDigitado, valorBanco, classes, nomeProdu
             ${indicador}
             <div class="text-[7px] uppercase font-black tracking-wider opacity-75 mb-0.5 pr-2">${label}</div>
             <input type="number" step="0.01" value="${valorExibido}" placeholder="---"
-                class="w-full bg-transparent border-none text-center outline-none text-[10px] p-0 font-black text-gray-900"
+                class="input-preco-mercado w-full bg-transparent border-none text-center outline-none text-[10px] p-0 font-black text-gray-900"
+                data-nome="${nomeProduto.replace(/"/g, '&quot;')}" 
+                data-mercado="${rede}"
                 oninput="registrarPrecoLive('${nomeProduto.replace(/'/g, "\\'")}', '${rede}', this.value)">
         </div>`;
 }
@@ -374,7 +376,7 @@ function recalcularRankingLive() {
     document.querySelectorAll('#lista-ativa .card-produto-lista').forEach(card => {
         const nome = card.getAttribute('data-produto');
         const qtd = parseFloat(card.querySelector('.input-qtd-real')?.value) || 1;
-        
+
         lojas.forEach(loja => {
             let p = window.precosDigitadosNoMercado[nome]?.[loja];
             if (p === undefined || p === null) {
@@ -387,7 +389,7 @@ function recalcularRankingLive() {
     });
 
     const ranking = Object.entries(totais).filter(([_, t]) => t > 0).map(([nome, total]) => ({ nome, total })).sort((a, b) => a.total - b.total);
-    
+
     if (ranking.length === 0) {
         containerRanking.classList.add('hidden');
         return;
@@ -777,7 +779,7 @@ window.salvarAlteracoesItem = async (id, elemento) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, monitorar, preco_alvo: parseFloat(preco_alvo), ean })
         });
-        if (ean === '') { container.classList.add('border-orange-300', 'bg-orange-50'); container.classList.remove('bg-white'); } 
+        if (ean === '') { container.classList.add('border-orange-300', 'bg-orange-50'); container.classList.remove('bg-white'); }
         else { container.classList.remove('border-orange-300', 'bg-orange-50'); container.classList.add('bg-white'); }
     } catch (e) { alert("Erro ao salvar!"); } finally { container.style.opacity = '1'; }
 };
@@ -842,7 +844,7 @@ async function renderPreview(dados) {
     listaItens.innerHTML = ''; preview.classList.remove('hidden');
     const dicionario = await fetch('/api/VincularProdutos').then(r => r.json());
     listaItens.innerHTML = `<div class="p-4 bg-blue-50 border-b"><p class="text-xs font-bold uppercase">${dados.estabelecimento}</p><p class="text-sm font-black text-blue-600">Total: R$ ${dados.valor_total.toFixed(2)}</p></div>`;
-    
+
     dados.itens.forEach(item => {
         const pV = dicionario.find(p => p.ids_vinculados?.includes(item.id_interno));
         const ok = !!pV;
@@ -919,7 +921,7 @@ function renderizarFiltrosCategorias() {
 function filtrarPorCorredor(idCategoria) {
     categoriaSelecionadaFiltro = idCategoria;
     document.querySelectorAll('#container-categorias-filtro button').forEach(b => {
-        b.className = b.innerText.includes(idCategoria) || (idCategoria==="TUDO" && b.innerText==="📍 TUDO") ? "px-3 py-1.5 rounded-full text-[10px] font-black border bg-blue-600 text-white" : "px-3 py-1.5 rounded-full text-[10px] font-black border bg-white text-gray-500";
+        b.className = b.innerText.includes(idCategoria) || (idCategoria === "TUDO" && b.innerText === "📍 TUDO") ? "px-3 py-1.5 rounded-full text-[10px] font-black border bg-blue-600 text-white" : "px-3 py-1.5 rounded-full text-[10px] font-black border bg-white text-gray-500";
     });
 
     document.querySelectorAll('#lista-ativa .header-corredor').forEach(h => { h.classList.toggle('hidden', idCategoria !== "TUDO" && h.getAttribute('data-categoria') !== idCategoria); });
@@ -931,16 +933,16 @@ function filtrarPorCorredor(idCategoria) {
 async function autoPreencherPrecos() {
     try {
         // Busca o histórico consolidado (ajuste para a sua rota de API correta)
-        const response = await fetch('/api/ObterHistoricoProduto'); 
-        const historico = await response.json(); 
+        const response = await fetch('/api/ObterHistoricoProduto');
+        const historico = await response.json();
 
         document.querySelectorAll('.input-preco-mercado').forEach(input => {
             const nome = input.getAttribute('data-nome');
             const mercado = input.getAttribute('data-mercado');
-            
+
             // Procura o preço no histórico
             const registro = historico.find(h => h.nome === nome && h.loja === mercado);
-            
+
             if (registro && registro.preco > 0) {
                 // Preenche o input (formatado para moeda brasileira)
                 input.value = registro.preco.toFixed(2).replace('.', ',');
@@ -954,9 +956,16 @@ async function autoPreencherPrecos() {
 }
 
 function limparPrecosTela() {
+    if (!confirm("Zerar todos os preços da lista?")) return;
     document.querySelectorAll('.input-preco-mercado').forEach(input => {
         input.value = "0,00";
+        // Dispara o evento de input para salvar no banco se necessário
+        input.dispatchEvent(new Event('input'));
     });
+    // Opcional: limpar também o localStorage se você usa ele para cache
+    window.precosDigitadosNoMercado = {};
+    localStorage.removeItem('precosLive');
+    calcularTotalReal();
 }
 
 // ============================================================================
