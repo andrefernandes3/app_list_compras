@@ -717,12 +717,17 @@ async function renderizarDicionario() {
 }
 
 function selecionarTudoDicionario(checked) {
+    // Seleciona todos os inputs do tipo checkbox dentro da lista
     document.querySelectorAll('#lista-dicionario input[type="checkbox"]').forEach(cb => {
-        // Só seleciona se tiver o atributo data-nome (o robô não deve ter)
+        // Verifica se o checkbox é de um produto (tem o atributo data-nome)
         if (cb.hasAttribute('data-nome')) {
             cb.checked = checked;
             const nome = cb.getAttribute('data-nome');
-            if (checked) itensSelecionados.add(nome); else itensSelecionados.delete(nome);
+            if (checked) {
+                itensSelecionados.add(nome);
+            } else {
+                itensSelecionados.delete(nome);
+            }
         }
     });
     atualizarBotaoMultiplos();
@@ -920,6 +925,38 @@ function filtrarPorCorredor(idCategoria) {
     document.querySelectorAll('#lista-ativa .header-corredor').forEach(h => { h.classList.toggle('hidden', idCategoria !== "TUDO" && h.getAttribute('data-categoria') !== idCategoria); });
     document.querySelectorAll('#lista-ativa .card-produto-lista').forEach(c => { c.classList.toggle('hidden', idCategoria !== "TUDO" && c.getAttribute('data-categoria-produto') !== idCategoria); });
     document.querySelectorAll('.block-categoria-dicionario').forEach(b => { b.classList.toggle('hidden', idCategoria !== "TUDO" && b.getAttribute('data-categoria-dict') !== idCategoria); });
+}
+
+// Função para auto-preencher
+async function autoPreencherPrecos() {
+    try {
+        // Busca o histórico consolidado (ajuste para a sua rota de API correta)
+        const response = await fetch('/api/ObterHistoricoProduto'); 
+        const historico = await response.json(); 
+
+        document.querySelectorAll('.input-preco-mercado').forEach(input => {
+            const nome = input.getAttribute('data-nome');
+            const mercado = input.getAttribute('data-mercado');
+            
+            // Procura o preço no histórico
+            const registro = historico.find(h => h.nome === nome && h.loja === mercado);
+            
+            if (registro && registro.preco > 0) {
+                // Preenche o input (formatado para moeda brasileira)
+                input.value = registro.preco.toFixed(2).replace('.', ',');
+            }
+        });
+        alert("Preços preenchidos com o último histórico!");
+    } catch (e) {
+        console.error("Erro ao preencher preços:", e);
+        alert("Erro ao buscar histórico.");
+    }
+}
+
+function limparPrecosTela() {
+    document.querySelectorAll('.input-preco-mercado').forEach(input => {
+        input.value = "0,00";
+    });
 }
 
 // ============================================================================

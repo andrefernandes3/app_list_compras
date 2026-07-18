@@ -29,15 +29,20 @@
 
     <div class="flex justify-center border-b border-gray-200 bg-white sticky top-[94px] z-20 shadow-sm transition-all">
         <div class="flex w-full max-w-md md:max-w-3xl lg:max-w-5xl">
-            <button onclick="alternarAba('lista')" id="btn-aba-lista" class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
-            <button onclick="alternarAba('dicionario')" id="btn-aba-dict" class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
-            <button onclick="alternarAba('relatorios')" id="btn-aba-rel" class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
+            <button onclick="alternarAba('lista')" id="btn-aba-lista"
+                class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600">Lista</button>
+            <button onclick="alternarAba('dicionario')" id="btn-aba-dict"
+                class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
+            <button onclick="alternarAba('relatorios')" id="btn-aba-rel"
+                class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
         </div>
     </div>
 
-    <div id="secao-filtros-categorias" class="bg-gray-50 p-2 sticky top-[145px] z-20 shadow-sm border-b border-gray-100 hidden">
-        <div id="container-categorias-filtro" class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar scroll-smooth max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-2">
-            </div>
+    <div id="secao-filtros-categorias"
+        class="bg-gray-50 p-2 sticky top-[145px] z-20 shadow-sm border-b border-gray-100 hidden">
+        <div id="container-categorias-filtro"
+            class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar scroll-smooth max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-2">
+        </div>
     </div>
 
     <main class="p-4 w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto transition-all duration-300">
@@ -93,6 +98,17 @@
                     </button>
                     <div id="status" class="mt-4 p-3 bg-gray-50 rounded-xl hidden text-xs font-medium text-center">
                     </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 mt-2">
+                    <button onclick="autoPreencherPrecos()"
+                        class="bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-sm active:scale-95 transition-all">
+                        🪄 Preencher Preços
+                    </button>
+                    <button onclick="limparPrecosTela()"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-sm active:scale-95 transition-all">
+                        🧹 Limpar Tudo
+                    </button>
                 </div>
 
                 <div id="preview-container" class="mt-2 hidden">
