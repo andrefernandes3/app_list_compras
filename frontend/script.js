@@ -932,9 +932,9 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        const response = await fetch('/api/ObterHistoricoWeb'); 
-        const historico = await response.json(); 
-        
+        const response = await fetch('/api/ObterHistoricoWeb');
+        const historico = await response.json();
+
         // DEBUG: Isso vai mostrar no F12 -> Console o que veio do banco
         console.log("Dados recebidos do Robô:", historico);
 
@@ -943,26 +943,31 @@ async function autoPreencherPrecos() {
         document.querySelectorAll('.card-produto-lista').forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
             const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
-            
+
             inputs.forEach(input => {
                 const label = input.parentElement.querySelector('.uppercase')?.innerText || "";
                 const loja = label.toUpperCase();
 
-                // DEBUG: Isso mostra o que estamos tentando encontrar
-                console.log(`Tentando encontrar: Produto=${nomeProduto}, Loja=${loja}`);
-
                 const registro = historico.find(h => {
-                    const nomeBanco = h.nome?.trim().toUpperCase() || "";
-                    const lojaBanco = h.loja?.trim().toUpperCase().replace(/['\s]/g, "") || "";
-                    const lojaTela = loja.trim().toUpperCase().replace(/['\s]/g, "");
+                    // 1. Normaliza o nome do produto (remove espaços e maiúsculas)
+                    const nomeBanco = h.nome.trim().toUpperCase();
+                    const nomeTela = nomeProduto.trim().toUpperCase();
 
-                    // DEBUG: Mostra a comparação sendo feita
-                    // console.log(`Comparando: ${nomeBanco}==${nomeProduto.trim().toUpperCase()} E ${lojaBanco}.includes(${lojaTela})`);
+                    // 2. Normaliza a Loja (remove espaços, apóstrofos e padroniza o nome)
+                    const lojaBanco = h.loja.trim().toUpperCase().replace(/['\s]/g, "");
+                    let lojaTela = loja.trim().toUpperCase().replace(/['\s]/g, "");
 
-                    return nomeBanco === nomeProduto.trim().toUpperCase() && 
-                           lojaBanco.includes(lojaTela);
+                    // Tratamento específico: Se na tela for SAMS, entenda como SAM'S CLUB do banco
+                    if (lojaTela === "SAMS") lojaTela = "SAMSCLUB";
+
+                    // O nome na tela está truncado (ex: "SUCO INTEGRAL LARA...")
+                    // Então verificamos se o nome do banco COMEÇA com o nome da tela
+                    const nomeCorresponde = nomeBanco.includes(nomeTela.replace("...", ""));
+                    const lojaCorresponde = lojaBanco.includes(lojaTela);
+
+                    return nomeCorresponde && lojaCorresponde;
                 });
-                
+
                 if (registro) {
                     console.log("✅ Encontrado! Preço:", registro.preco);
                     input.value = registro.preco.toFixed(2).replace('.', ',');
