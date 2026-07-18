@@ -574,24 +574,84 @@ async function abrirGrafico(nome) {
 
 async function filtrarPeriodoGrafico(nome, dias, btn = null) {
     if (btn) {
-        document.querySelectorAll('.btn-filtro').forEach(b => { b.classList.remove('bg-blue-600', 'text-white', 'shadow-md'); b.classList.add('bg-gray-100', 'text-gray-500'); });
-        btn.classList.remove('bg-gray-100', 'text-gray-500'); btn.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+        document.querySelectorAll('.btn-filtro').forEach(b => {
+            b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
+            b.classList.add('bg-gray-100', 'text-gray-500');
+        });
+        btn.classList.remove('bg-gray-100', 'text-gray-500');
+        btn.classList.add('bg-blue-600', 'text-white', 'shadow-md');
     }
+
     try {
-        const url = dias > 0 ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}` : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
+        const url = dias > 0
+            ? `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}&dias=${dias}`
+            : `/api/ObterHistoricoProduto?nome=${encodeURIComponent(nome)}`;
         const dados = await fetch(url).then(r => r.json());
+
         const ctx = document.getElementById('meuGrafico');
         let chartInstance = Chart.getChart(ctx);
+
+        // Configuração atualizada com legenda personalizada
         const config = {
             type: 'line',
             data: {
                 labels: dados.map(d => new Date(d.data).toLocaleDateString('pt-BR')),
-                datasets: [{ label: 'Preço R$', data: dados.map(d => d.preco), borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.05)', fill: true, tension: 0.4, pointRadius: 6, pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)), pointBorderWidth: 2, pointBorderColor: '#fff' }]
+                datasets: [{
+                    label: 'Preço R$',
+                    data: dados.map(d => d.preco),
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 6,
+                    pointBackgroundColor: dados.map(d => obterCorMercado(d.mercado)),
+                    pointBorderWidth: 2,
+                    pointBorderColor: '#fff'
+                }]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `R$ ${c.parsed.y.toFixed(2)}`, afterLabel: (c) => `Loja: ${dados[c.dataIndex].mercado}` } } }, scales: { y: { beginAtZero: false } } }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,               // legenda visível
+                        position: 'bottom',
+                        labels: {
+                            usePointStyle: true,
+                            font: { size: 10, weight: 'bold' },
+                            generateLabels: (chart) => {
+                                // Lista de mercados únicos presentes nos dados
+                                const mercados = [...new Set(dados.map(d => d.mercado))];
+                                return mercados.map(m => ({
+                                    text: m,
+                                    fillStyle: obterCorMercado(m),
+                                    pointStyle: 'circle'
+                                }));
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => `R$ ${c.parsed.y.toFixed(2)}`,
+                            afterLabel: (c) => `Loja: ${dados[c.dataIndex].mercado}`
+                        }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: false }
+                }
+            }
         };
-        if (chartInstance) { chartInstance.data = config.data; chartInstance.update(); } else { new Chart(ctx, config); }
-    } catch (e) { console.error(e); }
+
+        if (chartInstance) {
+            chartInstance.data = config.data;
+            chartInstance.update();
+        } else {
+            new Chart(ctx, config);
+        }
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 // ============================================================================
