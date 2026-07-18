@@ -8,9 +8,11 @@ const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
 const TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 
-// Lista de sellers (filiais) do Atacadão em ordem de prioridade
+// ============================================================================
+// LISTA DE SELLERS PARA CADA LOJA (prioridade)
+// ============================================================================
 const SELLERS_ATACADAO = [
-    'atacadaobr637', // prioridade máxima
+    'atacadaobr637',
     'atacadaobr634',
     'atacadaobr649',
     'atacadaobr680',
@@ -20,39 +22,122 @@ const SELLERS_ATACADAO = [
     'atacadaobr939'
 ];
 
+// Para Sam's Club, podemos definir sellers comuns (se houver)
+// Inicialmente, vamos usar seller padrão '1' e tentar outros se necessário
+const SELLERS_SAMS = ['1', '2', '3']; // valores genéricos; ajustar conforme descoberta
+
 // ============================================================================
-// 1. FUNÇÕES PARA O ATACADÃO (COM REGIONID DINÂMICO E SIMULAÇÃO)
+// FUNÇÕES AUXILIARES (buscarDadosVtex melhorada com timeout e retry)
 // ============================================================================
+function buscarDadosVtex(targetUrl, tentativa = 1) {
+    return new Promise((resolve) => {
+        const urlObj = new URL(targetUrl);
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            },
+            timeout: TIMEOUT_MS
+        };
 
-// Cache do regionId
-let regionIdCache = { value: null, timestamp: 0 };
-
-async function obterRegionId(cep) {
-    const agora = Date.now();
-    if (regionIdCache.value && (agora - regionIdCache.timestamp) < 3600000) {
-        return regionIdCache.value;
-    }
-
-    try {
-        const url = `https://www.atacadao.com.br/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
-        const data = await buscarDadosVtex(url); // reutiliza a função existente
-        if (data && data.length > 0) {
-            const region = data.find(r => r.id && r.id.startsWith('v2.'));
-            const id = region ? region.id : data[0].id;
-            if (id) {
-                regionIdCache = { value: id, timestamp: agora };
-                return id;
+        const reqHttp = https.request(options, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                let novaUrl = res.headers.location;
+                if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
+                return resolve(buscarDadosVtex(novaUrl, tentativa));
             }
-        }
-    } catch (e) {
-        console.warn('Falha ao obter regionId, usando fallback fixo.', e.message);
-    }
-    // Fallback para o ID que você encontrou
-    return 'v2.B8DCB8B9A6E97811ED86748D0F84492B';
+            if (res.statusCode !== 200) {
+                if (tentativa < MAX_RETRIES) {
+                    setTimeout(() => resolve(buscarDadosVtex(targetUrl, tentativa + 1)), 1000);
+                } else {
+                    resolve(null);
+                }
+                return;
+            }
+
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                try { resolve(JSON.parse(data)); } catch { resolve(null); }
+            });
+        });
+
+        reqHttp.on('error', () => {
+            if (tentativa < MAX_RETRIES) {
+                setTimeout(() => resolve(buscarDadosVtex(targetUrl, tentativa + 1)), 1000);
+            } else {
+                resolve(null);
+            }
+        });
+        reqHttp.end();
+    });
 }
 
-// Função para simular carrinho no Atacadão
-async function simularCarrinhoAtacadao(host, regionId, sku, sellerId, sc = 1) {
+// ============================================================================
+// FUNÇÃO: OBTER REGIONID DINAMICAMENTE (para lojas que usam)
+// ============================================================================
+async function obterRegionId(host, cep) {
+    try {
+        const url = `${host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
+        const data = await buscarDadosVtex(url);
+        if (data && data.length > 0) {
+            const region = data.find(r => r.id && r.id.startsWith('v2.'));
+            return region ? region.id : data[0].id;
+        }
+    } catch (e) {
+        console.warn(`Falha ao obter regionId para ${host}:`, e.message);
+    }
+    return null;
+}
+
+// ============================================================================
+// FUNÇÃO: EXTRAIR INFORMAÇÕES BÁSICAS DO PRODUTO (SKU, linkText)
+// ============================================================================
+function extrairInfoProduto(data) {
+    if (!data || data.length === 0) return null;
+    const item = data[0];
+    if (!item.items || item.items.length === 0) return null;
+    const variant = item.items[0];
+    return {
+        sku: variant.itemId,
+        linkText: item.linkText,
+        link: item.link || `https://${new URL(item.link).hostname}/${item.linkText}/p`,
+        name: item.productName
+    };
+}
+
+// ============================================================================
+// FUNÇÃO: EXTRAIR PREÇO DIRETO DA RESPOSTA DA API (para fallback)
+// ============================================================================
+function extrairPrecoDireto(dados) {
+    if (!dados || dados.length === 0) return null;
+    for (const item of dados) {
+        if (!item.items) continue;
+        for (const variant of item.items) {
+            if (!variant.sellers) continue;
+            for (const seller of variant.sellers) {
+                const offer = seller.commertialOffer;
+                if (offer && offer.Price > 0) {
+                    return {
+                        preco: offer.Price,
+                        nomeLojaOrigem: seller.sellerName || 'Loja',
+                        sku: variant.itemId,
+                        seller: seller.sellerId
+                    };
+                }
+            }
+        }
+    }
+    return null;
+}
+
+// ============================================================================
+// FUNÇÃO: SIMULAR CARRINHO (para obter preço com seller específico)
+// ============================================================================
+async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
     const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
     const payload = {
         items: [{ id: sku, quantity: 1, seller: sellerId }],
@@ -109,191 +194,107 @@ async function simularCarrinhoAtacadao(host, regionId, sku, sellerId, sc = 1) {
     });
 }
 
-// Função para extrair informações básicas (SKU, linkText) da resposta da API
-function extrairInfoProduto(data) {
-    if (!data || data.length === 0) return null;
-    const item = data[0];
-    if (!item.items || item.items.length === 0) return null;
-    const variant = item.items[0];
-    return {
-        sku: variant.itemId,
-        linkText: item.linkText,
-        link: item.link || `https://www.atacadao.com.br/${item.linkText}/p`,
-        name: item.productName
-    };
-}
+// ============================================================================
+// FUNÇÃO: BUSCAR PRODUTO COM ESTRATÉGIA POR LOJA (unificada)
+// ============================================================================
+async function buscarProduto(lojaConfig, ean, produtoNome, regionId) {
+    const { host, nome, scList = [1], sellers = ['1'], useSimulationFallback = false } = lojaConfig;
+    let resultado = null;
 
-// Função para extrair preço direto da resposta (fallback)
-function extrairPrecoDireto(dados) {
-    if (!dados || dados.length === 0) return null;
-    for (const item of dados) {
-        if (!item.items) continue;
-        for (const variant of item.items) {
-            if (!variant.sellers) continue;
-            for (const seller of variant.sellers) {
-                const offer = seller.commertialOffer;
-                if (offer && offer.Price > 0) {
-                    return {
-                        preco: offer.Price,
-                        nomeLojaOrigem: seller.sellerName || 'Atacadão',
-                        sku: variant.itemId,
-                        seller: seller.sellerId
-                    };
-                }
-            }
-        }
-    }
-    return null;
-}
+    // Tenta cada sc
+    for (const sc of scList) {
+        // 1. Busca por EAN
+        let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}`;
+        if (lojaConfig.regionId) url += `&regionId=${lojaConfig.regionId}`;
+        url += `&_=${Date.now()}`;
 
-// Função principal de busca para o Atacadão (com prioridade de seller e cache)
-async function buscarProdutoAtacadao(host, sc, regionId, ean, produtoNome, sellerPreferido = null) {
-    // 1. Busca por EAN para obter SKU e link
-    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
-    let dados = await buscarDadosVtex(url);
+        let dados = await buscarDadosVtex(url);
+        let sku = null, link = null, linkText = null;
 
-    let sku = null;
-    let linkText = null;
-    let link = null;
-
-    if (dados && dados.length > 0) {
-        const info = extrairInfoProduto(dados);
-        if (info) {
-            sku = info.sku;
-            linkText = info.linkText;
-            link = info.link;
-        }
-    }
-
-    // Se não achou pelo EAN, tenta por nome (fallback)
-    if (!sku) {
-        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
-        dados = await buscarDadosVtex(urlNome);
         if (dados && dados.length > 0) {
             const info = extrairInfoProduto(dados);
             if (info) {
                 sku = info.sku;
-                linkText = info.linkText;
                 link = info.link;
+                linkText = info.linkText;
+                // Tenta extrair preço direto (pode funcionar para alguns sellers)
+                const precoDireto = extrairPrecoDireto(dados);
+                if (precoDireto) {
+                    return { ...precoDireto, link };
+                }
             }
         }
-    }
 
-    if (!sku) {
-        return null; // não encontrou o SKU
-    }
-
-    // 2. Monta lista de sellers para tentar: primeiro o preferido (se houver), depois a lista padrão
-    let sellersToTry = [];
-    if (sellerPreferido && SELLERS_ATACADAO.includes(sellerPreferido)) {
-        sellersToTry = [sellerPreferido, ...SELLERS_ATACADAO.filter(s => s !== sellerPreferido)];
-    } else {
-        sellersToTry = SELLERS_ATACADAO;
-    }
-
-    // 3. Tenta simulação para cada seller (em ordem de prioridade)
-    for (const seller of sellersToTry) {
-        const sim = await simularCarrinhoAtacadao(host, regionId, sku, seller, sc);
-        if (sim && sim.preco > 0) {
-            return {
-                preco: sim.preco,
-                nomeLojaOrigem: `Atacadão (${seller})`,
-                sku: sku,
-                link: link || `https://www.atacadao.com.br/${linkText}/p`,
-                seller: seller
-            };
+        // Se não encontrou SKU, tenta buscar por nome (fallback)
+        if (!sku) {
+            const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}`;
+            if (lojaConfig.regionId) urlNome += `&regionId=${lojaConfig.regionId}`;
+            urlNome += `&_=${Date.now()}`;
+            dados = await buscarDadosVtex(urlNome);
+            if (dados && dados.length > 0) {
+                const info = extrairInfoProduto(dados);
+                if (info) {
+                    sku = info.sku;
+                    link = info.link;
+                    linkText = info.linkText;
+                }
+            }
         }
-    }
 
-    // 4. Fallback: se nenhum seller da lista funcionou, tenta extrair preço direto da API (pode ser ATACADAO SA)
-    if (dados) {
-        const precoDireto = extrairPrecoDireto(dados);
-        if (precoDireto) {
-            return { ...precoDireto, link };
+        // Se tem SKU e a loja permite simulação, tenta com sellers
+        if (sku && useSimulationFallback && lojaConfig.regionId) {
+            for (const seller of sellers) {
+                const sim = await simularCarrinho(host, lojaConfig.regionId, sku, seller, sc);
+                if (sim && sim.preco > 0) {
+                    return {
+                        preco: sim.preco,
+                        nomeLojaOrigem: `${nome} (${seller})`,
+                        sku: sku,
+                        link: link || `https://${new URL(host).hostname}/${linkText}/p`,
+                        seller: seller
+                    };
+                }
+            }
         }
+
+        // Se não encontrou com simulação, mas tem SKU, pode tentar novamente com outro sc
     }
 
-    return null;
+    return null; // não encontrado
 }
 
 // ============================================================================
-// 2. FUNÇÕES COMPARTILHADAS (já existentes)
-// ============================================================================
-
-// Buscar dados VTEX (com retry e timeout aprimorados)
-const buscarDadosVtex = (targetUrl, tentativa = 1) => {
-    return new Promise((resolve) => {
-        const urlObj = new URL(targetUrl);
-        const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
-            },
-            timeout: TIMEOUT_MS
-        };
-
-        const reqHttp = https.request(options, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                let novaUrl = res.headers.location;
-                if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
-                return resolve(buscarDadosVtex(novaUrl, tentativa));
-            }
-            if (res.statusCode !== 200) return resolve(null);
-
-            let data = '';
-            res.on('data', (chunk) => data += chunk);
-            res.on('end', () => {
-                try { resolve(JSON.parse(data)); }
-                catch (e) { resolve(null); }
-            });
-        });
-
-        reqHttp.on('timeout', () => {
-            reqHttp.destroy();
-            if (tentativa < MAX_RETRIES) {
-                console.warn(`Timeout na tentativa ${tentativa}, tentando novamente...`);
-                resolve(buscarDadosVtex(targetUrl, tentativa + 1));
-            } else resolve(null);
-        });
-
-        reqHttp.on('error', () => {
-            if (tentativa < MAX_RETRIES) {
-                console.warn(`Erro na tentativa ${tentativa}, tentando novamente...`);
-                resolve(buscarDadosVtex(targetUrl, tentativa + 1));
-            } else resolve(null);
-        });
-
-        reqHttp.end();
-    });
-};
-
-// Obter último preço válido (mantido igual)
-async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
-    const ultimoRegistro = await db.collection('historico_precos_web')
-        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
-        .sort({ data_verificacao: -1 })
-        .limit(1)
-        .toArray();
-    if (ultimoRegistro.length === 0) return Infinity;
-    return ultimoRegistro[0].preco;
-}
-
-// ============================================================================
-// 3. FUNÇÃO PRINCIPAL (AZURE FUNCTION)
+// FUNÇÃO PRINCIPAL
 // ============================================================================
 module.exports = async function (context, req) {
+    // Configuração das lojas com estratégias específicas
     const configs = [
-        { id: 'SAMS', nome: "Sam's Club", host: 'https://www.samsclub.com.br', regionId: '', sc: '1' },
-        { id: 'CARREFOUR', nome: "Carrefour", host: 'https://www.carrefour.com.br', regionId: '', sc: '1' },
+        {
+            id: 'SAMS',
+            nome: "Sam's Club",
+            host: 'https://www.samsclub.com.br',
+            regionId: null, // será obtido dinamicamente se possível
+            scList: [1, 2, 3], // tentar múltiplos
+            sellers: ['1', '2', '3'], // sellers a testar na simulação
+            useSimulationFallback: true
+        },
+        {
+            id: 'CARREFOUR',
+            nome: "Carrefour",
+            host: 'https://www.carrefour.com.br',
+            regionId: null,
+            scList: [1, 2],
+            sellers: ['1', '2'],
+            useSimulationFallback: true
+        },
         {
             id: 'ATACADAO',
             nome: "Atacadão",
             host: 'https://www.atacadao.com.br',
-            regionId: '', // será obtido dinamicamente
-            sc: '1'
+            regionId: 'v2.B8DCB8B9A6E97811ED86748D0F84492B', // ou será obtido dinamicamente
+            scList: [1, 2, 3],
+            sellers: SELLERS_ATACADAO,
+            useSimulationFallback: true
         }
     ];
 
@@ -307,123 +308,58 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
-        // Obtém regionId para o Atacadão (uma vez para toda execução)
-        const regionIdAtacadao = await obterRegionId(CEP_PADRAO);
-        context.log(`RegionId do Atacadão: ${regionIdAtacadao}`);
+        // Obter regionId dinâmico para lojas que não têm fixo
+        for (const cfg of configs) {
+            if (!cfg.regionId) {
+                const region = await obterRegionId(cfg.host, CEP_PADRAO);
+                if (region) cfg.regionId = region;
+            }
+        }
 
-        // Busca produtos ativos com EAN
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
-            context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { aviso: "Nenhum produto válido." } };
+            context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
             return;
         }
 
         for (const prod of monitorados) {
-            // Para cada produto, busca o seller preferido salvo no banco (cache)
-            const sellerPreferido = prod.seller_preferido || null;
-
-            // Mapeia as promessas de busca para cada loja
             const promessasBusca = configs.map(async (lojaConfig) => {
                 try {
                     const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, lojaConfig.nome);
                     const precoReferencia = prod.preco_alvo || ultimoPrecoWeb;
                     const temAlvo = precoReferencia !== Infinity;
 
-                    let resultado = null;
+                    // Usa a função unificada de busca
+                    const resultado = await buscarProduto(lojaConfig, prod.ean, prod.nome_comum, null);
 
-                    if (lojaConfig.id === 'ATACADAO') {
-                        // Usa a lógica aprimorada para o Atacadão
-                        const sc = parseInt(lojaConfig.sc) || 1;
-                        const dadosExtraidos = await buscarProdutoAtacadao(
-                            lojaConfig.host,
-                            sc,
-                            regionIdAtacadao,
-                            prod.ean,
-                            prod.nome_comum,
-                            sellerPreferido
-                        );
-                        if (dadosExtraidos) {
-                            resultado = {
-                                produto: prod.nome_comum,
-                                loja: lojaConfig.nome,
-                                origem: dadosExtraidos.nomeLojaOrigem,
-                                link: dadosExtraidos.link,
-                                status: dadosExtraidos.preco > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
-                                preco: dadosExtraidos.preco,
-                                precoReferencia,
-                                ultimoPrecoWeb,
-                                temAlvo,
-                                seller: dadosExtraidos.seller // guarda o seller usado
-                            };
-                        } else {
-                            resultado = {
-                                produto: prod.nome_comum,
-                                loja: lojaConfig.nome,
-                                origem: "N/A",
-                                status: "NÃO ENCONTRADO",
-                                preco: 0,
-                                precoReferencia,
-                                ultimoPrecoWeb,
-                                temAlvo
-                            };
-                        }
+                    if (resultado) {
+                        return {
+                            produto: prod.nome_comum,
+                            loja: lojaConfig.nome,
+                            origem: resultado.nomeLojaOrigem || lojaConfig.nome,
+                            link: resultado.link,
+                            status: "ENCONTRADO",
+                            preco: resultado.preco,
+                            precoReferencia,
+                            ultimoPrecoWeb,
+                            temAlvo
+                        };
                     } else {
-                        // Lógica original para Sam's Club e Carrefour (busca simples)
-                        let urlEan = `${lojaConfig.host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${prod.ean}&sc=${lojaConfig.sc}&_=${Date.now()}`;
-                        if (lojaConfig.regionId) urlEan += `&regionId=${lojaConfig.regionId}`;
-
-                        const data = await buscarDadosVtex(urlEan);
-
-                        if (data && data.length > 0) {
-                            const item = data[0];
-                            let precoAtual = 0;
-                            let linkCompra = item.link;
-                            let nomeLojaOrigem = "N/A";
-
-                            for (const seller of item.items[0].sellers) {
-                                if (seller.commertialOffer.Price > 0) {
-                                    precoAtual = seller.commertialOffer.Price;
-                                    nomeLojaOrigem = seller.sellerName;
-                                    break;
-                                }
-                            }
-
-                            resultado = {
-                                produto: prod.nome_comum,
-                                loja: lojaConfig.nome,
-                                origem: nomeLojaOrigem,
-                                link: linkCompra,
-                                status: precoAtual > 0 ? "ENCONTRADO" : "SEM ESTOQUE (Preço 0,00)",
-                                preco: precoAtual,
-                                precoReferencia,
-                                ultimoPrecoWeb,
-                                temAlvo
-                            };
-                        } else {
-                            resultado = {
-                                produto: prod.nome_comum,
-                                loja: lojaConfig.nome,
-                                origem: "N/A",
-                                status: "NÃO ENCONTRADO",
-                                preco: 0,
-                                precoReferencia,
-                                ultimoPrecoWeb,
-                                temAlvo
-                            };
-                        }
+                        return {
+                            produto: prod.nome_comum,
+                            loja: lojaConfig.nome,
+                            origem: "N/A",
+                            status: "NÃO ENCONTRADO",
+                            preco: 0
+                        };
                     }
-
-                    return resultado;
                 } catch (err) {
                     return {
                         produto: prod.nome_comum,
                         loja: lojaConfig.nome,
                         origem: "ERRO",
                         status: "ERRO DE CONEXÃO",
-                        preco: 0,
-                        precoReferencia: Infinity,
-                        ultimoPrecoWeb: Infinity,
-                        temAlvo: false
+                        preco: 0
                     };
                 }
             });
@@ -431,7 +367,6 @@ module.exports = async function (context, req) {
             const resultadosDoProduto = await Promise.all(promessasBusca);
 
             for (const res of resultadosDoProduto) {
-                // Adiciona ao relatório
                 relatorio.push({
                     produto: res.produto,
                     loja: res.loja,
@@ -440,15 +375,6 @@ module.exports = async function (context, req) {
                     ...(res.preco > 0 && { preco: res.preco, referencia_usada: res.precoReferencia })
                 });
 
-                // Se for Atacadão e encontrou com um seller, atualiza o cache no banco
-                if (res.loja === 'Atacadão' && res.status === 'ENCONTRADO' && res.seller) {
-                    await dicionarioCol.updateOne(
-                        { _id: prod._id },
-                        { $set: { seller_preferido: res.seller } }
-                    );
-                }
-
-                // Disparo de alertas e salvamento de histórico (lógica original)
                 if (res.status === "ENCONTRADO" && res.preco > 0) {
                     if (res.temAlvo && res.preco < res.precoReferencia) {
                         const jaExiste = await alertasCol.findOne({
@@ -491,13 +417,23 @@ module.exports = async function (context, req) {
         };
 
     } catch (e) {
-        context.log.error('Erro crítico:', e);
         context.res = {
             status: 500,
-            headers: { "Content-Type": "application/json" },
             body: { erro: "Erro Crítico: " + e.message }
         };
     } finally {
         if (client) await client.close();
     }
 };
+
+// ============================================================================
+// FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO
+// ============================================================================
+async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
+    const ultimo = await db.collection('historico_precos_web')
+        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
+        .sort({ data_verificacao: -1 })
+        .limit(1)
+        .toArray();
+    return ultimo.length > 0 ? ultimo[0].preco : Infinity;
+}
