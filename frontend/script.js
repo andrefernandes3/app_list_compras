@@ -932,7 +932,7 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        const response = await fetch('/api/ObterPrecosHistoricoWeb'); 
+        const response = await fetch('/api/ObterHistoricoWeb'); 
         const historico = await response.json(); 
         
         // DEBUG: Isso vai mostrar no F12 -> Console o que veio do banco
