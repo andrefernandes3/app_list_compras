@@ -5,237 +5,23 @@ const { MongoClient } = require('mongodb');
 // CONFIGURAÇÕES GLOBAIS
 // ============================================================================
 const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
-const TIMEOUT_MS = 10000;          // 10 segundos
-const MAX_RETRIES = 3;             // 3 tentativas
-const CONCURRENT_LIMIT = 3;        // Reduzido para 3 (Evita bloqueio por DDoS da VTEX)
-const DELAY_BETWEEN_BATCHES = 1000;// 1 segundo de respiro entre os lotes
+const TIMEOUT_MS = 10000;
+const MAX_RETRIES = 3;
+
+const agent = new https.Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 3000 });
+
+// ... (MANTENHA AQUI AS MESMAS FUNÇÕES DE ANTES: obterCookiesSams, buscarDadosComRetry, 
+// simularCarrinhoLote, extrairInfoProduto, extrairPrecoDireto, obterRegionIdPorLoja, 
+// buscarProdutoNaLoja, obterUltimoPrecoValido) ...
 
 // ============================================================================
-// 1. AGENTE KEEP-ALIVE (Alta performance)
-// ============================================================================
-const agent = new https.Agent({ 
-    keepAlive: true, 
-    maxSockets: 50, 
-    keepAliveMsecs: 3000
-});
-
-// ============================================================================
-// 2. FUNÇÕES AUXILIARES DE REQUISIÇÃO (MANTIDAS INTACTAS)
+// FUNÇÃO PRINCIPAL (AGORA COMO TIMER TRIGGER)
 // ============================================================================
 
-async function obterCookiesSams(host) {
-    return new Promise((resolve) => {
-        const url = new URL(host);
-        const options = {
-            hostname: url.hostname, path: '/', method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html', 'Connection': 'keep-alive'
-            },
-            timeout: TIMEOUT_MS, agent: agent
-        };
+// Note que mudamos 'req' para 'meuTimer'
+module.exports = async function (context, meuTimer) {
+    context.log('🤖 Robô Acordou! Iniciando varredura agendada em:', new Date().toISOString());
 
-        const req = https.request(options, (res) => {
-            const cookies = res.headers['set-cookie'];
-            if (cookies && cookies.length > 0) {
-                const cookieObj = {};
-                cookies.forEach(c => {
-                    const parts = c.split(';')[0].split('=');
-                    if (parts.length === 2) cookieObj[parts[0].trim()] = parts[1].trim();
-                });
-                cookieObj['cep'] = Buffer.from(CEP_PADRAO).toString('base64');
-                resolve(cookieObj);
-            } else resolve({});
-        });
-
-        req.on('error', () => resolve({}));
-        req.on('timeout', () => { req.destroy(); resolve({}); });
-        req.end();
-    });
-}
-
-function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
-    return new Promise((resolve) => {
-        const urlObj = new URL(url);
-        const cookieString = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
-
-        const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Accept': 'application/json', 'Cookie': cookieString, 'Connection': 'keep-alive'
-        };
-        if (binding) headers['x-vtex-binding'] = binding;
-
-        const options = {
-            hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search,
-            method: 'GET', headers: headers, timeout: TIMEOUT_MS, agent: agent
-        };
-
-        const req = https.request(options, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                let novaUrl = res.headers.location;
-                if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
-                return resolve(buscarDadosComRetry(novaUrl, tentativa, cookies, binding));
-            }
-            if (res.statusCode !== 200) return resolve(null);
-
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-        });
-
-        req.on('timeout', () => {
-            req.destroy();
-            if (tentativa < MAX_RETRIES) setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies, binding)), 500);
-            else resolve(null);
-        });
-
-        req.on('error', () => {
-            if (tentativa < MAX_RETRIES) setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies, binding)), 500);
-            else resolve(null);
-        });
-
-        req.end();
-    });
-}
-
-async function simularCarrinhoLote(host, regionId, sku, sellersList, sc = 1, cookies = {}, binding = null) {
-    const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
-    const sellers = Array.isArray(sellersList) ? sellersList : [sellersList];
-    
-    const payload = { items: sellers.map(seller => ({ id: sku, quantity: 1, seller: seller })), regionId: regionId || '', country: 'BRA' };
-
-    const headers = {
-        'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Accept': 'application/json', 'Cookie': Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '), 'Connection': 'keep-alive'
-    };
-    if (binding) headers['x-vtex-binding'] = binding;
-
-    return new Promise((resolve) => {
-        const urlObj = new URL(url);
-        const options = {
-            hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search,
-            method: 'POST', headers: headers, timeout: TIMEOUT_MS, agent: agent
-        };
-
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    if (json.items && json.items.length > 0) {
-                        for (const targetSeller of sellers) {
-                            const item = json.items.find(i => i.seller === targetSeller);
-                            if (item && item.price > 0 && item.availability === 'available') {
-                                resolve({ preco: item.price / 100, seller: item.seller, available: true });
-                                return;
-                            }
-                        }
-                    }
-                    resolve(null);
-                } catch { resolve(null); }
-            });
-        });
-
-        req.on('error', () => resolve(null));
-        req.on('timeout', () => { req.destroy(); resolve(null); });
-        req.write(JSON.stringify(payload));
-        req.end();
-    });
-}
-
-function extrairInfoProduto(data) {
-    if (!data || data.length === 0) return null;
-    const item = data[0];
-    if (!item.items || item.items.length === 0) return null;
-    const variant = item.items[0];
-    return { sku: variant.itemId, linkText: item.linkText, link: item.link || `https://${item.linkText}/p`, name: item.productName };
-}
-
-function extrairPrecoDireto(data) {
-    if (!data || data.length === 0) return null;
-    for (const item of data) {
-        if (!item.items) continue;
-        for (const variant of item.items) {
-            if (!variant.sellers) continue;
-            for (const seller of variant.sellers) {
-                const offer = seller.commertialOffer;
-                if (offer && offer.Price > 0) return { preco: offer.Price, nomeLojaOrigem: seller.sellerName || 'Loja', sku: variant.itemId, seller: seller.sellerId };
-            }
-        }
-    }
-    return null;
-}
-
-async function obterRegionIdPorLoja(cfg, cep, cookies = {}) {
-    if (cfg.regionIdFixo) return cfg.regionIdFixo;
-    try {
-        const url = `${cfg.host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
-        const data = await buscarDadosComRetry(url, 1, cookies, cfg.binding || null);
-        if (data && data.length > 0) {
-            const region = data.find(r => r.id && r.id.startsWith('v2.'));
-            return region ? region.id : data[0].id;
-        }
-    } catch (e) {}
-    return null;
-}
-
-async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellersList, cookies = {}, binding = null) {
-    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}&_=${Date.now()}`;
-    if (regionId) url += `&regionId=${regionId}`;
-
-    let dados = await buscarDadosComRetry(url, 1, cookies, binding);
-    let sku = null, linkText = null, link = null;
-
-    if (dados && dados.length > 0) {
-        const info = extrairInfoProduto(dados);
-        if (info) { sku = info.sku; linkText = info.linkText; link = info.link; }
-        
-        const precoDireto = extrairPrecoDireto(dados);
-        if (precoDireto && precoDireto.preco > 0) return { ...precoDireto, link };
-    }
-
-    if (!sku) {
-        const nomeExato = encodeURIComponent(produtoNome);
-        let urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${nomeExato}&sc=${sc}&_=${Date.now()}`;
-        if (regionId) urlNome += `&regionId=${regionId}`;
-        dados = await buscarDadosComRetry(urlNome, 1, cookies, binding);
-        if (dados && dados.length > 0) {
-            const candidato = dados.find(p => p.productName && p.productName.toLowerCase().includes(produtoNome.toLowerCase()));
-            if (candidato) {
-                const info = extrairInfoProduto([candidato]);
-                if (info) { sku = info.sku; linkText = info.linkText; link = info.link; }
-            }
-        }
-    }
-
-    if (!sku) return null;
-
-    if (sellersList && sellersList.length > 0) {
-        const sim = await simularCarrinhoLote(host, regionId, sku, sellersList, sc, cookies, binding);
-        if (sim && sim.preco > 0) return { preco: sim.preco, nomeLojaOrigem: `${sim.seller}`, sku: sku, link: link || `https://${host}/${linkText}/p`, seller: sim.seller };
-    } else {
-        const simDefault = await simularCarrinhoLote(host, regionId, sku, ['1'], sc, cookies, binding);
-        if (simDefault && simDefault.preco > 0) return { preco: simDefault.preco, nomeLojaOrigem: 'padrão', sku, link: link || `https://${host}/${linkText}/p`, seller: '1' };
-    }
-
-    return null;
-}
-
-async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
-    const ultimo = await db.collection('historico_precos_web')
-        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
-        .sort({ _id: -1 })
-        .limit(1)
-        .toArray();
-    return ultimo.length > 0 ? ultimo[0].preco : Infinity;
-}
-
-// ============================================================================
-// 7. FUNÇÃO PRINCIPAL EM "FILA INDIANA" (MÁXIMA ESTABILIDADE)
-// ============================================================================
-
-module.exports = async function (context, req) {
     const configs = [
         {
             id: 'ATACADAO', nome: "Atacadão", host: 'https://www.atacadao.com.br',
@@ -250,7 +36,7 @@ module.exports = async function (context, req) {
     ];
 
     let client = null;
-    let relatorio = [];
+    let totalSucessos = 0;
 
     try {
         client = new MongoClient(process.env["MONGODB_URI"]);
@@ -269,15 +55,13 @@ module.exports = async function (context, req) {
 
         const monitorados = await db.collection('dicionario_produtos').find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
-            context.res = { status: 200, body: { aviso: "Nenhum produto válido para monitorar." } };
-            return;
+            context.log.info("Nenhum produto válido para monitorar hoje.");
+            return; // Sai silenciosamente
         }
 
-        context.log(`🤖 Iniciando varredura sequencial para ${monitorados.length} produtos...`);
+        context.log(`Iniciando fila indiana para ${monitorados.length} produtos...`);
 
-        // ========================================================
-        // LOOP SEQUENCIAL: 1 Produto por vez, 1 Loja por vez
-        // ========================================================
+        // Loop Sequencial Seguro (Fila Indiana)
         for (const prod of monitorados) {
             for (const cfg of configs) {
                 try {
@@ -302,12 +86,7 @@ module.exports = async function (context, req) {
                             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
                             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
 
-                            const entry = {
-                                produto: prod.nome_comum, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A', status: 'ENCONTRADO',
-                                preco: resultado.preco, referencia_usada: precoReferencia !== Infinity ? precoReferencia : null,
-                                ultimoPrecoWeb: ultimoPrecoWeb !== Infinity ? ultimoPrecoWeb : null, link: resultado.link || ''
-                            };
-
+                            // Cria alerta se estiver abaixo do alvo
                             if (resultado.preco > 0 && precoReferencia !== Infinity && resultado.preco < precoReferencia) {
                                 const jaExiste = await db.collection('alertas_preco').findOne({ produto_nome: prod.nome_comum, loja: cfg.nome, preco_atual: resultado.preco, status_notificacao: "pendente" });
                                 if (!jaExiste) {
@@ -318,6 +97,7 @@ module.exports = async function (context, req) {
                                 }
                             }
 
+                            // Registra o histórico na web
                             if (ultimoPrecoWeb === Infinity || resultado.preco !== ultimoPrecoWeb) {
                                 await db.collection('historico_precos_web').insertOne({
                                     nome: prod.nome_comum, ean: prod.ean, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A',
@@ -326,39 +106,26 @@ module.exports = async function (context, req) {
                             }
                             
                             encontrado = true;
-                            relatorio.push(entry);
-                            break; // Se achou neste SC, não precisa buscar nos outros SCs desta mesma loja
+                            totalSucessos++;
+                            break; 
                         }
                     }
 
-                    if (!encontrado) {
-                        relatorio.push({
-                            produto: prod.nome_comum, loja: cfg.nome, origem: 'N/A', status: 'NÃO ENCONTRADO', preco: 0,
-                            referencia_usada: null, ultimoPrecoWeb: null, link: ''
-                        });
-                    }
-
                 } catch (erroLoja) {
-                    context.log.warn(`⚠️ Erro no produto ${prod.nome_comum} (Loja: ${cfg.nome}): ${erroLoja.message}`);
-                    relatorio.push({
-                        produto: prod.nome_comum, loja: cfg.nome, origem: 'ERRO', status: 'FALHA DE CONEXÃO', preco: 0,
-                        referencia_usada: null, ultimoPrecoWeb: null, link: ''
-                    });
+                    context.log.warn(`Erro no produto ${prod.nome_comum} (Loja: ${cfg.nome}): ${erroLoja.message}`);
                 }
                 
-                // Pequena pausa entre uma loja e outra (300 milissegundos)
                 await new Promise(resolve => setTimeout(resolve, 300));
             }
             
-            // Pausa entre um produto e outro (500 milissegundos)
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: relatorio };
+        context.log(`🏁 Varredura concluída! Sucessos: ${totalSucessos}`);
+        // NÃO TEM context.res AQUI. O Timer não devolve resposta de tela.
 
     } catch (e) {
-        context.log.error('Erro crítico no Crawler:', e);
-        context.res = { status: 500, body: { erro: "Erro Crítico: " + e.message } };
+        context.log.error('❌ Erro crítico no Crawler Agendado:', e);
     } finally {
         if (client) await client.close();
     }
