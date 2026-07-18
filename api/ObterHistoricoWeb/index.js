@@ -1,28 +1,42 @@
-const { MongoClient } = require('mongodb');
-const uri = process.env["MONGODB_URI"];
-const client = new MongoClient(uri);
-
-module.exports = async function (context, req) {
+async function autoPreencherPrecos() {
     try {
-        await client.connect();
-        const db = client.db('app_compras');
+        const response = await fetch('/api/ObterPrecosHistoricoWeb'); // Nova API isolada
+        const historico = await response.json(); // Lista: [{ nome: "...", loja: "...", preco: 10.00 }]
 
-        // Busca apenas os dados do Robô na coleção correta
-        // O .project garante que só traremos o necessário para o preenchimento
-        const dadosRobo = await db.collection('historico_precos_web')
-            .find({})
-            .project({ nome: 1, loja: 1, preco: 1, _id: 0 })
-            .sort({ data_verificacao: -1 })
-            .toArray();
+        let preenchidos = 0;
 
-        context.res = { 
-            status: 200, 
-            headers: { "Content-Type": "application/json" },
-            body: dadosRobo 
-        };
-    } catch (error) {
-        context.res = { status: 500, body: error.message };
-    } finally {
-        await client.close();
+        // Itera sobre todos os cards de produtos da tela
+        document.querySelectorAll('.card-produto-lista').forEach(card => {
+            // Extraímos o nome que você já definiu no atributo data-produto
+            const nomeProduto = card.getAttribute('data-produto');
+            
+            // Busca os inputs de preço dentro deste card específico
+            const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
+            
+            inputs.forEach(input => {
+                // Descobre a loja olhando o texto do label logo acima do input
+                const label = input.parentElement.querySelector('.uppercase')?.innerText || "";
+                const loja = label.toUpperCase();
+
+                // Procura no histórico
+                const registro = historico.find(h => 
+                    h.nome.trim().toUpperCase() === nomeProduto.trim().toUpperCase() && 
+                    h.loja.trim().toUpperCase().includes(loja)
+                );
+
+                if (registro && registro.preco > 0) {
+                    input.value = registro.preco.toFixed(2).replace('.', ',');
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    preenchidos++;
+                }
+            });
+        });
+
+        if (preenchidos > 0) alert(`${preenchidos} preços preenchidos!`);
+        else alert("Nenhum preço encontrado para os itens da lista.");
+
+    } catch (e) {
+        console.error("Erro:", e);
+        alert("Erro ao conectar com histórico.");
     }
-};
+}
