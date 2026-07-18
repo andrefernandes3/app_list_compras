@@ -717,34 +717,73 @@ async function renderizarDicionario() {
     } catch (e) { console.error(e); }
 }
 
-// Variável para guardar o estado atual do robô (vamos supor que ele começa ligado)
-let roboEstaLigado = true;
+// Variável global para guardar o estado atual do robô
+window.roboEstaLigado = true;
 
-async function alternarRobo() {
+window.alternarRobo = async function() {
     const botao = document.getElementById('btn-toggle-robo');
-
-    // Inverte o estado
-    roboEstaLigado = !roboEstaLigado;
-
-    if (roboEstaLigado) {
-        // Muda visualmente para DESLIGAR
-        botao.innerHTML = '🔕 DESLIGAR ROBÔ';
-        botao.className = 'btn-robo btn-desligar';
-
-        console.log("Robô ativado!");
-        // Aqui você chamará a API para ligar o robô no banco
-        // await fetch('/api/LigarRobo', { method: 'POST' });
-
-    } else {
-        // Muda visualmente para LIGAR
-        botao.innerHTML = '🔔 LIGAR ROBÔ';
-        botao.className = 'btn-robo btn-ligar';
-
-        console.log("Robô pausado!");
-        // Aqui você chamará a API para desligar o robô no banco
-        // await fetch('/api/DesligarRobo', { method: 'POST' });
+    
+    // ==========================================
+    // SE ESTIVER LIGADO -> VAMOS DESLIGAR
+    // ==========================================
+    if (window.roboEstaLigado) {
+        if (!confirm("Tem certeza que deseja DESLIGAR o robô para todos os itens?")) return;
+        
+        try {
+            // Chama a API que você já tem para desmarcar tudo no banco de dados
+            await fetch('/api/GerenciarDicionario', { 
+                method: 'PUT', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ action: 'desmarcar_todos' }) 
+            });
+            
+            // Atualiza visualmente todos os checkboxes da tela (tira o check)
+            document.querySelectorAll('.toggle-monitorar').forEach(c => c.checked = false);
+            
+            // Muda o botão para o estado verde (LIGAR)
+            window.roboEstaLigado = false;
+            botao.innerHTML = '🔔 LIGAR ROBÔ';
+            botao.className = 'btn-robo btn-ligar';
+            
+            console.log("Robô pausado no banco!");
+            alert("Robô pausado com sucesso!");
+            
+        } catch (e) {
+            console.error("Erro ao desligar o robô:", e);
+            alert("Erro ao tentar desligar o robô.");
+        }
+    } 
+    // ==========================================
+    // SE ESTIVER DESLIGADO -> VAMOS LIGAR
+    // ==========================================
+    else {
+        if (!confirm("Deseja LIGAR o robô e voltar a monitorar todos os itens?")) return;
+        
+        try {
+            // Chama a API mandando marcar tudo no banco de dados
+            await fetch('/api/GerenciarDicionario', { 
+                method: 'PUT', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ action: 'marcar_todos' }) 
+            });
+            
+            // Atualiza visualmente todos os checkboxes da tela (coloca o check)
+            document.querySelectorAll('.toggle-monitorar').forEach(c => c.checked = true);
+            
+            // Muda o botão para o estado vermelho (DESLIGAR)
+            window.roboEstaLigado = true;
+            botao.innerHTML = '🔕 DESLIGAR ROBÔ';
+            botao.className = 'btn-robo btn-desligar';
+            
+            console.log("Robô ativado no banco!");
+            alert("Robô ativado com sucesso!");
+            
+        } catch (e) {
+            console.error("Erro ao ligar o robô:", e);
+            alert("Erro ao tentar ligar o robô.");
+        }
     }
-}
+};
 
 function selecionarTudoDicionario(checked) {
     // Seleciona todos os inputs do tipo checkbox dentro da lista
