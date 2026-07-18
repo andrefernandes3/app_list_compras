@@ -932,38 +932,42 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        // Agora chamamos o endpoint novo que olha para a coleção correta
+        // Chamada para a nova API dedicada que criamos no Passo 1
         const response = await fetch('/api/ObterHistoricoWeb'); 
         if (!response.ok) throw new Error("Erro na API");
         const historico = await response.json(); 
 
         let preenchidos = 0;
         
-        document.querySelectorAll('.input-preco-mercado').forEach(input => {
-            const nomeInput = (input.getAttribute('data-nome') || "").trim().toUpperCase();
-            const mercadoInput = (input.getAttribute('data-mercado') || "").trim().toUpperCase();
+        // Itera sobre todos os cards de produtos da lista
+        document.querySelectorAll('.card-produto-lista').forEach(card => {
+            const nomeProduto = card.getAttribute('data-produto');
+            const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
             
-            // Procura o registro vindo da coleção historico_precos_web
-            const registro = historico.find(h => 
-                h.nome.trim().toUpperCase() === nomeInput && 
-                h.loja.trim().toUpperCase().includes(mercadoInput)
-            );
-            
-            if (registro && registro.preco > 0) {
-                input.value = registro.preco.toFixed(2).replace('.', ',');
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                preenchidos++;
-            }
+            inputs.forEach(input => {
+                const label = input.parentElement.querySelector('.uppercase')?.innerText || "";
+                const loja = label.toUpperCase();
+
+                // Compara os dados vindos do robô com o que está na tela
+                const registro = historico.find(h => 
+                    h.nome?.trim().toUpperCase() === nomeProduto?.trim().toUpperCase() && 
+                    h.loja?.trim().toUpperCase().includes(loja)
+                );
+                
+                if (registro && registro.preco > 0) {
+                    input.value = registro.preco.toFixed(2).replace('.', ',');
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    preenchidos++;
+                }
+            });
         });
 
-        if (preenchidos === 0) {
-            alert("Nenhum preço encontrado no histórico do robô.");
-        } else {
-            alert(`${preenchidos} preços preenchidos com sucesso!`);
-        }
+        if (preenchidos > 0) alert(`${preenchidos} preços preenchidos com sucesso!`);
+        else alert("Nenhum preço encontrado no histórico do robô.");
+
     } catch (e) {
         console.error("Erro ao preencher:", e);
-        alert("Erro ao buscar histórico do robô.");
+        alert("Erro ao conectar com histórico. Verifique os logs no Azure.");
     }
 }
 
