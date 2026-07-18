@@ -718,6 +718,35 @@ async function renderizarDicionario() {
     } catch (e) { console.error(e); }
 }
 
+// Variável para guardar o estado atual do robô (vamos supor que ele começa ligado)
+let roboEstaLigado = true;
+
+async function alternarRobo() {
+    const botao = document.getElementById('btn-toggle-robo');
+    
+    // Inverte o estado
+    roboEstaLigado = !roboEstaLigado;
+
+    if (roboEstaLigado) {
+        // Muda visualmente para DESLIGAR
+        botao.innerHTML = '🔕 DESLIGAR ROBÔ';
+        botao.className = 'btn-robo btn-desligar';
+        
+        console.log("Robô ativado!");
+        // Aqui você chamará a API para ligar o robô no banco
+        // await fetch('/api/LigarRobo', { method: 'POST' });
+        
+    } else {
+        // Muda visualmente para LIGAR
+        botao.innerHTML = '🔔 LIGAR ROBÔ';
+        botao.className = 'btn-robo btn-ligar';
+        
+        console.log("Robô pausado!");
+        // Aqui você chamará a API para desligar o robô no banco
+        // await fetch('/api/DesligarRobo', { method: 'POST' });
+    }
+}
+
 function selecionarTudoDicionario(checked) {
     // Seleciona todos os inputs do tipo checkbox dentro da lista
     document.querySelectorAll('#lista-dicionario input[type="checkbox"]').forEach(cb => {

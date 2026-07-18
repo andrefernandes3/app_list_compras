@@ -58,3 +58,32 @@ main {
 .card-produto-lista {
     transition: all 0.2s ease-in-out;
 }
+/* Estilo base do botão */
+.btn-robo {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    transition: all 0.3s ease;
+}
+
+/* Estado Vermelho (Para desligar) */
+.btn-desligar {
+    background-color: #ffeaea;
+    color: #d32f2f;
+    border: 1px solid #ffcdd2;
+}
+.btn-desligar:hover {
+    background-color: #ffcdd2;
+}
+
+/* Estado Verde (Para ligar) */
+.btn-ligar {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+.btn-ligar:hover {
+    background-color: #c8e6c9;
+}
