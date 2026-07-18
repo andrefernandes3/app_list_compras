@@ -959,8 +959,8 @@ async function autoPreencherPrecos() {
                 return;
             }
 
-            // Busca todos os inputs de preço dentro do card (pela classe)
-            const inputs = card.querySelectorAll('.input-preco-mercado');
+            // Busca todos os inputs de preço dentro do card (pela classe)            /
+            const inputs = card.querySelectorAll('input.input-preco-mercado'); F
             if (inputs.length === 0) {
                 console.warn("⚠️ Nenhum input com classe .input-preco-mercado encontrado no card:", card);
                 return;
@@ -1003,7 +1003,7 @@ async function autoPreencherPrecos() {
                     // Formata para exibição com vírgula
                     input.value = registro.preco.toFixed(2).replace('.', ',');
                     // Dispara evento para atualizar o ranking e salvar no temp
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    //input.dispatchEvent(new Event('input', { bubbles: true }));
                     preenchidos++;
                 } else {
                     console.log(`🔴 Não encontrado: ${nomeProdutoTela} / ${lojaTelaRaw}`);
