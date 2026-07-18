@@ -932,34 +932,39 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        // Chamada para a nova API dedicada que criamos no Passo 1
-        const response = await fetch('/api/ObterHistoricoWeb');
-        if (!response.ok) throw new Error("Erro na API");
-        const historico = await response.json();
+        const response = await fetch('/api/ObterPrecosHistoricoWeb'); 
+        const historico = await response.json(); 
+        
+        // DEBUG: Isso vai mostrar no F12 -> Console o que veio do banco
+        console.log("Dados recebidos do Robô:", historico);
 
         let preenchidos = 0;
 
-        // Itera sobre todos os cards de produtos da lista
         document.querySelectorAll('.card-produto-lista').forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
             const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
-
+            
             inputs.forEach(input => {
                 const label = input.parentElement.querySelector('.uppercase')?.innerText || "";
                 const loja = label.toUpperCase();
 
-                // Compara os dados vindos do robô com o que está na tela
+                // DEBUG: Isso mostra o que estamos tentando encontrar
+                console.log(`Tentando encontrar: Produto=${nomeProduto}, Loja=${loja}`);
+
                 const registro = historico.find(h => {
-                    const nomeBanco = h.nome.trim().toUpperCase();
-                    const lojaBanco = h.loja.trim().toUpperCase().replace(/['\s]/g, ""); // Remove espaços e apóstrofos: "SAM'S CLUB" vira "SAMSCLUB"
+                    const nomeBanco = h.nome?.trim().toUpperCase() || "";
+                    const lojaBanco = h.loja?.trim().toUpperCase().replace(/['\s]/g, "") || "";
+                    const lojaTela = loja.trim().toUpperCase().replace(/['\s]/g, "");
 
-                    const nomeTela = nomeProduto.trim().toUpperCase();
-                    const lojaTela = loja.trim().toUpperCase().replace(/['\s]/g, ""); // Faz o mesmo com o texto da tela
+                    // DEBUG: Mostra a comparação sendo feita
+                    // console.log(`Comparando: ${nomeBanco}==${nomeProduto.trim().toUpperCase()} E ${lojaBanco}.includes(${lojaTela})`);
 
-                    return nomeBanco === nomeTela && lojaBanco.includes(lojaTela);
+                    return nomeBanco === nomeProduto.trim().toUpperCase() && 
+                           lojaBanco.includes(lojaTela);
                 });
-
-                if (registro && registro.preco > 0) {
+                
+                if (registro) {
+                    console.log("✅ Encontrado! Preço:", registro.preco);
                     input.value = registro.preco.toFixed(2).replace('.', ',');
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     preenchidos++;
@@ -967,12 +972,9 @@ async function autoPreencherPrecos() {
             });
         });
 
-        if (preenchidos > 0) alert(`${preenchidos} preços preenchidos com sucesso!`);
-        else alert("Nenhum preço encontrado no histórico do robô.");
-
+        alert(`${preenchidos} preços preenchidos.`);
     } catch (e) {
-        console.error("Erro ao preencher:", e);
-        alert("Erro ao conectar com histórico. Verifique os logs no Azure.");
+        console.error("Erro no preenchimento:", e);
     }
 }
 
