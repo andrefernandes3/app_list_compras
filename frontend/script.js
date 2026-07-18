@@ -932,7 +932,8 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        const response = await fetch('/api/ObterHistoricoProduto'); 
+        // Agora chamamos o endpoint novo que olha para a coleção correta
+        const response = await fetch('/api/ObterHistoricoWeb'); 
         if (!response.ok) throw new Error("Erro na API");
         const historico = await response.json(); 
 
@@ -942,8 +943,7 @@ async function autoPreencherPrecos() {
             const nomeInput = (input.getAttribute('data-nome') || "").trim().toUpperCase();
             const mercadoInput = (input.getAttribute('data-mercado') || "").trim().toUpperCase();
             
-            // Procura no histórico um item que combine nome e loja
-            // O .includes serve para tratar nomes como "SAMS CLUB" vs "SAMS"
+            // Procura o registro vindo da coleção historico_precos_web
             const registro = historico.find(h => 
                 h.nome.trim().toUpperCase() === nomeInput && 
                 h.loja.trim().toUpperCase().includes(mercadoInput)
@@ -957,13 +957,13 @@ async function autoPreencherPrecos() {
         });
 
         if (preenchidos === 0) {
-            alert("Nenhum preço encontrado no histórico para os itens da lista. Verifique se os nomes dos produtos conferem.");
+            alert("Nenhum preço encontrado no histórico do robô.");
         } else {
-            alert(`${preenchidos} preços preenchidos!`);
+            alert(`${preenchidos} preços preenchidos com sucesso!`);
         }
     } catch (e) {
-        console.error("Erro completo:", e);
-        alert("Erro ao buscar histórico no servidor.");
+        console.error("Erro ao preencher:", e);
+        alert("Erro ao buscar histórico do robô.");
     }
 }
 
