@@ -2,18 +2,17 @@ const https = require('https');
 const { MongoClient } = require('mongodb');
 
 // ============================================================================
-// CONFIGURAÇÕES GERAIS
+// CONFIGURAÇÕES
 // ============================================================================
 const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
-const TIMEOUT_MS = 15000;
-const MAX_RETRIES = 3;
-const CONCURRENT_LIMIT = 5; // processa 5 produtos por vez
+const TIMEOUT_MS = 20000; // aumentado para evitar timeout
+const MAX_RETRIES = 4;
+const CONCURRENT_LIMIT = 3; // reduzido para evitar sobrecarga
+const DELAY_BETWEEN_BATCHES = 1500; // 1.5s entre lotes
 
 // ============================================================================
-// 1. FUNÇÕES PARA O SAM'S CLUB (COOKIES, BINDING, ETC)
+// 1. FUNÇÃO: OBTER COOKIES DA PÁGINA INICIAL (Sam's Club)
 // ============================================================================
-
-// Obtém cookies da página inicial do Sam's Club
 async function obterCookiesSams(host) {
     return new Promise((resolve) => {
         const url = new URL(host);
@@ -55,8 +54,10 @@ async function obterCookiesSams(host) {
 }
 
 // ============================================================================
-// 2. FUNÇÃO DE REQUISIÇÃO GENÉRICA (COM RETRY, COOKIES E BINDING)
+// 2. FUNÇÃO: REQUISIÇÃO COM RETRY, TIMEOUT, COOKIES E BINDING (com keep-alive)
 // ============================================================================
+const agent = new https.Agent({ keepAlive: true, maxSockets: 10 });
+
 function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
     return new Promise((resolve) => {
         const urlObj = new URL(url);
@@ -67,7 +68,8 @@ function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json',
-            'Cookie': cookieString
+            'Cookie': cookieString,
+            'Connection': 'keep-alive'
         };
         if (binding) {
             headers['x-vtex-binding'] = binding;
@@ -78,7 +80,8 @@ function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
             path: urlObj.pathname + urlObj.search,
             method: 'GET',
             headers: headers,
-            timeout: TIMEOUT_MS
+            timeout: TIMEOUT_MS,
+            agent: agent
         };
 
         const req = https.request(options, (res) => {
@@ -99,15 +102,17 @@ function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
         req.on('timeout', () => {
             req.destroy();
             if (tentativa < MAX_RETRIES) {
-                console.warn(`Timeout na tentativa ${tentativa}, tentando novamente...`);
-                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies, binding)), 1000 * tentativa);
+                const delay = 1000 * Math.pow(2, tentativa - 1);
+                console.warn(`Timeout na tentativa ${tentativa}, tentando novamente em ${delay}ms...`);
+                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies, binding)), delay);
             } else resolve(null);
         });
 
         req.on('error', (err) => {
             if (tentativa < MAX_RETRIES) {
-                console.warn(`Erro na tentativa ${tentativa}: ${err.message}, tentando novamente...`);
-                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies, binding)), 1000 * tentativa);
+                const delay = 1000 * Math.pow(2, tentativa - 1);
+                console.warn(`Erro na tentativa ${tentativa}: ${err.message}, tentando novamente em ${delay}ms...`);
+                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies, binding)), delay);
             } else resolve(null);
         });
 
@@ -116,7 +121,7 @@ function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
 }
 
 // ============================================================================
-// 3. SIMULAÇÃO DE CARRINHO (GENÉRICA, COM COOKIES E BINDING)
+// 3. FUNÇÃO: SIMULAÇÃO DE CARRINHO COM COOKIES E BINDING
 // ============================================================================
 async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = {}, binding = null) {
     const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
@@ -134,7 +139,8 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = 
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
-        'Cookie': cookieString
+        'Cookie': cookieString,
+        'Connection': 'keep-alive'
     };
     if (binding) {
         headers['x-vtex-binding'] = binding;
@@ -147,7 +153,8 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = 
             path: urlObj.pathname + urlObj.search,
             method: 'POST',
             headers: headers,
-            timeout: TIMEOUT_MS
+            timeout: TIMEOUT_MS,
+            agent: agent
         };
 
         const req = https.request(options, (res) => {
@@ -182,7 +189,27 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = 
 }
 
 // ============================================================================
-// 4. FUNÇÕES AUXILIARES PARA EXTRAÇÃO DE DADOS DA VTEX
+// 4. FUNÇÃO: OBTER REGIONID (com fallback para fixo)
+// ============================================================================
+async function obterRegionIdPorLoja(cfg, cep, cookies = {}) {
+    if (cfg.regionIdFixo) {
+        return cfg.regionIdFixo;
+    }
+    try {
+        const url = `${cfg.host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
+        const data = await buscarDadosComRetry(url, 1, cookies, cfg.binding || null);
+        if (data && data.length > 0) {
+            const region = data.find(r => r.id && r.id.startsWith('v2.'));
+            return region ? region.id : data[0].id;
+        }
+    } catch (e) {
+        console.warn(`Falha ao obter regionId para ${cfg.nome}:`, e.message);
+    }
+    return null;
+}
+
+// ============================================================================
+// 5. FUNÇÕES AUXILIARES PARA EXTRAÇÃO DE DADOS
 // ============================================================================
 function extrairInfoProduto(data) {
     if (!data || data.length === 0) return null;
@@ -220,117 +247,15 @@ function extrairPrecoDireto(data) {
 }
 
 // ============================================================================
-// 5. FUNÇÃO PARA OBTER REGIONID (COM FALLBACK PARA FIXO)
+// 6. FUNÇÃO DE BUSCA GENÉRICA PARA QUALQUER LOJA
 // ============================================================================
-async function obterRegionIdPorLoja(cfg, cep, cookies = {}) {
-    if (cfg.regionIdFixo) {
-        return cfg.regionIdFixo;
-    }
-    try {
-        const url = `${cfg.host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
-        const data = await buscarDadosComRetry(url, 1, cookies, cfg.binding || null);
-        if (data && data.length > 0) {
-            const region = data.find(r => r.id && r.id.startsWith('v2.'));
-            return region ? region.id : data[0].id;
-        }
-    } catch (e) {
-        console.warn(`Falha ao obter regionId para ${cfg.nome}:`, e.message);
-    }
-    return null;
-}
-
-// ============================================================================
-// 6. BUSCA DE PRODUTO PARA O SAM'S CLUB (COM SELLERS ESPECÍFICOS)
-// ============================================================================
-async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersList, cookies = {}, binding = null) {
+async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellersList, cookies = {}, binding = null) {
     // 1. Busca por EAN
     let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}`;
     if (regionId) url += `&regionId=${regionId}`;
     url += `&_=${Date.now()}`;
 
     let dados = await buscarDadosComRetry(url, 1, cookies, binding);
-    let sku = null, linkText = null, link = null;
-
-    if (dados && dados.length > 0) {
-        const info = extrairInfoProduto(dados);
-        if (info) {
-            sku = info.sku;
-            linkText = info.linkText;
-            link = info.link;
-        }
-        // Tentar extrair preço direto (se > 0, já retorna)
-        const precoDireto = extrairPrecoDireto(dados);
-        if (precoDireto && precoDireto.preco > 0) {
-            return { ...precoDireto, link };
-        }
-    }
-
-    // 2. Fallback por nome (se EAN não funcionou)
-    if (!sku) {
-        const nomeExato = encodeURIComponent(produtoNome);
-        let urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${nomeExato}&sc=${sc}`;
-        if (regionId) urlNome += `&regionId=${regionId}`;
-        urlNome += `&_=${Date.now()}`;
-        dados = await buscarDadosComRetry(urlNome, 1, cookies, binding);
-        if (dados && dados.length > 0) {
-            // Filtra para encontrar o mais parecido com o nome original
-            const candidato = dados.find(p => p.productName && p.productName.toLowerCase().includes(produtoNome.toLowerCase()));
-            if (candidato) {
-                const info = extrairInfoProduto([candidato]);
-                if (info) {
-                    sku = info.sku;
-                    linkText = info.linkText;
-                    link = info.link;
-                }
-            }
-        }
-    }
-
-    if (!sku) {
-        return null;
-    }
-
-    // 3. Simulação com cada seller da lista (em ordem)
-    if (sellersList && sellersList.length > 0) {
-        for (const seller of sellersList) {
-            const sim = await simularCarrinho(host, regionId, sku, seller, sc, cookies, binding);
-            if (sim && sim.preco > 0) {
-                return {
-                    preco: sim.preco,
-                    nomeLojaOrigem: `Sam's Club (${seller})`,
-                    sku: sku,
-                    link: link || `https://${host}/${linkText}/p`,
-                    seller: seller
-                };
-            }
-        }
-    }
-
-    // 4. Fallback: simulação com seller '1' (genérico)
-    const simDefault = await simularCarrinho(host, regionId, sku, '1', sc, cookies, binding);
-    if (simDefault && simDefault.preco > 0) {
-        return {
-            preco: simDefault.preco,
-            nomeLojaOrigem: `Sam's Club (padrão)`,
-            sku: sku,
-            link: link || `https://${host}/${linkText}/p`,
-            seller: '1'
-        };
-    }
-
-    return null;
-}
-
-// ============================================================================
-// 7. BUSCA DE PRODUTO PARA O ATACADÃO (MANTÉM LÓGICA ANTERIOR)
-// ============================================================================
-async function buscarProdutoAtacadao(host, regionId, sc, ean, produtoNome, sellersList) {
-    // 1. Busca por EAN
-    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}`;
-    if (regionId) url += `&regionId=${regionId}`;
-    url += `&_=${Date.now()}`;
-
-    let dados = await buscarDadosComRetry(url, 1, {}, null); // sem cookies para Atacadão
     let sku = null, linkText = null, link = null;
 
     if (dados && dados.length > 0) {
@@ -348,14 +273,20 @@ async function buscarProdutoAtacadao(host, regionId, sc, ean, produtoNome, selle
 
     // 2. Fallback por nome
     if (!sku) {
-        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
-        dados = await buscarDadosComRetry(urlNome, 1, {}, null);
+        const nomeExato = encodeURIComponent(produtoNome);
+        let urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${nomeExato}&sc=${sc}`;
+        if (regionId) urlNome += `&regionId=${regionId}`;
+        urlNome += `&_=${Date.now()}`;
+        dados = await buscarDadosComRetry(urlNome, 1, cookies, binding);
         if (dados && dados.length > 0) {
-            const info = extrairInfoProduto(dados);
-            if (info) {
-                sku = info.sku;
-                linkText = info.linkText;
-                link = info.link;
+            const candidato = dados.find(p => p.productName && p.productName.toLowerCase().includes(produtoNome.toLowerCase()));
+            if (candidato) {
+                const info = extrairInfoProduto([candidato]);
+                if (info) {
+                    sku = info.sku;
+                    linkText = info.linkText;
+                    link = info.link;
+                }
             }
         }
     }
@@ -364,14 +295,14 @@ async function buscarProdutoAtacadao(host, regionId, sc, ean, produtoNome, selle
         return null;
     }
 
-    // 3. Simulação com sellers do Atacadão (prioridade)
+    // 3. Tenta cada seller em ordem (prioridade)
     if (sellersList && sellersList.length > 0) {
         for (const seller of sellersList) {
-            const sim = await simularCarrinho(host, regionId, sku, seller, sc, {}, null);
+            const sim = await simularCarrinho(host, regionId, sku, seller, sc, cookies, binding);
             if (sim && sim.preco > 0) {
                 return {
                     preco: sim.preco,
-                    nomeLojaOrigem: `Atacadão (${seller})`,
+                    nomeLojaOrigem: `${seller}`,
                     sku: sku,
                     link: link || `https://${host}/${linkText}/p`,
                     seller: seller
@@ -380,26 +311,27 @@ async function buscarProdutoAtacadao(host, regionId, sc, ean, produtoNome, selle
         }
     }
 
+    // 4. Fallback: simulação com seller '1'
+    const simDefault = await simularCarrinho(host, regionId, sku, '1', sc, cookies, binding);
+    if (simDefault && simDefault.preco > 0) {
+        return {
+            preco: simDefault.preco,
+            nomeLojaOrigem: 'padrão',
+            sku: sku,
+            link: link || `https://${host}/${linkText}/p`,
+            seller: '1'
+        };
+    }
+
     return null;
 }
 
 // ============================================================================
-// 8. FUNÇÃO PRINCIPAL – AZURE FUNCTION (MESCLADA)
+// 7. FUNÇÃO PRINCIPAL – AZURE FUNCTION (mesclada)
 // ============================================================================
 module.exports = async function (context, req) {
-    // Configurações das lojas
+    // Configurações das lojas (Atacadão e Sam's Club)
     const configs = [
-        {
-            id: 'SAMS',
-            nome: "Sam's Club",
-            host: 'https://www.samsclub.com.br',
-            scList: [1, 2, 3],
-            sellers: ['samsclub6058', 'samsclub6546'], // sellers específicos encontrados
-            regionIdFixo: 'IlUxY2pjMkZ0YzJOc2RXSTJNRFU0TzNOaGJYTmpiSFZpTmpVME5nPT0i',
-            binding: 'samsclub.myvtex.com/',
-            usarCookies: true,
-            funcaoBusca: buscarProdutoSams
-        },
         {
             id: 'ATACADAO',
             nome: "Atacadão",
@@ -417,10 +349,21 @@ module.exports = async function (context, req) {
             ],
             regionIdFixo: null, // obtém dinamicamente
             binding: null,
-            usarCookies: false,
-            funcaoBusca: buscarProdutoAtacadao
+            usarCookies: false
+        },
+        {
+            id: 'SAMS',
+            nome: "Sam's Club",
+            host: 'https://www.samsclub.com.br',
+            scList: [1, 2, 3],
+            sellers: [
+                'samsclub6058', // prioridade (Sam's Club geral)
+                'samsclub6546'  // Sam's Club Osasco
+            ],
+            regionIdFixo: 'IlUxY2pjMkZ0YzJOc2RXSTJNRFU0TzNOaGJYTmpiSFZpTmpVME5nPT0i',
+            binding: 'samsclub.myvtex.com/',
+            usarCookies: true
         }
-        // Adicione Carrefour aqui quando estiver pronto
     ];
 
     let client = null;
@@ -444,7 +387,7 @@ module.exports = async function (context, req) {
             }
         }
 
-        // Obter regionId para cada loja
+        // Obter regionId para cada loja (usa fixo se disponível)
         const regionIds = {};
         for (const cfg of configs) {
             regionIds[cfg.id] = await obterRegionIdPorLoja(cfg, CEP_PADRAO, cookiesMap[cfg.id] || {});
@@ -458,7 +401,7 @@ module.exports = async function (context, req) {
             return;
         }
 
-        // Processar em lotes
+        // Processar em lotes com delay entre eles
         const total = monitorados.length;
         for (let i = 0; i < total; i += CONCURRENT_LIMIT) {
             const batch = monitorados.slice(i, i + CONCURRENT_LIMIT);
@@ -468,38 +411,25 @@ module.exports = async function (context, req) {
                 for (const cfg of configs) {
                     let encontrado = false;
                     const cookies = cookiesMap[cfg.id] || {};
-                    const funcaoBusca = cfg.funcaoBusca;
-
                     for (const sc of cfg.scList) {
                         const regionId = regionIds[cfg.id];
-                        let resultado;
-                        if (cfg.id === 'SAMS') {
-                            resultado = await funcaoBusca(
-                                cfg.host,
-                                regionId,
-                                sc,
-                                prod.ean,
-                                prod.nome_comum,
-                                cfg.sellers,
-                                cookies,
-                                cfg.binding
-                            );
-                        } else {
-                            // Atacadão (sem cookies)
-                            resultado = await funcaoBusca(
-                                cfg.host,
-                                regionId,
-                                sc,
-                                prod.ean,
-                                prod.nome_comum,
-                                cfg.sellers
-                            );
-                        }
-
+                        const resultado = await buscarProdutoNaLoja(
+                            cfg.host,
+                            regionId,
+                            sc,
+                            prod.ean,
+                            prod.nome_comum,
+                            cfg.sellers,
+                            cookies,
+                            cfg.binding
+                        );
                         if (resultado) {
                             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
                             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
                             const temAlvo = precoReferencia !== Infinity;
+
+                            // Se tiver um seller preferido salvo no banco, usamos ele para acelerar
+                            // Mas como é cache, não vamos implementar agora para simplificar
 
                             const entry = {
                                 produto: prod.nome_comum,
@@ -513,7 +443,7 @@ module.exports = async function (context, req) {
                             };
                             resultadosProduto.push(entry);
 
-                            // Alertas e histórico (mantido do código original)
+                            // Alertas e histórico (mantido igual)
                             if (resultado.preco > 0 && temAlvo && resultado.preco < precoReferencia) {
                                 const jaExiste = await alertasCol.findOne({
                                     produto_nome: prod.nome_comum,
@@ -570,6 +500,12 @@ module.exports = async function (context, req) {
             for (const res of batchResults) {
                 relatorio.push(...res);
             }
+
+            // Delay entre lotes para não sobrecarregar os servidores
+            if (i + CONCURRENT_LIMIT < total) {
+                context.log(`Aguardando ${DELAY_BETWEEN_BATCHES}ms antes do próximo lote...`);
+                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+            }
         }
 
         context.res = {
@@ -590,7 +526,7 @@ module.exports = async function (context, req) {
 };
 
 // ============================================================================
-// 9. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
+// 8. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
 // ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     const ultimo = await db.collection('historico_precos_web')
