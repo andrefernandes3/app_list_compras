@@ -8,8 +8,20 @@ const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
 const TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 
+// Lista de sellers (filiais) que podem ter estoque – obtida da sua simulação
+const SELLERS_ATACADAO = [
+    'atacadaobr634',
+    'atacadaobr637',
+    'atacadaobr649',
+    'atacadaobr680',
+    'atacadaobr697',
+    'atacadaobr698',
+    'atacadaobr938',
+    'atacadaobr939'
+];
+
 // ============================================================================
-// 1. FUNÇÃO: OBTER REGIONID (com fallback)
+// 1. OBTER REGIONID (com fallback)
 // ============================================================================
 let regionIdCache = { value: null, timestamp: 0 };
 
@@ -33,12 +45,11 @@ async function obterRegionId(cep) {
     } catch (e) {
         console.warn('Falha ao obter regionId, usando fallback fixo.', e.message);
     }
-    // Fallback para o ID que você encontrou
     return 'v2.B8DCB8B9A6E97811ED86748D0F84492B';
 }
 
 // ============================================================================
-// 2. FUNÇÃO: REQUISIÇÃO COM RETRY E TIMEOUT
+// 2. REQUISIÇÃO COM RETRY E TIMEOUT
 // ============================================================================
 function buscarDadosComRetry(url, tentativa = 1) {
     return new Promise((resolve) => {
@@ -89,74 +100,28 @@ function buscarDadosComRetry(url, tentativa = 1) {
 }
 
 // ============================================================================
-// 3. FUNÇÃO: EXTRAIR PREÇO DE UM PRODUTO (varre todos sellers)
+// 3. EXTRAIR INFORMAÇÕES BÁSICAS DO PRODUTO (SKU, linkText, etc.)
 // ============================================================================
-function extrairPrecoDoItem(produtoData) {
-    if (!produtoData || produtoData.length === 0) return null;
-
-    // Percorre todos os items (variações)
-    for (const item of produtoData) {
-        if (!item.items) continue;
-        for (const variant of item.items) {
-            if (!variant.sellers) continue;
-            // Varre todos os sellers e pega o primeiro com preço > 0
-            for (const seller of variant.sellers) {
-                const offer = seller.commertialOffer;
-                if (offer && offer.Price > 0) {
-                    return {
-                        preco: offer.Price,
-                        nomeLojaOrigem: seller.sellerName || 'Atacadão',
-                        link: item.link || `https://www.atacadao.com.br/${item.linkText}/p`,
-                        sku: variant.itemId,
-                        sellerId: seller.sellerId,
-                        availableQuantity: offer.AvailableQuantity || 0
-                    };
-                }
-            }
-        }
-    }
-    return null; // nenhum seller com preço > 0
+function extrairInfoProduto(data) {
+    if (!data || data.length === 0) return null;
+    const item = data[0];
+    if (!item.items || item.items.length === 0) return null;
+    const variant = item.items[0];
+    return {
+        sku: variant.itemId,
+        linkText: item.linkText,
+        link: item.link || `https://www.atacadao.com.br/${item.linkText}/p`,
+        name: item.productName
+    };
 }
 
 // ============================================================================
-// 4. FUNÇÃO: BUSCAR PRODUTO POR EAN (com fallback por linkText)
-// ============================================================================
-async function buscarProduto(host, sc, regionId, ean, nomeProduto, linkText) {
-    // Tenta por EAN
-    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}`;
-    if (sc) url += `&sc=${sc}`;
-    if (regionId) url += `&regionId=${regionId}`;
-    url += `&_=${Date.now()}`;
-
-    let dados = await buscarDadosComRetry(url);
-    if (dados && dados.length > 0) {
-        const extraido = extrairPrecoDoItem(dados);
-        if (extraido) return extraido;
-    }
-
-    // Fallback: busca por linkText (se fornecido)
-    if (linkText) {
-        const urlLink = `${host}/api/catalog_system/pub/products/search?fq=linkText:${linkText}`;
-        const scParam = sc ? `&sc=${sc}` : '';
-        const regionParam = regionId ? `&regionId=${regionId}` : '';
-        const urlCompleta = urlLink + scParam + regionParam + `&_=${Date.now()}`;
-        dados = await buscarDadosComRetry(urlCompleta);
-        if (dados && dados.length > 0) {
-            const extraido = extrairPrecoDoItem(dados);
-            if (extraido) return extraido;
-        }
-    }
-
-    return null;
-}
-
-// ============================================================================
-// 5. FUNÇÃO: SIMULAR CARRINHO PARA OBTER PREÇO (fallback extremo)
+// 4. SIMULAR CARRINHO PARA UM SELLER ESPECÍFICO
 // ============================================================================
 async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
     const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
     const payload = {
-        items: [{ id: sku, quantity: 1, seller: sellerId || '1' }],
+        items: [{ id: sku, quantity: 1, seller: sellerId }],
         regionId: regionId,
         country: 'BRA'
     };
@@ -187,11 +152,11 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
                     const json = JSON.parse(data);
                     if (json.items && json.items.length > 0) {
                         const item = json.items[0];
-                        if (item.price > 0) {
+                        if (item.price > 0 && item.availability === 'available') {
                             resolve({
-                                preco: item.price / 100, // geralmente vem em centavos
+                                preco: item.price / 100, // converte centavos para reais
                                 seller: item.seller,
-                                available: item.availability === 'available'
+                                available: true
                             });
                             return;
                         }
@@ -211,7 +176,93 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
 }
 
 // ============================================================================
-// 6. FUNÇÃO PRINCIPAL – AZURE FUNCTION
+// 5. BUSCAR PRODUTO: PRIMEIRO POR EAN, DEPOIS SIMULAÇÃO COM VÁRIOS SELLERS
+// ============================================================================
+async function buscarProdutoComSimulacao(host, sc, regionId, ean, produtoNome) {
+    // 1. Tenta buscar por EAN
+    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
+    let dados = await buscarDadosComRetry(url);
+
+    let sku = null;
+    let linkText = null;
+    let link = null;
+
+    if (dados && dados.length > 0) {
+        const info = extrairInfoProduto(dados);
+        if (info) {
+            sku = info.sku;
+            linkText = info.linkText;
+            link = info.link;
+            // Verifica se algum seller já tem preço > 0 na resposta
+            const precoDireto = extrairPrecoDireto(dados);
+            if (precoDireto) {
+                return { ...precoDireto, link };
+            }
+        }
+    }
+
+    // Se não conseguiu o SKU pelo EAN, tenta buscar por nome (fallback)
+    if (!sku) {
+        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
+        dados = await buscarDadosComRetry(urlNome);
+        if (dados && dados.length > 0) {
+            const info = extrairInfoProduto(dados);
+            if (info) {
+                sku = info.sku;
+                linkText = info.linkText;
+                link = info.link;
+            }
+        }
+    }
+
+    if (!sku) {
+        return null; // não encontrou o SKU
+    }
+
+    // 2. Agora, simula carrinho para cada seller
+    for (const seller of SELLERS_ATACADAO) {
+        const sim = await simularCarrinho(host, regionId, sku, seller, sc);
+        if (sim && sim.preco > 0) {
+            return {
+                preco: sim.preco,
+                nomeLojaOrigem: `Atacadão (${seller})`,
+                sku: sku,
+                link: link || `https://www.atacadao.com.br/${linkText}/p`,
+                seller: seller
+            };
+        }
+    }
+
+    return null; // nenhum seller com preço
+}
+
+// ============================================================================
+// 6. FUNÇÃO AUXILIAR: EXTRAIR PREÇO DIRETO DA RESPOSTA DA API
+// ============================================================================
+function extrairPrecoDireto(dados) {
+    if (!dados || dados.length === 0) return null;
+    for (const item of dados) {
+        if (!item.items) continue;
+        for (const variant of item.items) {
+            if (!variant.sellers) continue;
+            for (const seller of variant.sellers) {
+                const offer = seller.commertialOffer;
+                if (offer && offer.Price > 0) {
+                    return {
+                        preco: offer.Price,
+                        nomeLojaOrigem: seller.sellerName || 'Atacadão',
+                        sku: variant.itemId,
+                        seller: seller.sellerId
+                    };
+                }
+            }
+        }
+    }
+    return null;
+}
+
+// ============================================================================
+// 7. FUNÇÃO PRINCIPAL – AZURE FUNCTION
 // ============================================================================
 module.exports = async function (context, req) {
     const configs = [
@@ -219,7 +270,7 @@ module.exports = async function (context, req) {
             id: 'ATACADAO',
             nome: "Atacadão",
             host: 'https://www.atacadao.com.br',
-            scList: [1, 2, 3, null] // tenta vários
+            scList: [1, 2, 3] // tenta mais de um, mas o principal é 1
         }
     ];
 
@@ -245,51 +296,31 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             const produtoNome = prod.nome_comum;
             const ean = prod.ean;
-            const linkText = prod.link_text || null; // se tiver armazenado no banco
             let resultadoLoja = null;
 
+            // Tenta cada SC
             for (const lojaConfig of configs) {
                 for (const sc of lojaConfig.scList) {
-                    const dadosExtraidos = await buscarProduto(
+                    const resultado = await buscarProdutoComSimulacao(
                         lojaConfig.host,
                         sc,
                         regionId,
                         ean,
-                        produtoNome,
-                        linkText
+                        produtoNome
                     );
-                    if (dadosExtraidos) {
-                        resultadoLoja = dadosExtraidos;
-                        resultadoLoja.loja = lojaConfig.nome;
-                        resultadoLoja.produto = produtoNome;
+                    if (resultado) {
+                        resultadoLoja = {
+                            produto: produtoNome,
+                            loja: lojaConfig.nome,
+                            origem: resultado.nomeLojaOrigem,
+                            link: resultado.link,
+                            preco: resultado.preco,
+                            sku: resultado.sku
+                        };
                         break;
                     }
                 }
                 if (resultadoLoja) break;
-            }
-
-            // Se ainda não encontrou, tenta simulação de carrinho (fallback)
-            if (!resultadoLoja) {
-                // Tenta buscar o SKU via busca por nome (para obter o ID)
-                const urlNome = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&regionId=${regionId}&_=${Date.now()}`;
-                const dadosNome = await buscarDadosComRetry(urlNome);
-                if (dadosNome && dadosNome.length > 0) {
-                    const item = dadosNome[0];
-                    if (item.items && item.items.length > 0) {
-                        const sku = item.items[0].itemId;
-                        const sim = await simularCarrinho('https://www.atacadao.com.br', regionId, sku, null, 1);
-                        if (sim && sim.preco > 0) {
-                            resultadoLoja = {
-                                produto: produtoNome,
-                                loja: 'Atacadão',
-                                origem: sim.seller || 'Atacadão',
-                                link: item.link || '',
-                                preco: sim.preco,
-                                sku: sku
-                            };
-                        }
-                    }
-                }
             }
 
             if (!resultadoLoja) {
@@ -323,7 +354,7 @@ module.exports = async function (context, req) {
             };
             relatorio.push(entry);
 
-            // Alerta e histórico...
+            // Alertas e histórico (mantido igual)
             if (precoAtual > 0 && temAlvo && precoAtual < precoReferencia) {
                 const jaExiste = await alertasCol.findOne({
                     produto_nome: produtoNome,
