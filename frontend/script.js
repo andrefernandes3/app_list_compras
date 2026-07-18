@@ -718,9 +718,12 @@ async function renderizarDicionario() {
 
 function selecionarTudoDicionario(checked) {
     document.querySelectorAll('#lista-dicionario input[type="checkbox"]').forEach(cb => {
-        cb.checked = checked;
-        const nome = cb.getAttribute('data-nome');
-        if (checked) itensSelecionados.add(nome); else itensSelecionados.delete(nome);
+        // Só seleciona se tiver o atributo data-nome (o robô não deve ter)
+        if (cb.hasAttribute('data-nome')) {
+            cb.checked = checked;
+            const nome = cb.getAttribute('data-nome');
+            if (checked) itensSelecionados.add(nome); else itensSelecionados.delete(nome);
+        }
     });
     atualizarBotaoMultiplos();
 }

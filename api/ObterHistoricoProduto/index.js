@@ -49,3 +49,25 @@ module.exports = async function (context, req) {
         context.res = { status: 500, body: error.message };
     }
 };
+
+// Função para auto-preencher
+async function autoPreencherPrecos() {
+    const produtos = document.querySelectorAll('.item-produto'); // Seletor do card do produto
+    
+    for (const card of produtos) {
+        const nomeProduto = card.dataset.nome; // Certifique-se que o card tenha o nome
+        const preco = await fetchUltimoPreco(nomeProduto); // Sua função de busca no historico
+        
+        if (preco) {
+            const inputPreco = card.querySelector('.input-preco-mercado');
+            inputPreco.value = preco.toFixed(2);
+        }
+    }
+}
+
+// Função para limpar após a compra
+function limparPrecos() {
+    document.querySelectorAll('.input-preco-mercado').forEach(input => {
+        input.value = "0,00";
+    });
+}
