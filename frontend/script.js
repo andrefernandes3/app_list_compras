@@ -932,41 +932,38 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        // 1. Tenta buscar todos os dados de uma vez
         const response = await fetch('/api/ObterHistoricoProduto'); 
-        if (!response.ok) throw new Error("Falha na rede");
+        if (!response.ok) throw new Error("Erro na API");
         const historico = await response.json(); 
 
-        // 2. Preenche os campos
         let preenchidos = 0;
+        
         document.querySelectorAll('.input-preco-mercado').forEach(input => {
-            const nome = input.getAttribute('data-nome');
-            const mercado = input.getAttribute('data-mercado');
+            const nomeInput = (input.getAttribute('data-nome') || "").trim().toUpperCase();
+            const mercadoInput = (input.getAttribute('data-mercado') || "").trim().toUpperCase();
             
-            // Procura o registro (adaptado para o formato que sua API retorna)
-            // Se 'historico' for uma lista de objetos { nome, loja, preco }
+            // Procura no histórico um item que combine nome e loja
+            // O .includes serve para tratar nomes como "SAMS CLUB" vs "SAMS"
             const registro = historico.find(h => 
-                h.nome?.trim().toUpperCase() === nome?.trim().toUpperCase() && 
-                h.loja?.trim().toUpperCase() === mercado?.trim().toUpperCase()
+                h.nome.trim().toUpperCase() === nomeInput && 
+                h.loja.trim().toUpperCase().includes(mercadoInput)
             );
             
             if (registro && registro.preco > 0) {
                 input.value = registro.preco.toFixed(2).replace('.', ',');
-                // Dispara o evento de input para que o sistema reconheça a mudança
                 input.dispatchEvent(new Event('input', { bubbles: true }));
                 preenchidos++;
             }
         });
 
         if (preenchidos === 0) {
-            alert("Nenhum preço encontrado no histórico para os itens da lista.");
+            alert("Nenhum preço encontrado no histórico para os itens da lista. Verifique se os nomes dos produtos conferem.");
         } else {
-            alert(`${preenchidos} preços preenchidos com sucesso!`);
+            alert(`${preenchidos} preços preenchidos!`);
         }
     } catch (e) {
-        console.error("Erro ao preencher:", e);
-        // Em vez de um alert bloqueante, você pode logar no console ou mostrar um aviso na tela
-        alert("Não foi possível carregar o histórico. Verifique se a API está online.");
+        console.error("Erro completo:", e);
+        alert("Erro ao buscar histórico no servidor.");
     }
 }
 

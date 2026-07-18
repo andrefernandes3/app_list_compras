@@ -7,14 +7,12 @@ module.exports = async function (context, req) {
         await client.connect();
         const db = client.db('app_compras');
 
-        // BUSCAMOS NA COLEÇÃO CORRETA: historico_precos_web
-        // Se não vier nome, trazemos tudo (limitado para performance)
-        const query = req.query.nome ? { nome: req.query.nome.toUpperCase() } : {};
-        
+        // Busca apenas os documentos que tenham nome, loja e preco
+        // Usamos .project para reduzir o tráfego de rede
         const historico = await db.collection('historico_precos_web')
-            .find(query)
-            .sort({ data_verificacao: -1 }) // Mais recentes primeiro
-            .limit(2000) 
+            .find({ preco: { $gt: 0 } })
+            .project({ nome: 1, loja: 1, preco: 1, _id: 0 })
+            .sort({ data_verificacao: -1 })
             .toArray();
 
         context.res = { 
