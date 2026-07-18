@@ -2,16 +2,18 @@ const https = require('https');
 const { MongoClient } = require('mongodb');
 
 // ============================================================================
-// CONFIGURAÇÕES
+// CONFIGURAÇÕES GERAIS
 // ============================================================================
 const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
 const TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
-const CONCURRENT_LIMIT = 5;
+const CONCURRENT_LIMIT = 5; // processa 5 produtos por vez
 
 // ============================================================================
-// 1. FUNÇÃO: OBTER COOKIES DA PÁGINA INICIAL (Sam's Club)
+// 1. FUNÇÕES PARA O SAM'S CLUB (COOKIES, BINDING, ETC)
 // ============================================================================
+
+// Obtém cookies da página inicial do Sam's Club
 async function obterCookiesSams(host) {
     return new Promise((resolve) => {
         const url = new URL(host);
@@ -38,6 +40,7 @@ async function obterCookiesSams(host) {
                         cookieObj[parts[0].trim()] = parts[1].trim();
                     }
                 });
+                // Adiciona o CEP manualmente (codificado em base64)
                 cookieObj['cep'] = Buffer.from(CEP_PADRAO).toString('base64');
                 resolve(cookieObj);
             } else {
@@ -52,7 +55,7 @@ async function obterCookiesSams(host) {
 }
 
 // ============================================================================
-// 2. FUNÇÃO: REQUISIÇÃO COM RETRY, TIMEOUT, COOKIES E BINDING
+// 2. FUNÇÃO DE REQUISIÇÃO GENÉRICA (COM RETRY, COOKIES E BINDING)
 // ============================================================================
 function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
     return new Promise((resolve) => {
@@ -113,7 +116,7 @@ function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
 }
 
 // ============================================================================
-// 3. FUNÇÃO: SIMULAÇÃO DE CARRINHO COM COOKIES E BINDING
+// 3. SIMULAÇÃO DE CARRINHO (GENÉRICA, COM COOKIES E BINDING)
 // ============================================================================
 async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = {}, binding = null) {
     const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
@@ -179,27 +182,7 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = 
 }
 
 // ============================================================================
-// 4. FUNÇÃO: OBTER REGIONID (com fallback para fixo)
-// ============================================================================
-async function obterRegionIdPorLoja(cfg, cep, cookies = {}) {
-    if (cfg.regionIdFixo) {
-        return cfg.regionIdFixo;
-    }
-    try {
-        const url = `${cfg.host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
-        const data = await buscarDadosComRetry(url, 1, cookies, cfg.binding || null);
-        if (data && data.length > 0) {
-            const region = data.find(r => r.id && r.id.startsWith('v2.'));
-            return region ? region.id : data[0].id;
-        }
-    } catch (e) {
-        console.warn(`Falha ao obter regionId para ${cfg.nome}:`, e.message);
-    }
-    return null;
-}
-
-// ============================================================================
-// 5. FUNÇÕES AUXILIARES PARA EXTRAÇÃO DE DADOS
+// 4. FUNÇÕES AUXILIARES PARA EXTRAÇÃO DE DADOS DA VTEX
 // ============================================================================
 function extrairInfoProduto(data) {
     if (!data || data.length === 0) return null;
@@ -237,7 +220,27 @@ function extrairPrecoDireto(data) {
 }
 
 // ============================================================================
-// 6. BUSCA DE PRODUTO PARA O SAM'S CLUB
+// 5. FUNÇÃO PARA OBTER REGIONID (COM FALLBACK PARA FIXO)
+// ============================================================================
+async function obterRegionIdPorLoja(cfg, cep, cookies = {}) {
+    if (cfg.regionIdFixo) {
+        return cfg.regionIdFixo;
+    }
+    try {
+        const url = `${cfg.host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
+        const data = await buscarDadosComRetry(url, 1, cookies, cfg.binding || null);
+        if (data && data.length > 0) {
+            const region = data.find(r => r.id && r.id.startsWith('v2.'));
+            return region ? region.id : data[0].id;
+        }
+    } catch (e) {
+        console.warn(`Falha ao obter regionId para ${cfg.nome}:`, e.message);
+    }
+    return null;
+}
+
+// ============================================================================
+// 6. BUSCA DE PRODUTO PARA O SAM'S CLUB (COM SELLERS ESPECÍFICOS)
 // ============================================================================
 async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersList, cookies = {}, binding = null) {
     // 1. Busca por EAN
@@ -255,13 +258,14 @@ async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersLi
             linkText = info.linkText;
             link = info.link;
         }
+        // Tentar extrair preço direto (se > 0, já retorna)
         const precoDireto = extrairPrecoDireto(dados);
         if (precoDireto && precoDireto.preco > 0) {
             return { ...precoDireto, link };
         }
     }
 
-    // 2. Fallback por nome
+    // 2. Fallback por nome (se EAN não funcionou)
     if (!sku) {
         const nomeExato = encodeURIComponent(produtoNome);
         let urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${nomeExato}&sc=${sc}`;
@@ -269,6 +273,7 @@ async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersLi
         urlNome += `&_=${Date.now()}`;
         dados = await buscarDadosComRetry(urlNome, 1, cookies, binding);
         if (dados && dados.length > 0) {
+            // Filtra para encontrar o mais parecido com o nome original
             const candidato = dados.find(p => p.productName && p.productName.toLowerCase().includes(produtoNome.toLowerCase()));
             if (candidato) {
                 const info = extrairInfoProduto([candidato]);
@@ -285,7 +290,7 @@ async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersLi
         return null;
     }
 
-    // 3. Simulação com os sellers fornecidos (prioridade)
+    // 3. Simulação com cada seller da lista (em ordem)
     if (sellersList && sellersList.length > 0) {
         for (const seller of sellersList) {
             const sim = await simularCarrinho(host, regionId, sku, seller, sc, cookies, binding);
@@ -301,7 +306,7 @@ async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersLi
         }
     }
 
-    // 4. Fallback: seller '1'
+    // 4. Fallback: simulação com seller '1' (genérico)
     const simDefault = await simularCarrinho(host, regionId, sku, '1', sc, cookies, binding);
     if (simDefault && simDefault.preco > 0) {
         return {
@@ -317,29 +322,105 @@ async function buscarProdutoSams(host, regionId, sc, ean, produtoNome, sellersLi
 }
 
 // ============================================================================
-// 7. FUNÇÃO PRINCIPAL – AZURE FUNCTION (Sam's Club apenas)
+// 7. BUSCA DE PRODUTO PARA O ATACADÃO (MANTÉM LÓGICA ANTERIOR)
+// ============================================================================
+async function buscarProdutoAtacadao(host, regionId, sc, ean, produtoNome, sellersList) {
+    // 1. Busca por EAN
+    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}`;
+    if (regionId) url += `&regionId=${regionId}`;
+    url += `&_=${Date.now()}`;
+
+    let dados = await buscarDadosComRetry(url, 1, {}, null); // sem cookies para Atacadão
+    let sku = null, linkText = null, link = null;
+
+    if (dados && dados.length > 0) {
+        const info = extrairInfoProduto(dados);
+        if (info) {
+            sku = info.sku;
+            linkText = info.linkText;
+            link = info.link;
+        }
+        const precoDireto = extrairPrecoDireto(dados);
+        if (precoDireto && precoDireto.preco > 0) {
+            return { ...precoDireto, link };
+        }
+    }
+
+    // 2. Fallback por nome
+    if (!sku) {
+        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
+        dados = await buscarDadosComRetry(urlNome, 1, {}, null);
+        if (dados && dados.length > 0) {
+            const info = extrairInfoProduto(dados);
+            if (info) {
+                sku = info.sku;
+                linkText = info.linkText;
+                link = info.link;
+            }
+        }
+    }
+
+    if (!sku) {
+        return null;
+    }
+
+    // 3. Simulação com sellers do Atacadão (prioridade)
+    if (sellersList && sellersList.length > 0) {
+        for (const seller of sellersList) {
+            const sim = await simularCarrinho(host, regionId, sku, seller, sc, {}, null);
+            if (sim && sim.preco > 0) {
+                return {
+                    preco: sim.preco,
+                    nomeLojaOrigem: `Atacadão (${seller})`,
+                    sku: sku,
+                    link: link || `https://${host}/${linkText}/p`,
+                    seller: seller
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+// ============================================================================
+// 8. FUNÇÃO PRINCIPAL – AZURE FUNCTION (MESCLADA)
 // ============================================================================
 module.exports = async function (context, req) {
-    // Configuração com os sellers encontrados
+    // Configurações das lojas
     const configs = [
         {
             id: 'SAMS',
             nome: "Sam's Club",
             host: 'https://www.samsclub.com.br',
             scList: [1, 2, 3],
-            // Prioridade: sellers específicos que você encontrou
-            sellers: [
-                'samsclub6058',
-                'samsclub6546',
-                // fallback numérico
-                '1','2','3','4','5','6','7','8','9','10',
-                'samsclub',
-                'samsclubbr'
-            ],
+            sellers: ['samsclub6058', 'samsclub6546'], // sellers específicos encontrados
             regionIdFixo: 'IlUxY2pjMkZ0YzJOc2RXSTJNRFU0TzNOaGJYTmpiSFZpTmpVME5nPT0i',
             binding: 'samsclub.myvtex.com/',
-            usarCookies: true
+            usarCookies: true,
+            funcaoBusca: buscarProdutoSams
+        },
+        {
+            id: 'ATACADAO',
+            nome: "Atacadão",
+            host: 'https://www.atacadao.com.br',
+            scList: [1, 2, 3],
+            sellers: [
+                'atacadaobr637', // prioridade
+                'atacadaobr634',
+                'atacadaobr649',
+                'atacadaobr680',
+                'atacadaobr697',
+                'atacadaobr698',
+                'atacadaobr938',
+                'atacadaobr939'
+            ],
+            regionIdFixo: null, // obtém dinamicamente
+            binding: null,
+            usarCookies: false,
+            funcaoBusca: buscarProdutoAtacadao
         }
+        // Adicione Carrefour aqui quando estiver pronto
     ];
 
     let client = null;
@@ -352,7 +433,7 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
-        // Obter cookies
+        // Obter cookies para lojas que precisam (Sam's Club)
         const cookiesMap = {};
         for (const cfg of configs) {
             if (cfg.usarCookies) {
@@ -363,19 +444,21 @@ module.exports = async function (context, req) {
             }
         }
 
-        // RegionId
+        // Obter regionId para cada loja
         const regionIds = {};
         for (const cfg of configs) {
             regionIds[cfg.id] = await obterRegionIdPorLoja(cfg, CEP_PADRAO, cookiesMap[cfg.id] || {});
             context.log(`${cfg.nome} regionId: ${regionIds[cfg.id] || 'N/A'}`);
         }
 
+        // Buscar produtos ativos
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
             context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
             return;
         }
 
+        // Processar em lotes
         const total = monitorados.length;
         for (let i = 0; i < total; i += CONCURRENT_LIMIT) {
             const batch = monitorados.slice(i, i + CONCURRENT_LIMIT);
@@ -385,18 +468,34 @@ module.exports = async function (context, req) {
                 for (const cfg of configs) {
                     let encontrado = false;
                     const cookies = cookiesMap[cfg.id] || {};
+                    const funcaoBusca = cfg.funcaoBusca;
+
                     for (const sc of cfg.scList) {
                         const regionId = regionIds[cfg.id];
-                        const resultado = await buscarProdutoSams(
-                            cfg.host,
-                            regionId,
-                            sc,
-                            prod.ean,
-                            prod.nome_comum,
-                            cfg.sellers,
-                            cookies,
-                            cfg.binding
-                        );
+                        let resultado;
+                        if (cfg.id === 'SAMS') {
+                            resultado = await funcaoBusca(
+                                cfg.host,
+                                regionId,
+                                sc,
+                                prod.ean,
+                                prod.nome_comum,
+                                cfg.sellers,
+                                cookies,
+                                cfg.binding
+                            );
+                        } else {
+                            // Atacadão (sem cookies)
+                            resultado = await funcaoBusca(
+                                cfg.host,
+                                regionId,
+                                sc,
+                                prod.ean,
+                                prod.nome_comum,
+                                cfg.sellers
+                            );
+                        }
+
                         if (resultado) {
                             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
                             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
@@ -414,6 +513,7 @@ module.exports = async function (context, req) {
                             };
                             resultadosProduto.push(entry);
 
+                            // Alertas e histórico (mantido do código original)
                             if (resultado.preco > 0 && temAlvo && resultado.preco < precoReferencia) {
                                 const jaExiste = await alertasCol.findOne({
                                     produto_nome: prod.nome_comum,
@@ -490,7 +590,7 @@ module.exports = async function (context, req) {
 };
 
 // ============================================================================
-// 8. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
+// 9. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
 // ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     const ultimo = await db.collection('historico_precos_web')
