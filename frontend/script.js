@@ -960,7 +960,7 @@ async function autoPreencherPrecos() {
             }
 
             // Busca todos os inputs de preço dentro do card (pela classe)            /
-            const inputs = card.querySelectorAll('input.input-preco-mercado'); F
+            const inputs = card.querySelectorAll('input.input-preco-mercado');
             if (inputs.length === 0) {
                 console.warn("⚠️ Nenhum input com classe .input-preco-mercado encontrado no card:", card);
                 return;
