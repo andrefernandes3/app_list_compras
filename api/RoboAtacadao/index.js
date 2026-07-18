@@ -4,26 +4,26 @@ const { MongoClient } = require('mongodb');
 // ============================================================================
 // CONFIGURAÇÕES
 // ============================================================================
-const CEP_PADRAO = process.env.CEP_PADRAO || '06093085'; // sem hífen
+const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
 const TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 
 // ============================================================================
-// 1. FUNÇÃO: OBTER REGIONID DINAMICAMENTE A PARTIR DO CEP
+// 1. FUNÇÃO: OBTER REGIONID (com fallback)
 // ============================================================================
 let regionIdCache = { value: null, timestamp: 0 };
 
 async function obterRegionId(cep) {
     const agora = Date.now();
     if (regionIdCache.value && (agora - regionIdCache.timestamp) < 3600000) {
-        return regionIdCache.value; // cache de 1 hora
+        return regionIdCache.value;
     }
 
-    const url = `https://www.atacadao.com.br/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
     try {
+        const url = `https://www.atacadao.com.br/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
         const data = await buscarDadosComRetry(url);
         if (data && data.length > 0) {
-            const region = data.find(r => r.id && r.id.startsWith('v2.')); // prefere os v2
+            const region = data.find(r => r.id && r.id.startsWith('v2.'));
             const id = region ? region.id : data[0].id;
             if (id) {
                 regionIdCache = { value: id, timestamp: agora };
@@ -33,12 +33,12 @@ async function obterRegionId(cep) {
     } catch (e) {
         console.warn('Falha ao obter regionId, usando fallback fixo.', e.message);
     }
-    // Fallback: regionId fixo que você já tinha
-    return 'v2.8CB7CC2FFB5F56CD19FB23952C3277A6';
+    // Fallback para o ID que você encontrou
+    return 'v2.B8DCB8B9A6E97811ED86748D0F84492B';
 }
 
 // ============================================================================
-// 2. FUNÇÃO: REQUISIÇÃO COM RETRY E TIMEOUT (USANDO HTTPS)
+// 2. FUNÇÃO: REQUISIÇÃO COM RETRY E TIMEOUT
 // ============================================================================
 function buscarDadosComRetry(url, tentativa = 1) {
     return new Promise((resolve) => {
@@ -55,24 +55,17 @@ function buscarDadosComRetry(url, tentativa = 1) {
         };
 
         const req = https.request(options, (res) => {
-            // Redirecionamento
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let novaUrl = res.headers.location;
                 if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
                 return resolve(buscarDadosComRetry(novaUrl, tentativa));
             }
-            if (res.statusCode !== 200) {
-                return resolve(null);
-            }
+            if (res.statusCode !== 200) return resolve(null);
 
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch {
-                    resolve(null);
-                }
+                try { resolve(JSON.parse(data)); } catch { resolve(null); }
             });
         });
 
@@ -81,18 +74,14 @@ function buscarDadosComRetry(url, tentativa = 1) {
             if (tentativa < MAX_RETRIES) {
                 console.warn(`Timeout na tentativa ${tentativa}, tentando novamente...`);
                 resolve(buscarDadosComRetry(url, tentativa + 1));
-            } else {
-                resolve(null);
-            }
+            } else resolve(null);
         });
 
         req.on('error', (err) => {
             if (tentativa < MAX_RETRIES) {
                 console.warn(`Erro na tentativa ${tentativa}: ${err.message}, tentando novamente...`);
                 resolve(buscarDadosComRetry(url, tentativa + 1));
-            } else {
-                resolve(null);
-            }
+            } else resolve(null);
         });
 
         req.end();
@@ -100,28 +89,17 @@ function buscarDadosComRetry(url, tentativa = 1) {
 }
 
 // ============================================================================
-// 3. FUNÇÃO: OBTER ÚLTIMO PREÇO VÁLIDO DA WEB (para comparação)
+// 3. FUNÇÃO: EXTRAIR PREÇO DE UM PRODUTO (varre todos sellers)
 // ============================================================================
-async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
-    const ultimo = await db.collection('historico_precos_web')
-        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
-        .sort({ data_verificacao: -1 })
-        .limit(1)
-        .toArray();
-    return ultimo.length > 0 ? ultimo[0].preco : null;
-}
+function extrairPrecoDoItem(produtoData) {
+    if (!produtoData || produtoData.length === 0) return null;
 
-// ============================================================================
-// 4. FUNÇÃO: EXTRAIR PREÇO E INFORMAÇÕES DOS DADOS DA VTEX
-// ============================================================================
-function extrairDadosProduto(data, produtoNome) {
-    if (!data || data.length === 0) return null;
-
-    // Percorre todos os itens (variações)
-    for (const item of data) {
-        if (!item.items || item.items.length === 0) continue;
+    // Percorre todos os items (variações)
+    for (const item of produtoData) {
+        if (!item.items) continue;
         for (const variant of item.items) {
             if (!variant.sellers) continue;
+            // Varre todos os sellers e pega o primeiro com preço > 0
             for (const seller of variant.sellers) {
                 const offer = seller.commertialOffer;
                 if (offer && offer.Price > 0) {
@@ -129,19 +107,21 @@ function extrairDadosProduto(data, produtoNome) {
                         preco: offer.Price,
                         nomeLojaOrigem: seller.sellerName || 'Atacadão',
                         link: item.link || `https://www.atacadao.com.br/${item.linkText}/p`,
-                        sku: variant.itemId
+                        sku: variant.itemId,
+                        sellerId: seller.sellerId,
+                        availableQuantity: offer.AvailableQuantity || 0
                     };
                 }
             }
         }
     }
-    return null; // preço zero ou nenhum seller com estoque
+    return null; // nenhum seller com preço > 0
 }
 
 // ============================================================================
-// 5. FUNÇÃO: BUSCAR PRODUTO POR EAN (com fallback por nome)
+// 4. FUNÇÃO: BUSCAR PRODUTO POR EAN (com fallback por linkText)
 // ============================================================================
-async function buscarProduto(host, sc, regionId, ean, nomeProduto) {
+async function buscarProduto(host, sc, regionId, ean, nomeProduto, linkText) {
     // Tenta por EAN
     let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}`;
     if (sc) url += `&sc=${sc}`;
@@ -150,28 +130,84 @@ async function buscarProduto(host, sc, regionId, ean, nomeProduto) {
 
     let dados = await buscarDadosComRetry(url);
     if (dados && dados.length > 0) {
-        const extraido = extrairDadosProduto(dados);
+        const extraido = extrairPrecoDoItem(dados);
         if (extraido) return extraido;
     }
 
-    // Fallback: busca por nome (mais amplo)
-    const nomeClean = nomeProduto.replace(/[^\w\s]/g, '').trim();
-    if (nomeClean.length > 3) {
-        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(nomeClean)}&sc=${sc || ''}&regionId=${regionId || ''}&_=${Date.now()}`;
-        dados = await buscarDadosComRetry(urlNome);
+    // Fallback: busca por linkText (se fornecido)
+    if (linkText) {
+        const urlLink = `${host}/api/catalog_system/pub/products/search?fq=linkText:${linkText}`;
+        const scParam = sc ? `&sc=${sc}` : '';
+        const regionParam = regionId ? `&regionId=${regionId}` : '';
+        const urlCompleta = urlLink + scParam + regionParam + `&_=${Date.now()}`;
+        dados = await buscarDadosComRetry(urlCompleta);
         if (dados && dados.length > 0) {
-            // Filtra para encontrar o mais parecido com o nome original (evitar falsos positivos)
-            const candidatos = dados.filter(p => {
-                const nomeProd = p.productName?.toLowerCase() || '';
-                return nomeProd.includes(nomeProduto.toLowerCase().substring(0, 10));
-            });
-            if (candidatos.length > 0) {
-                const extraido = extrairDadosProduto(candidatos);
-                if (extraido) return extraido;
-            }
+            const extraido = extrairPrecoDoItem(dados);
+            if (extraido) return extraido;
         }
     }
+
     return null;
+}
+
+// ============================================================================
+// 5. FUNÇÃO: SIMULAR CARRINHO PARA OBTER PREÇO (fallback extremo)
+// ============================================================================
+async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
+    const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
+    const payload = {
+        items: [{ id: sku, quantity: 1, seller: sellerId || '1' }],
+        regionId: regionId,
+        country: 'BRA'
+    };
+
+    const options = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+        },
+        timeout: TIMEOUT_MS
+    };
+
+    return new Promise((resolve) => {
+        const urlObj = new URL(url);
+        const req = https.request({
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'POST',
+            headers: options.headers,
+            timeout: options.timeout
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    if (json.items && json.items.length > 0) {
+                        const item = json.items[0];
+                        if (item.price > 0) {
+                            resolve({
+                                preco: item.price / 100, // geralmente vem em centavos
+                                seller: item.seller,
+                                available: item.availability === 'available'
+                            });
+                            return;
+                        }
+                    }
+                    resolve(null);
+                } catch {
+                    resolve(null);
+                }
+            });
+        });
+
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.write(JSON.stringify(payload));
+        req.end();
+    });
 }
 
 // ============================================================================
@@ -183,7 +219,7 @@ module.exports = async function (context, req) {
             id: 'ATACADAO',
             nome: "Atacadão",
             host: 'https://www.atacadao.com.br',
-            scList: [1, 2, null] // tenta com sc=1, sc=2 e sem sc
+            scList: [1, 2, 3, null] // tenta vários
         }
     ];
 
@@ -197,11 +233,9 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
-        // Obtém regionId dinâmico para o CEP
         const regionId = await obterRegionId(CEP_PADRAO);
-        context.log(`RegionId obtido: ${regionId}`);
+        context.log(`RegionId usado: ${regionId}`);
 
-        // Busca produtos ativos com EAN
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
             context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
@@ -211,38 +245,53 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             const produtoNome = prod.nome_comum;
             const ean = prod.ean;
-            let produtoEncontrado = false;
+            const linkText = prod.link_text || null; // se tiver armazenado no banco
             let resultadoLoja = null;
 
-            // Para cada loja (só Atacadão, mas mantém estrutura)
             for (const lojaConfig of configs) {
-                let encontrado = false;
-                // Tenta cada salesChannel
                 for (const sc of lojaConfig.scList) {
                     const dadosExtraidos = await buscarProduto(
                         lojaConfig.host,
                         sc,
                         regionId,
                         ean,
-                        produtoNome
+                        produtoNome,
+                        linkText
                     );
                     if (dadosExtraidos) {
-                        encontrado = true;
-                        resultadoLoja = {
-                            produto: produtoNome,
-                            loja: lojaConfig.nome,
-                            origem: dadosExtraidos.nomeLojaOrigem,
-                            link: dadosExtraidos.link,
-                            preco: dadosExtraidos.preco,
-                            sku: dadosExtraidos.sku
-                        };
-                        break; // achou com este sc
+                        resultadoLoja = dadosExtraidos;
+                        resultadoLoja.loja = lojaConfig.nome;
+                        resultadoLoja.produto = produtoNome;
+                        break;
                     }
                 }
-                if (encontrado) break; // já achou na loja
+                if (resultadoLoja) break;
             }
 
-            // Se não encontrou, registra como não encontrado
+            // Se ainda não encontrou, tenta simulação de carrinho (fallback)
+            if (!resultadoLoja) {
+                // Tenta buscar o SKU via busca por nome (para obter o ID)
+                const urlNome = `https://www.atacadao.com.br/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&regionId=${regionId}&_=${Date.now()}`;
+                const dadosNome = await buscarDadosComRetry(urlNome);
+                if (dadosNome && dadosNome.length > 0) {
+                    const item = dadosNome[0];
+                    if (item.items && item.items.length > 0) {
+                        const sku = item.items[0].itemId;
+                        const sim = await simularCarrinho('https://www.atacadao.com.br', regionId, sku, null, 1);
+                        if (sim && sim.preco > 0) {
+                            resultadoLoja = {
+                                produto: produtoNome,
+                                loja: 'Atacadão',
+                                origem: sim.seller || 'Atacadão',
+                                link: item.link || '',
+                                preco: sim.preco,
+                                sku: sku
+                            };
+                        }
+                    }
+                }
+            }
+
             if (!resultadoLoja) {
                 relatorio.push({
                     produto: produtoNome,
@@ -257,18 +306,15 @@ module.exports = async function (context, req) {
                 continue;
             }
 
-            // Se encontrou, processa
             const precoAtual = resultadoLoja.preco;
-            // Obtém último preço web para comparação
             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, produtoNome, 'Atacadão');
             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
             const temAlvo = precoReferencia !== Infinity;
 
-            // Monta relatório
             const entry = {
                 produto: produtoNome,
                 loja: 'Atacadão',
-                origem: resultadoLoja.origem,
+                origem: resultadoLoja.origem || 'N/A',
                 status: precoAtual > 0 ? 'ENCONTRADO' : 'SEM ESTOQUE (Preço 0,00)',
                 preco: precoAtual,
                 referencia_usada: temAlvo ? precoReferencia : null,
@@ -277,7 +323,7 @@ module.exports = async function (context, req) {
             };
             relatorio.push(entry);
 
-            // Disparo de alerta se preço baixou em relação à meta ou ao último preço
+            // Alerta e histórico...
             if (precoAtual > 0 && temAlvo && precoAtual < precoReferencia) {
                 const jaExiste = await alertasCol.findOne({
                     produto_nome: produtoNome,
@@ -298,13 +344,12 @@ module.exports = async function (context, req) {
                 }
             }
 
-            // Salva histórico APENAS se houve mudança (preço diferente do último)
             if (ultimoPrecoWeb === null || precoAtual !== ultimoPrecoWeb) {
                 await db.collection('historico_precos_web').insertOne({
                     nome: produtoNome,
                     ean: prod.ean,
                     loja: 'Atacadão',
-                    origem: resultadoLoja.origem,
+                    origem: resultadoLoja.origem || 'N/A',
                     preco: precoAtual,
                     data_verificacao: new Date()
                 });
@@ -327,3 +372,15 @@ module.exports = async function (context, req) {
         if (client) await client.close();
     }
 };
+
+// ============================================================================
+// FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO
+// ============================================================================
+async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
+    const ultimo = await db.collection('historico_precos_web')
+        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
+        .sort({ data_verificacao: -1 })
+        .limit(1)
+        .toArray();
+    return ultimo.length > 0 ? ultimo[0].preco : null;
+}
