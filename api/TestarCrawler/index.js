@@ -1,27 +1,4 @@
-const https = require('https');
-const { MongoClient } = require('mongodb');
-
-// ============================================================================
-// CONFIGURAÇÕES GLOBAIS
-// ============================================================================
-const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
-const TIMEOUT_MS = 10000;
-const MAX_RETRIES = 3;
-
-const agent = new https.Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 3000 });
-
-// ... (MANTENHA AQUI AS MESMAS FUNÇÕES DE ANTES: obterCookiesSams, buscarDadosComRetry, 
-// simularCarrinhoLote, extrairInfoProduto, extrairPrecoDireto, obterRegionIdPorLoja, 
-// buscarProdutoNaLoja, obterUltimoPrecoValido) ...
-
-// ============================================================================
-// FUNÇÃO PRINCIPAL (AGORA COMO TIMER TRIGGER)
-// ============================================================================
-
-// Note que mudamos 'req' para 'meuTimer'
-module.exports = async function (context, meuTimer) {
-    context.log('🤖 Robô Acordou! Iniciando varredura agendada em:', new Date().toISOString());
-
+module.exports = async function (context, req) {
     const configs = [
         {
             id: 'ATACADAO', nome: "Atacadão", host: 'https://www.atacadao.com.br',
@@ -36,7 +13,7 @@ module.exports = async function (context, meuTimer) {
     ];
 
     let client = null;
-    let totalSucessos = 0;
+    let relatorio = [];
 
     try {
         client = new MongoClient(process.env["MONGODB_URI"]);
@@ -55,20 +32,20 @@ module.exports = async function (context, meuTimer) {
 
         const monitorados = await db.collection('dicionario_produtos').find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
-            context.log.info("Nenhum produto válido para monitorar hoje.");
-            return; // Sai silenciosamente
+            context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
+            return;
         }
 
-        context.log(`Iniciando fila indiana para ${monitorados.length} produtos...`);
-
-        // Loop Sequencial Seguro (Fila Indiana)
+        // ========================================================
+        // FILA INDIANA (SEQUENCIAL): Um produto por vez, uma loja por vez
+        // Isso elimina o "Backend call failure" por sobrecarga
+        // ========================================================
         for (const prod of monitorados) {
             for (const cfg of configs) {
                 try {
                     let encontrado = false;
                     const cookies = cookiesMap[cfg.id];
                     const regionId = regionIds[cfg.id];
-
                     const sellerPreferido = prod.seller_preferido || null;
                     let sellersToTry = cfg.sellers;
                     if (sellerPreferido && cfg.sellers.includes(sellerPreferido)) {
@@ -86,7 +63,12 @@ module.exports = async function (context, meuTimer) {
                             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
                             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
 
-                            // Cria alerta se estiver abaixo do alvo
+                            const entry = {
+                                produto: prod.nome_comum, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A', status: 'ENCONTRADO',
+                                preco: resultado.preco, referencia_usada: precoReferencia !== Infinity ? precoReferencia : null,
+                                ultimoPrecoWeb: ultimoPrecoWeb !== Infinity ? ultimoPrecoWeb : null, link: resultado.link || ''
+                            };
+
                             if (resultado.preco > 0 && precoReferencia !== Infinity && resultado.preco < precoReferencia) {
                                 const jaExiste = await db.collection('alertas_preco').findOne({ produto_nome: prod.nome_comum, loja: cfg.nome, preco_atual: resultado.preco, status_notificacao: "pendente" });
                                 if (!jaExiste) {
@@ -97,35 +79,35 @@ module.exports = async function (context, meuTimer) {
                                 }
                             }
 
-                            // Registra o histórico na web
                             if (ultimoPrecoWeb === Infinity || resultado.preco !== ultimoPrecoWeb) {
                                 await db.collection('historico_precos_web').insertOne({
                                     nome: prod.nome_comum, ean: prod.ean, loja: cfg.nome, origem: resultado.nomeLojaOrigem || 'N/A',
                                     preco: resultado.preco, data_verificacao: new Date()
                                 });
                             }
-                            
                             encontrado = true;
-                            totalSucessos++;
+                            relatorio.push(entry);
                             break; 
                         }
                     }
 
+                    if (!encontrado) {
+                        relatorio.push({ produto: prod.nome_comum, loja: cfg.nome, origem: 'N/A', status: 'NÃO ENCONTRADO', preco: 0 });
+                    }
+
                 } catch (erroLoja) {
-                    context.log.warn(`Erro no produto ${prod.nome_comum} (Loja: ${cfg.nome}): ${erroLoja.message}`);
+                    context.log.warn(`⚠️ Erro isolado no produto ${prod.nome_comum} (Loja: ${cfg.nome}): ${erroLoja.message}`);
                 }
-                
+                // Pequena pausa para manter o servidor estável
                 await new Promise(resolve => setTimeout(resolve, 300));
             }
-            
-            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        context.log(`🏁 Varredura concluída! Sucessos: ${totalSucessos}`);
-        // NÃO TEM context.res AQUI. O Timer não devolve resposta de tela.
+        context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: relatorio };
 
     } catch (e) {
-        context.log.error('❌ Erro crítico no Crawler Agendado:', e);
+        context.log.error('Erro crítico no Crawler:', e);
+        context.res = { status: 500, body: { erro: "Erro Crítico: " + e.message } };
     } finally {
         if (client) await client.close();
     }
