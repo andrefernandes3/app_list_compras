@@ -933,27 +933,32 @@ function filtrarPorCorredor(idCategoria) {
 async function autoPreencherPrecos() {
     try {
         // Chamada para a nova API dedicada que criamos no Passo 1
-        const response = await fetch('/api/ObterHistoricoWeb'); 
+        const response = await fetch('/api/ObterHistoricoWeb');
         if (!response.ok) throw new Error("Erro na API");
-        const historico = await response.json(); 
+        const historico = await response.json();
 
         let preenchidos = 0;
-        
+
         // Itera sobre todos os cards de produtos da lista
         document.querySelectorAll('.card-produto-lista').forEach(card => {
             const nomeProduto = card.getAttribute('data-produto');
             const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
-            
+
             inputs.forEach(input => {
                 const label = input.parentElement.querySelector('.uppercase')?.innerText || "";
                 const loja = label.toUpperCase();
 
                 // Compara os dados vindos do robô com o que está na tela
-                const registro = historico.find(h => 
-                    h.nome?.trim().toUpperCase() === nomeProduto?.trim().toUpperCase() && 
-                    h.loja?.trim().toUpperCase().includes(loja)
-                );
-                
+                const registro = historico.find(h => {
+                    const nomeBanco = h.nome.trim().toUpperCase();
+                    const lojaBanco = h.loja.trim().toUpperCase().replace(/['\s]/g, ""); // Remove espaços e apóstrofos: "SAM'S CLUB" vira "SAMSCLUB"
+
+                    const nomeTela = nomeProduto.trim().toUpperCase();
+                    const lojaTela = loja.trim().toUpperCase().replace(/['\s]/g, ""); // Faz o mesmo com o texto da tela
+
+                    return nomeBanco === nomeTela && lojaBanco.includes(lojaTela);
+                });
+
                 if (registro && registro.preco > 0) {
                     input.value = registro.preco.toFixed(2).replace('.', ',');
                     input.dispatchEvent(new Event('input', { bubbles: true }));
