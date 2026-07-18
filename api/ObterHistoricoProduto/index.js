@@ -3,26 +3,49 @@ const uri = process.env["MONGODB_URI"];
 const client = new MongoClient(uri);
 
 module.exports = async function (context, req) {
+    const nomeProduto = req.query.nome;
+    const dias = parseInt(req.query.dias) || 0;
+
     try {
         await client.connect();
         const db = client.db('app_compras');
 
-        // Busca apenas os documentos que tenham nome, loja e preco
-        // Usamos .project para reduzir o tráfego de rede
-        const historico = await db.collection('historico_precos_web')
-            .find({ preco: { $gt: 0 } })
-            .project({ nome: 1, loja: 1, preco: 1, _id: 0 })
-            .sort({ data_verificacao: -1 })
-            .toArray();
+        // 1. Localiza o produto no dicionário para pegar os IDs vinculados
+        const produto = await db.collection('dicionario_produtos').findOne({ 
+            nome_comum: nomeProduto.toUpperCase() 
+        });
 
-        context.res = { 
-            status: 200, 
-            headers: { "Content-Type": "application/json" },
-            body: historico 
-        };
+        if (!produto) {
+            context.res = { status: 404, body: [] };
+            return;
+        }
+
+        // 2. Define o filtro de data se o parâmetro 'dias' for enviado
+        let matchStage = { "itens.id_interno": { $in: produto.ids_vinculados } };
+        if (dias > 0) {
+    const dataLimite = new Date();
+    dataLimite.setDate(dataLimite.getDate() - dias);
+    dataLimite.setHours(0, 0, 0, 0); // Define para o início do dia
+    matchStage["data_compra"] = { $gte: dataLimite };
+}
+
+        // 3. Busca o histórico formatado
+        const historico = await db.collection('historico_precos').aggregate([
+            { $unwind: "$itens" },
+            { $match: matchStage },
+            { $sort: { data_compra: 1 } },
+            {
+                $project: {
+                    _id: 0,
+                    data: "$data_compra",
+                    preco: "$itens.preco_unitario",
+                    mercado: "$estabelecimento"
+                }
+            }
+        ]).toArray();
+
+        context.res = { status: 200, body: historico };
     } catch (error) {
         context.res = { status: 500, body: error.message };
-    } finally {
-        await client.close();
     }
 };
