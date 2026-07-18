@@ -10,36 +10,66 @@ const MAX_RETRIES = 3;
 const CONCURRENT_LIMIT = 5; // processa 5 produtos por vez
 
 // ============================================================================
-// 1. FUNÇÃO: OBTER REGIONID POR LOJA (dinâmico)
+// 1. FUNÇÃO: OBTER COOKIES DA PÁGINA INICIAL (para Sam's Club)
 // ============================================================================
-async function obterRegionIdPorLoja(host, cep) {
-    try {
-        const url = `${host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
-        const data = await buscarDadosComRetry(url, 1);
-        if (data && data.length > 0) {
-            // Procura um ID que comece com 'v2.' (padrão VTEX)
-            const region = data.find(r => r.id && r.id.startsWith('v2.'));
-            return region ? region.id : data[0].id;
-        }
-    } catch (e) {
-        console.warn(`Falha ao obter regionId para ${host}:`, e.message);
-    }
-    return null; // fallback: sem regionId
+async function obterCookiesSams(host) {
+    return new Promise((resolve) => {
+        const url = new URL(host);
+        const options = {
+            hostname: url.hostname,
+            path: '/',
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Connection': 'keep-alive'
+            },
+            timeout: TIMEOUT_MS
+        };
+
+        const req = https.request(options, (res) => {
+            const cookies = res.headers['set-cookie'];
+            if (cookies && cookies.length > 0) {
+                const cookieObj = {};
+                cookies.forEach(c => {
+                    const parts = c.split(';')[0].split('=');
+                    if (parts.length === 2) {
+                        cookieObj[parts[0].trim()] = parts[1].trim();
+                    }
+                });
+                // Adiciona o CEP manualmente (já que a página pode não setar)
+                cookieObj['cep'] = Buffer.from(CEP_PADRAO).toString('base64'); // codifica para base64
+                resolve(cookieObj);
+            } else {
+                resolve({}); // fallback
+            }
+        });
+
+        req.on('error', () => resolve({}));
+        req.on('timeout', () => { req.destroy(); resolve({}); });
+        req.end();
+    });
 }
 
 // ============================================================================
-// 2. FUNÇÃO: REQUISIÇÃO COM RETRY E TIMEOUT (já existente, mantida)
+// 2. FUNÇÃO: REQUISIÇÃO COM RETRY, TIMEOUT E COOKIES
 // ============================================================================
-function buscarDadosComRetry(url, tentativa = 1) {
+function buscarDadosComRetry(url, tentativa = 1, cookies = {}) {
     return new Promise((resolve) => {
         const urlObj = new URL(url);
+        const cookieString = Object.entries(cookies)
+            .map(([k, v]) => `${k}=${v}`)
+            .join('; ');
+
         const options = {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Cookie': cookieString
             },
             timeout: TIMEOUT_MS
         };
@@ -48,7 +78,7 @@ function buscarDadosComRetry(url, tentativa = 1) {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let novaUrl = res.headers.location;
                 if (novaUrl.startsWith('/')) novaUrl = `https://${urlObj.hostname}${novaUrl}`;
-                return resolve(buscarDadosComRetry(novaUrl, tentativa));
+                return resolve(buscarDadosComRetry(novaUrl, tentativa, cookies));
             }
             if (res.statusCode !== 200) return resolve(null);
 
@@ -63,14 +93,14 @@ function buscarDadosComRetry(url, tentativa = 1) {
             req.destroy();
             if (tentativa < MAX_RETRIES) {
                 console.warn(`Timeout na tentativa ${tentativa}, tentando novamente...`);
-                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1)), 1000 * tentativa);
+                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies)), 1000 * tentativa);
             } else resolve(null);
         });
 
         req.on('error', (err) => {
             if (tentativa < MAX_RETRIES) {
                 console.warn(`Erro na tentativa ${tentativa}: ${err.message}, tentando novamente...`);
-                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1)), 1000 * tentativa);
+                setTimeout(() => resolve(buscarDadosComRetry(url, tentativa + 1, cookies)), 1000 * tentativa);
             } else resolve(null);
         });
 
@@ -79,7 +109,85 @@ function buscarDadosComRetry(url, tentativa = 1) {
 }
 
 // ============================================================================
-// 3. FUNÇÕES AUXILIARES PARA EXTRAÇÃO DE DADOS
+// 3. FUNÇÃO: SIMULAÇÃO DE CARRINHO COM COOKIES
+// ============================================================================
+async function simularCarrinho(host, regionId, sku, sellerId, sc = 1, cookies = {}) {
+    const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
+    const payload = {
+        items: [{ id: sku, quantity: 1, seller: sellerId }],
+        regionId: regionId || '',
+        country: 'BRA'
+    };
+
+    const cookieString = Object.entries(cookies)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ');
+
+    return new Promise((resolve) => {
+        const urlObj = new URL(url);
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json',
+                'Cookie': cookieString
+            },
+            timeout: TIMEOUT_MS
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    if (json.items && json.items.length > 0) {
+                        const item = json.items[0];
+                        if (item.price > 0 && item.availability === 'available') {
+                            resolve({
+                                preco: item.price / 100,
+                                seller: item.seller,
+                                available: true
+                            });
+                            return;
+                        }
+                    }
+                    resolve(null);
+                } catch {
+                    resolve(null);
+                }
+            });
+        });
+
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.write(JSON.stringify(payload));
+        req.end();
+    });
+}
+
+// ============================================================================
+// 4. FUNÇÃO: OBTER REGIONID POR LOJA (genérico)
+// ============================================================================
+async function obterRegionIdPorLoja(host, cep) {
+    try {
+        const url = `${host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`;
+        const data = await buscarDadosComRetry(url, 1);
+        if (data && data.length > 0) {
+            const region = data.find(r => r.id && r.id.startsWith('v2.'));
+            return region ? region.id : data[0].id;
+        }
+    } catch (e) {
+        console.warn(`Falha ao obter regionId para ${host}:`, e.message);
+    }
+    return null;
+}
+
+// ============================================================================
+// 5. FUNÇÕES AUXILIARES PARA EXTRAÇÃO DE DADOS
 // ============================================================================
 function extrairInfoProduto(data) {
     if (!data || data.length === 0) return null;
@@ -117,71 +225,15 @@ function extrairPrecoDireto(data) {
 }
 
 // ============================================================================
-// 4. SIMULAÇÃO DE CARRINHO (genérica)
+// 6. BUSCA DE PRODUTO PARA UMA LOJA (com cookies)
 // ============================================================================
-async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
-    const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
-    const payload = {
-        items: [{ id: sku, quantity: 1, seller: sellerId }],
-        regionId: regionId || '',
-        country: 'BRA'
-    };
-
-    return new Promise((resolve) => {
-        const urlObj = new URL(url);
-        const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            },
-            timeout: TIMEOUT_MS
-        };
-
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    if (json.items && json.items.length > 0) {
-                        const item = json.items[0];
-                        if (item.price > 0 && item.availability === 'available') {
-                            resolve({
-                                preco: item.price / 100,
-                                seller: item.seller,
-                                available: true
-                            });
-                            return;
-                        }
-                    }
-                    resolve(null);
-                } catch {
-                    resolve(null);
-                }
-            });
-        });
-
-        req.on('error', () => resolve(null));
-        req.on('timeout', () => { req.destroy(); resolve(null); });
-        req.write(JSON.stringify(payload));
-        req.end();
-    });
-}
-
-// ============================================================================
-// 5. BUSCA DE PRODUTO PARA UMA LOJA (genérico, com fallback para simulação)
-// ============================================================================
-async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellersList) {
+async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellersList, cookies = {}) {
     // Primeiro, tenta buscar por EAN
     let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}`;
     if (regionId) url += `&regionId=${regionId}`;
     url += `&_=${Date.now()}`;
 
-    let dados = await buscarDadosComRetry(url);
+    let dados = await buscarDadosComRetry(url, 1, cookies);
     let sku = null, linkText = null, link = null;
 
     if (dados && dados.length > 0) {
@@ -191,18 +243,17 @@ async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellers
             linkText = info.linkText;
             link = info.link;
         }
-        // Tenta extrair preço direto
         const precoDireto = extrairPrecoDireto(dados);
         if (precoDireto) {
             return { ...precoDireto, link };
         }
     }
 
-    // Se não encontrou via EAN, tenta por nome
+    // Fallback por nome
     if (!sku) {
         const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}`;
         const urlCompleta = regionId ? `${urlNome}&regionId=${regionId}&_=${Date.now()}` : `${urlNome}&_=${Date.now()}`;
-        dados = await buscarDadosComRetry(urlCompleta);
+        dados = await buscarDadosComRetry(urlCompleta, 1, cookies);
         if (dados && dados.length > 0) {
             const info = extrairInfoProduto(dados);
             if (info) {
@@ -214,13 +265,13 @@ async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellers
     }
 
     if (!sku) {
-        return null; // não encontrou o SKU
+        return null;
     }
 
-    // Se chegou aqui, temos o SKU, mas preço pode ser zero. Tenta simulação com sellers fornecidos
+    // Simulação com sellers fornecidos
     if (sellersList && sellersList.length > 0) {
         for (const seller of sellersList) {
-            const sim = await simularCarrinho(host, regionId, sku, seller, sc);
+            const sim = await simularCarrinho(host, regionId, sku, seller, sc, cookies);
             if (sim && sim.preco > 0) {
                 return {
                     preco: sim.preco,
@@ -233,8 +284,8 @@ async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellers
         }
     }
 
-    // Fallback: tenta simular com seller '1' (genérico)
-    const simDefault = await simularCarrinho(host, regionId, sku, '1', sc);
+    // Fallback: simulação com seller '1'
+    const simDefault = await simularCarrinho(host, regionId, sku, '1', sc, cookies);
     if (simDefault && simDefault.preco > 0) {
         return {
             preco: simDefault.preco,
@@ -249,17 +300,18 @@ async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellers
 }
 
 // ============================================================================
-// 6. FUNÇÃO PRINCIPAL – AZURE FUNCTION
+// 7. FUNÇÃO PRINCIPAL – AZURE FUNCTION
 // ============================================================================
 module.exports = async function (context, req) {
-    // Configurações das lojas (Carrefour removido por enquanto)
+    // Configurações (apenas Atacadão e Sam's Club)
     const configs = [
         {
             id: 'SAMS',
             nome: "Sam's Club",
             host: 'https://www.samsclub.com.br',
-            scList: [1, 2], // tenta vários
-            sellers: ['1', '2', '3'] // sellers para simulação
+            scList: [1, 2],
+            sellers: ['1', '2', '3'],
+            usarCookies: true // indica que precisamos obter cookies
         },
         {
             id: 'ATACADAO',
@@ -267,7 +319,7 @@ module.exports = async function (context, req) {
             host: 'https://www.atacadao.com.br',
             scList: [1, 2, 3],
             sellers: [
-                'atacadaobr637', // prioridade
+                'atacadaobr637',
                 'atacadaobr634',
                 'atacadaobr649',
                 'atacadaobr680',
@@ -275,9 +327,9 @@ module.exports = async function (context, req) {
                 'atacadaobr698',
                 'atacadaobr938',
                 'atacadaobr939'
-            ]
+            ],
+            usarCookies: false
         }
-        // Carrefour desativado: { id: 'CARREFOUR', nome: "Carrefour", host: 'https://www.carrefour.com.br', scList: [1,2], sellers: ['1','2'] }
     ];
 
     let client = null;
@@ -290,21 +342,32 @@ module.exports = async function (context, req) {
         const dicionarioCol = db.collection('dicionario_produtos');
         const alertasCol = db.collection('alertas_preco');
 
-        // Busca produtos ativos com EAN
-        const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
-        if (monitorados.length === 0) {
-            context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
-            return;
+        // Obter cookies para lojas que precisam (Sam's Club)
+        const cookiesMap = {};
+        for (const cfg of configs) {
+            if (cfg.usarCookies) {
+                cookiesMap[cfg.id] = await obterCookiesSams(cfg.host);
+                context.log(`Cookies obtidos para ${cfg.nome}:`, cookiesMap[cfg.id]);
+            } else {
+                cookiesMap[cfg.id] = {};
+            }
         }
 
-        // Pré-obter regionId para cada loja
+        // Obter regionId para cada loja
         const regionIds = {};
         for (const cfg of configs) {
             regionIds[cfg.id] = await obterRegionIdPorLoja(cfg.host, CEP_PADRAO);
             context.log(`${cfg.nome} regionId: ${regionIds[cfg.id] || 'N/A'}`);
         }
 
-        // Processar produtos em lotes para evitar sobrecarga
+        // Buscar produtos ativos
+        const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
+        if (monitorados.length === 0) {
+            context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
+            return;
+        }
+
+        // Processar em lotes
         const total = monitorados.length;
         for (let i = 0; i < total; i += CONCURRENT_LIMIT) {
             const batch = monitorados.slice(i, i + CONCURRENT_LIMIT);
@@ -313,6 +376,7 @@ module.exports = async function (context, req) {
 
                 for (const cfg of configs) {
                     let encontrado = false;
+                    const cookies = cookiesMap[cfg.id] || {};
                     for (const sc of cfg.scList) {
                         const regionId = regionIds[cfg.id];
                         const resultado = await buscarProdutoNaLoja(
@@ -321,10 +385,10 @@ module.exports = async function (context, req) {
                             sc,
                             prod.ean,
                             prod.nome_comum,
-                            cfg.sellers
+                            cfg.sellers,
+                            cookies
                         );
                         if (resultado) {
-                            // Adiciona ao relatório
                             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, prod.nome_comum, cfg.nome);
                             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
                             const temAlvo = precoReferencia !== Infinity;
@@ -341,7 +405,7 @@ module.exports = async function (context, req) {
                             };
                             resultadosProduto.push(entry);
 
-                            // Alertas e histórico (igual antes)
+                            // Alertas e histórico
                             if (resultado.preco > 0 && temAlvo && resultado.preco < precoReferencia) {
                                 const jaExiste = await alertasCol.findOne({
                                     produto_nome: prod.nome_comum,
@@ -374,11 +438,10 @@ module.exports = async function (context, req) {
                             }
 
                             encontrado = true;
-                            break; // sair do loop de sc
+                            break;
                         }
                     }
                     if (!encontrado) {
-                        // Se não encontrou em nenhum sc, registra como não encontrado
                         resultadosProduto.push({
                             produto: prod.nome_comum,
                             loja: cfg.nome,
@@ -419,7 +482,7 @@ module.exports = async function (context, req) {
 };
 
 // ============================================================================
-// 7. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
+// 8. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
 // ============================================================================
 async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
     const ultimo = await db.collection('historico_precos_web')
