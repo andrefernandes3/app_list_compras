@@ -673,8 +673,7 @@ async function renderizarDicionario() {
         const categories = {};
         produtos.forEach(p => { const cat = (p.categoria || "OUTROS").toUpperCase(); if (!categories[cat]) categories[cat] = []; categories[cat].push(p); });
 
-        container.innerHTML = `<div class="flex justify-between items-center mb-4 px-2 mt-2"><h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2><button onclick="limparTodaMonitoracao()" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black border border-red-100">🔕 DESLIGAR ROBÔ</button></div>`;
-
+        container.innerHTML = `<div class="flex justify-between items-center mb-4 px-2 mt-2"><h2 class="text-[11px] font-black text-gray-400 uppercase tracking-widest">Catálogo do Robô</h2></div>`;
         for (const [cat, itens] of Object.entries(categories)) {
             const div = document.createElement('div');
             div.className = "mb-4 block-categoria-dicionario";
@@ -723,7 +722,7 @@ let roboEstaLigado = true;
 
 async function alternarRobo() {
     const botao = document.getElementById('btn-toggle-robo');
-    
+
     // Inverte o estado
     roboEstaLigado = !roboEstaLigado;
 
@@ -731,16 +730,16 @@ async function alternarRobo() {
         // Muda visualmente para DESLIGAR
         botao.innerHTML = '🔕 DESLIGAR ROBÔ';
         botao.className = 'btn-robo btn-desligar';
-        
+
         console.log("Robô ativado!");
         // Aqui você chamará a API para ligar o robô no banco
         // await fetch('/api/LigarRobo', { method: 'POST' });
-        
+
     } else {
         // Muda visualmente para LIGAR
         botao.innerHTML = '🔔 LIGAR ROBÔ';
         botao.className = 'btn-robo btn-ligar';
-        
+
         console.log("Robô pausado!");
         // Aqui você chamará a API para desligar o robô no banco
         // await fetch('/api/DesligarRobo', { method: 'POST' });
@@ -1029,15 +1028,15 @@ async function autoPreencherPrecos() {
 
                 if (registro && registro.preco > 0) {
                     console.log(`🟢 Preenchendo: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
-                    
+
                     // 1. Tente injetar o valor original com ponto (a máscara costuma formatar a vírgula sozinha)
                     input.value = registro.preco.toFixed(2);
-                    
+
                     // 2. Dispare múltiplos eventos. Algumas máscaras reagem ao 'input', outras ao 'change'
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     input.dispatchEvent(new Event('change', { bubbles: true }));
                     input.dispatchEvent(new Event('blur', { bubbles: true })); // Simula o clique fora do campo
-                    
+
                     preenchidos++;
                 } else {
                     console.log(`🔴 Não encontrado: ${nomeProdutoTela} / ${lojaTelaRaw}`);
