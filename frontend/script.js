@@ -1000,10 +1000,15 @@ async function autoPreencherPrecos() {
 
                 if (registro && registro.preco > 0) {
                     console.log(`🟢 Preenchendo: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
-                    // Formata para exibição com vírgula
-                    input.value = registro.preco.toFixed(2).replace('.', ',');
-                    // Dispara evento para atualizar o ranking e salvar no temp
-                    //input.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    // 1. Tente injetar o valor original com ponto (a máscara costuma formatar a vírgula sozinha)
+                    input.value = registro.preco.toFixed(2);
+                    
+                    // 2. Dispare múltiplos eventos. Algumas máscaras reagem ao 'input', outras ao 'change'
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.dispatchEvent(new Event('blur', { bubbles: true })); // Simula o clique fora do campo
+                    
                     preenchidos++;
                 } else {
                     console.log(`🔴 Não encontrado: ${nomeProdutoTela} / ${lojaTelaRaw}`);
