@@ -932,60 +932,65 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        console.log("Buscando preços do robô...");
-        
-        // Chama a sua API correta
-        const response = await fetch('/api/ObterHistoricoWeb'); 
+        console.log("🔍 Buscando preços do robô...");
+        const response = await fetch('/api/ObterHistoricoWeb');
         if (!response.ok) throw new Error("Falha ao buscar API");
-        const historico = await response.json(); 
-        
-        console.log("Dados recebidos do banco:", historico);
+        const historico = await response.json();
+        console.log("📦 Dados recebidos do banco:", historico);
+
+        // Limpeza mais forte: remove tudo que não é letra ou número
+        const limparTexto = (texto) => {
+            if (!texto) return "";
+            return texto
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")          // remove acentos
+                .replace(/[^a-zA-Z0-9]/g, "")             // remove tudo que não é alfanumérico
+                .toUpperCase();
+        };
 
         let preenchidos = 0;
 
-        // Função mágica que limpa textos (tira acentos, espaços e aspas)
-        const limparTexto = (texto) => {
-            if (!texto) return "";
-            return texto.normalize("NFD")             // Separa os acentos das letras
-                        .replace(/[\u0300-\u036f]/g, "") // Remove os acentos
-                        .replace(/['\s]/g, "")        // Remove espaços e apóstrofos
-                        .toUpperCase();               // Deixa tudo maiúsculo
-        };
-
-        // Passa por todos os cards de produtos na tela
-        document.querySelectorAll('.card-produto-lista').forEach(card => {
+        // Itera sobre todos os cards da lista
+        document.querySelectorAll('#lista-ativa .card-produto-lista').forEach(card => {
             const nomeProdutoTela = card.getAttribute('data-produto') || "";
-            const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
-            
+            const nomeTelaLimpo = limparTexto(nomeProdutoTela);
+            if (!nomeTelaLimpo) return;
+
+            // Busca todos os inputs de preço dentro do card (pela classe)
+            const inputs = card.querySelectorAll('.input-preco-mercado');
             inputs.forEach(input => {
+                // Descobre a loja: o texto do elemento com classe .uppercase (o label)
                 const labelDiv = input.parentElement.querySelector('.uppercase');
                 const lojaTelaRaw = labelDiv ? labelDiv.innerText : "";
-
-                const nomeTelaLimpo = limparTexto(nomeProdutoTela);
                 let lojaTelaLimpa = limparTexto(lojaTelaRaw);
 
-                // Mapeamento específico: Se na tela está SAMS, o banco entende SAMSCLUB
+                // Mapeamento específico: "SAMS" -> "SAMSCLUB"
                 if (lojaTelaLimpa === "SAMS") lojaTelaLimpa = "SAMSCLUB";
 
-                // Procura no histórico do robô
+                // Procura no histórico um registro que corresponda ao nome e à loja
                 const registro = historico.find(h => {
                     if (!h.nome || !h.loja) return false;
-
                     const nomeBancoLimpo = limparTexto(h.nome);
                     const lojaBancoLimpa = limparTexto(h.loja);
 
-                    // Verifica se os nomes se parecem (um contém o outro)
-                    const bateuNome = nomeBancoLimpo.includes(nomeTelaLimpo) || nomeTelaLimpo.includes(nomeBancoLimpo);
-                    const bateuLoja = lojaBancoLimpa.includes(lojaTelaLimpa) || lojaTelaLimpa.includes(lojaBancoLimpa);
+                    // Verifica se os nomes limpos são exatamente iguais (mais seguro que includes)
+                    const nomeBate = nomeBancoLimpo === nomeTelaLimpo;
+                    const lojaBate = lojaBancoLimpa === lojaTelaLimpa;
 
-                    return bateuNome && bateuLoja;
+                    // Fallback: se não bater exato, tenta includes (caso haja diferenças sutis)
+                    const nomeBateParcial = nomeBancoLimpo.includes(nomeTelaLimpo) || nomeTelaLimpo.includes(nomeBancoLimpo);
+                    const lojaBateParcial = lojaBancoLimpa.includes(lojaTelaLimpa) || lojaTelaLimpa.includes(lojaBancoLimpa);
+
+                    return (nomeBate || nomeBateParcial) && (lojaBate || lojaBateParcial);
                 });
-                
+
                 if (registro && registro.preco > 0) {
-                    console.log(`✅ Sucesso: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
+                    console.log(`✅ Preenchido: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
                     input.value = registro.preco.toFixed(2).replace('.', ',');
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     preenchidos++;
+                } else {
+                    console.log(`❌ Não encontrado: ${nomeProdutoTela} / ${lojaTelaRaw}`);
                 }
             });
         });
@@ -993,11 +998,11 @@ async function autoPreencherPrecos() {
         if (preenchidos > 0) {
             alert(`${preenchidos} preços preenchidos com sucesso!`);
         } else {
-            alert("Nenhum preço correspondeu. Aperte F12 e olhe o Console para ver os detalhes.");
+            alert("Nenhum preço correspondeu. Verifique o console (F12) para detalhes.");
         }
 
     } catch (e) {
-        console.error("Erro na função autoPreencherPrecos:", e);
+        console.error("Erro em autoPreencherPrecos:", e);
         alert("Erro ao tentar preencher os preços.");
     }
 }
