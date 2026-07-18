@@ -8,10 +8,10 @@ const CEP_PADRAO = process.env.CEP_PADRAO || '06093085';
 const TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
 
-// Lista de sellers (filiais) que podem ter estoque – obtida da sua simulação
+// Lista de sellers em ordem de prioridade (primeiro o que você quer priorizar)
 const SELLERS_ATACADAO = [
+    'atacadaobr637', // prioridade máxima
     'atacadaobr634',
-    'atacadaobr637',
     'atacadaobr649',
     'atacadaobr680',
     'atacadaobr697',
@@ -21,7 +21,7 @@ const SELLERS_ATACADAO = [
 ];
 
 // ============================================================================
-// 1. OBTER REGIONID (com fallback)
+// 1. OBTER REGIONID (com fallback e cache)
 // ============================================================================
 let regionIdCache = { value: null, timestamp: 0 };
 
@@ -45,11 +45,11 @@ async function obterRegionId(cep) {
     } catch (e) {
         console.warn('Falha ao obter regionId, usando fallback fixo.', e.message);
     }
-    return 'v2.B8DCB8B9A6E97811ED86748D0F84492B';
+    return 'v2.B8DCB8B9A6E97811ED86748D0F84492B'; // fallback
 }
 
 // ============================================================================
-// 2. REQUISIÇÃO COM RETRY E TIMEOUT
+// 2. REQUISIÇÃO COM RETRY E TIMEOUT (GET e POST)
 // ============================================================================
 function buscarDadosComRetry(url, tentativa = 1) {
     return new Promise((resolve) => {
@@ -100,23 +100,7 @@ function buscarDadosComRetry(url, tentativa = 1) {
 }
 
 // ============================================================================
-// 3. EXTRAIR INFORMAÇÕES BÁSICAS DO PRODUTO (SKU, linkText, etc.)
-// ============================================================================
-function extrairInfoProduto(data) {
-    if (!data || data.length === 0) return null;
-    const item = data[0];
-    if (!item.items || item.items.length === 0) return null;
-    const variant = item.items[0];
-    return {
-        sku: variant.itemId,
-        linkText: item.linkText,
-        link: item.link || `https://www.atacadao.com.br/${item.linkText}/p`,
-        name: item.productName
-    };
-}
-
-// ============================================================================
-// 4. SIMULAR CARRINHO PARA UM SELLER ESPECÍFICO
+// 3. FUNÇÃO PARA SIMULAR CARRINHO (POST)
 // ============================================================================
 async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
     const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
@@ -154,7 +138,7 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
                         const item = json.items[0];
                         if (item.price > 0 && item.availability === 'available') {
                             resolve({
-                                preco: item.price / 100, // converte centavos para reais
+                                preco: item.price / 100,
                                 seller: item.seller,
                                 available: true
                             });
@@ -176,68 +160,23 @@ async function simularCarrinho(host, regionId, sku, sellerId, sc = 1) {
 }
 
 // ============================================================================
-// 5. BUSCAR PRODUTO: PRIMEIRO POR EAN, DEPOIS SIMULAÇÃO COM VÁRIOS SELLERS
+// 4. EXTRAIR INFORMAÇÕES BÁSICAS DO PRODUTO (SKU, linkText)
 // ============================================================================
-async function buscarProdutoComSimulacao(host, sc, regionId, ean, produtoNome) {
-    // 1. Tenta buscar por EAN
-    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
-    let dados = await buscarDadosComRetry(url);
-
-    let sku = null;
-    let linkText = null;
-    let link = null;
-
-    if (dados && dados.length > 0) {
-        const info = extrairInfoProduto(dados);
-        if (info) {
-            sku = info.sku;
-            linkText = info.linkText;
-            link = info.link;
-            // Verifica se algum seller já tem preço > 0 na resposta
-            const precoDireto = extrairPrecoDireto(dados);
-            if (precoDireto) {
-                return { ...precoDireto, link };
-            }
-        }
-    }
-
-    // Se não conseguiu o SKU pelo EAN, tenta buscar por nome (fallback)
-    if (!sku) {
-        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
-        dados = await buscarDadosComRetry(urlNome);
-        if (dados && dados.length > 0) {
-            const info = extrairInfoProduto(dados);
-            if (info) {
-                sku = info.sku;
-                linkText = info.linkText;
-                link = info.link;
-            }
-        }
-    }
-
-    if (!sku) {
-        return null; // não encontrou o SKU
-    }
-
-    // 2. Agora, simula carrinho para cada seller
-    for (const seller of SELLERS_ATACADAO) {
-        const sim = await simularCarrinho(host, regionId, sku, seller, sc);
-        if (sim && sim.preco > 0) {
-            return {
-                preco: sim.preco,
-                nomeLojaOrigem: `Atacadão (${seller})`,
-                sku: sku,
-                link: link || `https://www.atacadao.com.br/${linkText}/p`,
-                seller: seller
-            };
-        }
-    }
-
-    return null; // nenhum seller com preço
+function extrairInfoProduto(data) {
+    if (!data || data.length === 0) return null;
+    const item = data[0];
+    if (!item.items || item.items.length === 0) return null;
+    const variant = item.items[0];
+    return {
+        sku: variant.itemId,
+        linkText: item.linkText,
+        link: item.link || `https://www.atacadao.com.br/${item.linkText}/p`,
+        name: item.productName
+    };
 }
 
 // ============================================================================
-// 6. FUNÇÃO AUXILIAR: EXTRAIR PREÇO DIRETO DA RESPOSTA DA API
+// 5. EXTRAIR PREÇO DIRETO DA RESPOSTA DA API (fallback)
 // ============================================================================
 function extrairPrecoDireto(dados) {
     if (!dados || dados.length === 0) return null;
@@ -262,7 +201,90 @@ function extrairPrecoDireto(dados) {
 }
 
 // ============================================================================
-// 7. FUNÇÃO PRINCIPAL – AZURE FUNCTION
+// 6. FUNÇÃO PRINCIPAL DE BUSCA COM PRIORIDADE E CACHE
+// ============================================================================
+async function buscarProdutoComCache(host, sc, regionId, ean, produtoNome, sellerPreferido) {
+    // 1. Obter SKU e link via EAN (ou nome)
+    let url = `${host}/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${ean}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
+    let dados = await buscarDadosComRetry(url);
+    let sku = null, linkText = null, link = null;
+
+    if (dados && dados.length > 0) {
+        const info = extrairInfoProduto(dados);
+        if (info) {
+            sku = info.sku;
+            linkText = info.linkText;
+            link = info.link;
+        }
+    }
+
+    // Fallback por nome se não achou pelo EAN
+    if (!sku) {
+        const urlNome = `${host}/api/catalog_system/pub/products/search?fq=productName:${encodeURIComponent(produtoNome)}&sc=${sc}&regionId=${regionId}&_=${Date.now()}`;
+        dados = await buscarDadosComRetry(urlNome);
+        if (dados && dados.length > 0) {
+            const info = extrairInfoProduto(dados);
+            if (info) {
+                sku = info.sku;
+                linkText = info.linkText;
+                link = info.link;
+            }
+        }
+    }
+
+    if (!sku) {
+        return null; // não encontrou o produto
+    }
+
+    // 2. Definir lista de sellers para tentar: primeiro o preferido (se existir), depois a lista padrão
+    let sellersToTry = [];
+    if (sellerPreferido && SELLERS_ATACADAO.includes(sellerPreferido)) {
+        // Coloca o preferido no início, depois os demais (mantendo a ordem de prioridade)
+        const others = SELLERS_ATACADAO.filter(s => s !== sellerPreferido);
+        sellersToTry = [sellerPreferido, ...others];
+    } else {
+        sellersToTry = SELLERS_ATACADAO;
+    }
+
+    // 3. Tentar simulação com cada seller da lista
+    for (const seller of sellersToTry) {
+        const sim = await simularCarrinho(host, regionId, sku, seller, sc);
+        if (sim && sim.preco > 0) {
+            return {
+                preco: sim.preco,
+                nomeLojaOrigem: `Atacadão (${seller})`,
+                sku: sku,
+                link: link,
+                seller: seller
+            };
+        }
+    }
+
+    // 4. Fallback: extrair preço direto da API (pode ser ATACADAO SA)
+    if (dados) {
+        const precoDireto = extrairPrecoDireto(dados);
+        if (precoDireto) {
+            return { ...precoDireto, link };
+        }
+    }
+
+    return null;
+}
+
+// ============================================================================
+// 7. FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO VÁLIDO
+// ============================================================================
+async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
+    const ultimo = await db.collection('historico_precos_web')
+        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
+        .sort({ data_verificacao: -1 })
+        .limit(1)
+        .toArray();
+    return ultimo.length > 0 ? ultimo[0].preco : null;
+}
+
+// ============================================================================
+// 8. FUNÇÃO PRINCIPAL – AZURE FUNCTION
 // ============================================================================
 module.exports = async function (context, req) {
     const configs = [
@@ -270,7 +292,7 @@ module.exports = async function (context, req) {
             id: 'ATACADAO',
             nome: "Atacadão",
             host: 'https://www.atacadao.com.br',
-            scList: [1, 2, 3] // tenta mais de um, mas o principal é 1
+            scList: [1, 2, 3] // prioridade: sc=1, depois 2, 3
         }
     ];
 
@@ -287,6 +309,7 @@ module.exports = async function (context, req) {
         const regionId = await obterRegionId(CEP_PADRAO);
         context.log(`RegionId usado: ${regionId}`);
 
+        // Busca produtos ativos com EAN
         const monitorados = await dicionarioCol.find({ monitorar: true, ean: { $exists: true, $ne: "" } }).toArray();
         if (monitorados.length === 0) {
             context.res = { status: 200, body: { aviso: "Nenhum produto válido." } };
@@ -296,26 +319,30 @@ module.exports = async function (context, req) {
         for (const prod of monitorados) {
             const produtoNome = prod.nome_comum;
             const ean = prod.ean;
+            // Recupera o seller preferido armazenado (se houver)
+            const sellerPreferido = prod.seller_preferido || null;
             let resultadoLoja = null;
 
             // Tenta cada SC
             for (const lojaConfig of configs) {
                 for (const sc of lojaConfig.scList) {
-                    const resultado = await buscarProdutoComSimulacao(
+                    const resultado = await buscarProdutoComCache(
                         lojaConfig.host,
                         sc,
                         regionId,
                         ean,
-                        produtoNome
+                        produtoNome,
+                        sellerPreferido
                     );
                     if (resultado) {
                         resultadoLoja = {
                             produto: produtoNome,
                             loja: lojaConfig.nome,
-                            origem: resultado.nomeLojaOrigem,
+                            origem: resultado.nomeLojaOrigem || resultado.seller || 'Atacadão',
                             link: resultado.link,
                             preco: resultado.preco,
-                            sku: resultado.sku
+                            sku: resultado.sku,
+                            seller: resultado.seller
                         };
                         break;
                     }
@@ -337,6 +364,15 @@ module.exports = async function (context, req) {
                 continue;
             }
 
+            // Atualiza o cache do seller preferido no banco
+            if (resultadoLoja.seller && resultadoLoja.seller !== sellerPreferido) {
+                await dicionarioCol.updateOne(
+                    { _id: prod._id },
+                    { $set: { seller_preferido: resultadoLoja.seller } }
+                );
+                context.log(`Seller preferido atualizado para ${produtoNome}: ${resultadoLoja.seller}`);
+            }
+
             const precoAtual = resultadoLoja.preco;
             const ultimoPrecoWeb = await obterUltimoPrecoValido(db, produtoNome, 'Atacadão');
             const precoReferencia = prod.preco_alvo || ultimoPrecoWeb || Infinity;
@@ -354,7 +390,7 @@ module.exports = async function (context, req) {
             };
             relatorio.push(entry);
 
-            // Alertas e histórico (mantido igual)
+            // Disparo de alerta (se preço abaixo do alvo ou último preço)
             if (precoAtual > 0 && temAlvo && precoAtual < precoReferencia) {
                 const jaExiste = await alertasCol.findOne({
                     produto_nome: produtoNome,
@@ -375,6 +411,7 @@ module.exports = async function (context, req) {
                 }
             }
 
+            // Salva histórico se houve mudança
             if (ultimoPrecoWeb === null || precoAtual !== ultimoPrecoWeb) {
                 await db.collection('historico_precos_web').insertOne({
                     nome: produtoNome,
@@ -403,15 +440,3 @@ module.exports = async function (context, req) {
         if (client) await client.close();
     }
 };
-
-// ============================================================================
-// FUNÇÃO AUXILIAR: OBTER ÚLTIMO PREÇO
-// ============================================================================
-async function obterUltimoPrecoValido(db, nomeProduto, nomeLoja) {
-    const ultimo = await db.collection('historico_precos_web')
-        .find({ nome: nomeProduto, loja: nomeLoja, preco: { $gt: 0 } })
-        .sort({ data_verificacao: -1 })
-        .limit(1)
-        .toArray();
-    return ultimo.length > 0 ? ultimo[0].preco : null;
-}
