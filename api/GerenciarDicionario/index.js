@@ -26,8 +26,13 @@ module.exports = async function (context, req) {
             // TRAVA 1: Garante que o body seja lido como JSON
             const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
-            // Tratamento: Desmarcar Todos
-            if (body && body.action === 'desmarcar_todos') {
+            // Tratamento: Ligar o robô para todos (NOVO)
+            if (body && body.action === 'marcar_todos') {
+                await col.updateMany({}, { $set: { monitorar: true } });
+                context.res = { status: 200, body: { message: "Todos os itens ativados no BD." } };
+            }
+            // Tratamento: Desmarcar Todos (EXISTENTE)
+            else if (body && body.action === 'desmarcar_todos') {
                 await col.updateMany({}, { $set: { monitorar: false } });
                 context.res = { status: 200, body: { message: "Todos os itens desmarcados no BD." } };
             } 
