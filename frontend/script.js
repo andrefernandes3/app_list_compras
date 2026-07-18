@@ -943,8 +943,8 @@ async function autoPreencherPrecos() {
             if (!texto) return "";
             return texto
                 .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")          // remove acentos
-                .replace(/[^a-zA-Z0-9]/g, "")             // remove tudo que não é alfanumérico
+                .replace(/[\u0300-\u036f]/g, "")   // remove acentos
+                .replace(/[^a-zA-Z0-9]/g, "")      // remove tudo que não é alfanumérico
                 .toUpperCase();
         };
 
@@ -954,10 +954,18 @@ async function autoPreencherPrecos() {
         document.querySelectorAll('#lista-ativa .card-produto-lista').forEach(card => {
             const nomeProdutoTela = card.getAttribute('data-produto') || "";
             const nomeTelaLimpo = limparTexto(nomeProdutoTela);
-            if (!nomeTelaLimpo) return;
+            if (!nomeTelaLimpo) {
+                console.warn("⚠️ Card sem data-produto:", card);
+                return;
+            }
 
             // Busca todos os inputs de preço dentro do card (pela classe)
             const inputs = card.querySelectorAll('.input-preco-mercado');
+            if (inputs.length === 0) {
+                console.warn("⚠️ Nenhum input com classe .input-preco-mercado encontrado no card:", card);
+                return;
+            }
+
             inputs.forEach(input => {
                 // Descobre a loja: o texto do elemento com classe .uppercase (o label)
                 const labelDiv = input.parentElement.querySelector('.uppercase');
@@ -967,30 +975,38 @@ async function autoPreencherPrecos() {
                 // Mapeamento específico: "SAMS" -> "SAMSCLUB"
                 if (lojaTelaLimpa === "SAMS") lojaTelaLimpa = "SAMSCLUB";
 
+                console.log(`🔎 Tentando: "${nomeProdutoTela}" (limpo: "${nomeTelaLimpo}") na loja "${lojaTelaRaw}" (limpo: "${lojaTelaLimpa}")`);
+
                 // Procura no histórico um registro que corresponda ao nome e à loja
                 const registro = historico.find(h => {
                     if (!h.nome || !h.loja) return false;
                     const nomeBancoLimpo = limparTexto(h.nome);
                     const lojaBancoLimpa = limparTexto(h.loja);
 
-                    // Verifica se os nomes limpos são exatamente iguais (mais seguro que includes)
+                    // Comparação exata primeiro
                     const nomeBate = nomeBancoLimpo === nomeTelaLimpo;
                     const lojaBate = lojaBancoLimpa === lojaTelaLimpa;
 
-                    // Fallback: se não bater exato, tenta includes (caso haja diferenças sutis)
+                    // Fallback: includes (se um contém o outro)
                     const nomeBateParcial = nomeBancoLimpo.includes(nomeTelaLimpo) || nomeTelaLimpo.includes(nomeBancoLimpo);
                     const lojaBateParcial = lojaBancoLimpa.includes(lojaTelaLimpa) || lojaTelaLimpa.includes(lojaBancoLimpa);
 
-                    return (nomeBate || nomeBateParcial) && (lojaBate || lojaBateParcial);
+                    const bateu = (nomeBate || nomeBateParcial) && (lojaBate || lojaBateParcial);
+                    if (bateu) {
+                        console.log(`✅ Match encontrado: banco tem "${h.nome}" (limpo: "${nomeBancoLimpo}")`);
+                    }
+                    return bateu;
                 });
 
                 if (registro && registro.preco > 0) {
-                    console.log(`✅ Preenchido: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
+                    console.log(`🟢 Preenchendo: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
+                    // Formata para exibição com vírgula
                     input.value = registro.preco.toFixed(2).replace('.', ',');
+                    // Dispara evento para atualizar o ranking e salvar no temp
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     preenchidos++;
                 } else {
-                    console.log(`❌ Não encontrado: ${nomeProdutoTela} / ${lojaTelaRaw}`);
+                    console.log(`🔴 Não encontrado: ${nomeProdutoTela} / ${lojaTelaRaw}`);
                 }
             });
         });
@@ -1002,7 +1018,7 @@ async function autoPreencherPrecos() {
         }
 
     } catch (e) {
-        console.error("Erro em autoPreencherPrecos:", e);
+        console.error("❌ Erro em autoPreencherPrecos:", e);
         alert("Erro ao tentar preencher os preços.");
     }
 }
