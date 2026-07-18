@@ -932,44 +932,57 @@ function filtrarPorCorredor(idCategoria) {
 // Função para auto-preencher
 async function autoPreencherPrecos() {
     try {
-        const response = await fetch('/api/ObterHistoricoWeb');
-        const historico = await response.json();
-
-        // DEBUG: Isso vai mostrar no F12 -> Console o que veio do banco
-        console.log("Dados recebidos do Robô:", historico);
+        console.log("Buscando preços do robô...");
+        
+        // Chama a sua API correta
+        const response = await fetch('/api/ObterHistoricoWeb'); 
+        if (!response.ok) throw new Error("Falha ao buscar API");
+        const historico = await response.json(); 
+        
+        console.log("Dados recebidos do banco:", historico);
 
         let preenchidos = 0;
 
+        // Função mágica que limpa textos (tira acentos, espaços e aspas)
+        const limparTexto = (texto) => {
+            if (!texto) return "";
+            return texto.normalize("NFD")             // Separa os acentos das letras
+                        .replace(/[\u0300-\u036f]/g, "") // Remove os acentos
+                        .replace(/['\s]/g, "")        // Remove espaços e apóstrofos
+                        .toUpperCase();               // Deixa tudo maiúsculo
+        };
+
+        // Passa por todos os cards de produtos na tela
         document.querySelectorAll('.card-produto-lista').forEach(card => {
-            const nomeProduto = card.getAttribute('data-produto');
+            const nomeProdutoTela = card.getAttribute('data-produto') || "";
             const inputs = card.querySelectorAll('input[oninput*="registrarPrecoLive"]');
-
+            
             inputs.forEach(input => {
-                const label = input.parentElement.querySelector('.uppercase')?.innerText || "";
-                const loja = label.toUpperCase();
+                const labelDiv = input.parentElement.querySelector('.uppercase');
+                const lojaTelaRaw = labelDiv ? labelDiv.innerText : "";
 
+                const nomeTelaLimpo = limparTexto(nomeProdutoTela);
+                let lojaTelaLimpa = limparTexto(lojaTelaRaw);
+
+                // Mapeamento específico: Se na tela está SAMS, o banco entende SAMSCLUB
+                if (lojaTelaLimpa === "SAMS") lojaTelaLimpa = "SAMSCLUB";
+
+                // Procura no histórico do robô
                 const registro = historico.find(h => {
-                    // 1. Normaliza o nome do produto (remove espaços e maiúsculas)
-                    const nomeBanco = h.nome.trim().toUpperCase();
-                    const nomeTela = nomeProduto.trim().toUpperCase();
+                    if (!h.nome || !h.loja) return false;
 
-                    // 2. Normaliza a Loja (remove espaços, apóstrofos e padroniza o nome)
-                    const lojaBanco = h.loja.trim().toUpperCase().replace(/['\s]/g, "");
-                    let lojaTela = loja.trim().toUpperCase().replace(/['\s]/g, "");
+                    const nomeBancoLimpo = limparTexto(h.nome);
+                    const lojaBancoLimpa = limparTexto(h.loja);
 
-                    // Tratamento específico: Se na tela for SAMS, entenda como SAM'S CLUB do banco
-                    if (lojaTela === "SAMS") lojaTela = "SAMSCLUB";
+                    // Verifica se os nomes se parecem (um contém o outro)
+                    const bateuNome = nomeBancoLimpo.includes(nomeTelaLimpo) || nomeTelaLimpo.includes(nomeBancoLimpo);
+                    const bateuLoja = lojaBancoLimpa.includes(lojaTelaLimpa) || lojaTelaLimpa.includes(lojaBancoLimpa);
 
-                    // O nome na tela está truncado (ex: "SUCO INTEGRAL LARA...")
-                    // Então verificamos se o nome do banco COMEÇA com o nome da tela
-                    const nomeCorresponde = nomeBanco.includes(nomeTela.replace("...", ""));
-                    const lojaCorresponde = lojaBanco.includes(lojaTela);
-
-                    return nomeCorresponde && lojaCorresponde;
+                    return bateuNome && bateuLoja;
                 });
-
-                if (registro) {
-                    console.log("✅ Encontrado! Preço:", registro.preco);
+                
+                if (registro && registro.preco > 0) {
+                    console.log(`✅ Sucesso: ${nomeProdutoTela} no ${lojaTelaRaw} = R$ ${registro.preco}`);
                     input.value = registro.preco.toFixed(2).replace('.', ',');
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     preenchidos++;
@@ -977,9 +990,15 @@ async function autoPreencherPrecos() {
             });
         });
 
-        alert(`${preenchidos} preços preenchidos.`);
+        if (preenchidos > 0) {
+            alert(`${preenchidos} preços preenchidos com sucesso!`);
+        } else {
+            alert("Nenhum preço correspondeu. Aperte F12 e olhe o Console para ver os detalhes.");
+        }
+
     } catch (e) {
-        console.error("Erro no preenchimento:", e);
+        console.error("Erro na função autoPreencherPrecos:", e);
+        alert("Erro ao tentar preencher os preços.");
     }
 }
 
