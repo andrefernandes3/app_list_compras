@@ -1,10 +1,16 @@
 {
   "bindings": [
     {
-      "name": "meuTimer",
-      "type": "timerTrigger",
+      "authLevel": "anonymous",
+      "type": "httpTrigger",
       "direction": "in",
-      "schedule": "0 0 4,16 * * *"
+      "name": "req",
+      "methods": ["get", "post"]
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "res"
     }
   ]
 }
