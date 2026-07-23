@@ -685,8 +685,8 @@ async function renderizarDicionario() {
                 const nomeSeguro = escapeHTML(prod.nome_comum);
                 const eanFaltando = !prod.ean ? 'border-orange-300 bg-orange-50' : 'border-gray-100 bg-white';
 
-                // Define se a busca no gráfico será pelo EAN ou pelo Nome
-                const linkHistorico = prod.ean 
+                // Link para o novo gráfico da Web
+                const linkWeb = prod.ean 
                     ? `historico.html?ean=${prod.ean}` 
                     : `historico.html?nome=${encodeURIComponent(prod.nome_comum)}`;
 
@@ -698,8 +698,18 @@ async function renderizarDicionario() {
                             <div class="flex-1 flex flex-col min-w-0">
                                 <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
                                 
-                                <!-- BOTÃO/LINK "📊 Gráfico" MANTIDO COM O MESMO VISUAL -->
-                                <a href="${linkHistorico}" class="text-[11px] opacity-60 text-left hover:opacity-100 transition-opacity">📊 Gráfico</a>
+                                <!-- OS DOIS BOTÕES LADO A LADO -->
+                                <div class="flex items-center gap-3 mt-1">
+                                    <!-- 1. Botão Original: Abre o modal da Nota Fiscal -->
+                                    <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-gray-500 hover:text-gray-800 transition">
+                                        📊 Nota
+                                    </button>
+                                    
+                                    <!-- 2. Botão Novo: Abre a tela do Robô Web -->
+                                    <a href="${linkWeb}" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 transition">
+                                        🤖 Robô Web
+                                    </a>
+                                </div>
                             </div>
                         </div>
                         <div class="flex items-center justify-between gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-none border-black/5">
