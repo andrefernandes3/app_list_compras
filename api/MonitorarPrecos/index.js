@@ -13,8 +13,8 @@ const DELAY_BETWEEN_BATCHES = 500; // Apenas 0.5s de pausa, requisições foram 
 // ============================================================================
 // 1. AGENTE KEEP-ALIVE (Alta performance)
 // ============================================================================
-const agent = new https.Agent({ 
-    keepAlive: true, 
+const agent = new https.Agent({
+    keepAlive: true,
     maxSockets: 50, // Permite mais conexões simultâneas sem enfileirar
     keepAliveMsecs: 3000
 });
@@ -119,7 +119,7 @@ function buscarDadosComRetry(url, tentativa = 1, cookies = {}, binding = null) {
 async function simularCarrinhoLote(host, regionId, sku, sellersList, sc = 1, cookies = {}, binding = null) {
     const url = `${host}/api/checkout/pub/orderForms/simulation?sc=${sc}`;
     const sellers = Array.isArray(sellersList) ? sellersList : [sellersList];
-    
+
     // Monta um carrinho com 1 item para CADA seller da lista (a VTEX calcula todos de uma vez)
     const payload = {
         items: sellers.map(seller => ({ id: sku, quantity: 1, seller: seller })),
@@ -215,7 +215,7 @@ async function obterRegionIdPorLoja(cfg, cep, cookies = {}) {
             const region = data.find(r => r.id && r.id.startsWith('v2.'));
             return region ? region.id : data[0].id;
         }
-    } catch (e) {}
+    } catch (e) { }
     return null;
 }
 
@@ -233,7 +233,7 @@ async function buscarProdutoNaLoja(host, regionId, sc, ean, produtoNome, sellers
     if (dados && dados.length > 0) {
         const info = extrairInfoProduto(dados);
         if (info) { sku = info.sku; linkText = info.linkText; link = info.link; }
-        
+
         const precoDireto = extrairPrecoDireto(dados);
         if (precoDireto && precoDireto.preco > 0) return { ...precoDireto, link };
     }
@@ -307,7 +307,7 @@ module.exports = async function (context, req) {
             nome: "Sam's Club",
             host: 'https://www.samsclub.com.br',
             scList: [1, 2, 3],
-            sellers: ['samsclub6058', 'samsclub6546', '1','2','3','4','5','6','7','8','9','10', 'samsclub', 'samsclubbr'],
+            sellers: ['samsclub6058', 'samsclub6546', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'samsclub', 'samsclubbr'],
             regionIdFixo: 'IlUxY2pjMkZ0YzJOc2RXSTJNRFU0TzNOaGJYTmpiSFZpTmpVME5nPT0i',
             binding: 'samsclub.myvtex.com/',
             usarCookies: true
@@ -321,7 +321,7 @@ module.exports = async function (context, req) {
         client = new MongoClient(process.env["MONGODB_URI"]);
         await client.connect();
         const db = client.db('app_compras');
-        
+
         const cookiesMap = {};
         for (const cfg of configs) {
             cookiesMap[cfg.id] = cfg.usarCookies ? await obterCookiesSams(cfg.host) : {};
@@ -356,7 +356,7 @@ module.exports = async function (context, req) {
 
                     for (const sc of cfg.scList) {
                         const resultado = await buscarProdutoNaLoja(cfg.host, regionId, sc, prod.ean, prod.nome_comum, sellersToTry, cookies, cfg.binding);
-                        
+
                         if (resultado) {
                             if (resultado.seller && resultado.seller !== sellerPreferido) {
                                 await db.collection('dicionario_produtos').updateOne({ _id: prod._id }, { $set: { seller_preferido: resultado.seller } });
@@ -380,6 +380,29 @@ module.exports = async function (context, req) {
                                     });
                                 }
                             }
+
+                            // Bloco temporariamente comentado para não disparar alertas por enquanto.
+                            // Descomente esta seção quando quiser reativar a regra de alerta por queda em relação ao último preço registrado.
+                            // if (resultado.preco > 0 && ultimoPrecoWeb !== Infinity && resultado.preco < ultimoPrecoWeb) {
+                            //     const jaExiste = await db.collection('alertas_preco').findOne({
+                            //         produto_nome: prod.nome_comum,
+                            //         loja: cfg.nome,
+                            //         preco_atual: resultado.preco,
+                            //         status_notificacao: "pendente"
+                            //     });
+                            //
+                            //     if (!jaExiste) {
+                            //         await db.collection('alertas_preco').insertOne({
+                            //             produto_nome: prod.nome_comum,
+                            //             loja: cfg.nome,
+                            //             preco_historico: ultimoPrecoWeb, // Registra o preço do qual ele caiu
+                            //             preco_atual: resultado.preco,
+                            //             link_compra: resultado.link,
+                            //             data_alerta: new Date(),
+                            //             status_notificacao: "pendente"
+                            //         });
+                            //     }
+                            // }
 
                             if (ultimoPrecoWeb === Infinity || resultado.preco !== ultimoPrecoWeb) {
                                 await db.collection('historico_precos_web').insertOne({

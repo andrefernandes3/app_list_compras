@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Histórico de Preços</title>
+    <!-- Tailwind CSS para estilização rápida -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js para renderização do gráfico -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 p-6">
+
+    <div class="max-w-5xl mx-auto space-y-6">
+        
+        <!-- Header e Busca -->
+        <div class="bg-white p-6 rounded-lg shadow-md flex flex-col md:flex-row gap-4 justify-between items-center">
+            <h1 class="text-2xl font-bold text-gray-800">📊 Histórico de Preços</h1>
+            <div class="flex gap-2 w-full md:w-auto">
+                <input type="text" id="inputEan" placeholder="Digite o EAN ou Nome" class="border border-gray-300 rounded px-4 py-2 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="carregarHistorico()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded transition">Buscar</button>
+            </div>
+        </div>
+
+        <!-- Cards de Métricas -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
+                <span class="text-sm text-gray-500 font-semibold">Menor Preço Histórico</span>
+                <p id="cardMenorPreco" class="text-2xl font-bold text-gray-800">R$ --</p>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
+                <span class="text-sm text-gray-500 font-semibold">Último Preço Registrado</span>
+                <p id="cardUltimoPreco" class="text-2xl font-bold text-gray-800">R$ --</p>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow border-l-4 border-purple-500">
+                <span class="text-sm text-gray-500 font-semibold">Média Histórica</span>
+                <p id="cardMediaPreco" class="text-2xl font-bold text-gray-800">R$ --</p>
+            </div>
+        </div>
+
+        <!-- Container do Gráfico -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <canvas id="graficoPrecos" class="w-full max-h-[400px]"></canvas>
+        </div>
+
+    </div>
+
+    <script>
+        let meuGrafico = null;
+
+        // Cores padrão para cada loja no gráfico
+        const coresLojas = {
+            'Atacadão': '#e11d48',  // Vermelho
+            "Sam's Club": '#2563eb' // Azul
+        };
+
+        async function carregarHistorico() {
+            const termo = document.getElementById('inputEan').value.trim();
+            if (!termo) return alert("Digite o EAN ou nome do produto.");
+
+            try {
+                // Determina se a busca é por EAN (apenas números) ou Nome
+                const param = /^\d+$/.test(termo) ? `ean=${termo}` : `nome=${encodeURIComponent(termo)}`;
+                const resposta = await fetch(`/api/ObterHistorico?${param}`);
+                const dados = await resposta.json();
+
+                if (!dados || dados.length === 0) {
+                    alert("Nenhum histórico encontrado para este produto.");
+                    return;
+                }
+
+                atualizarCards(dados);
+                renderizarGrafico(dados);
+
+            } catch (erro) {
+                console.error("Erro ao carregar histórico:", erro);
+                alert("Falha ao consultar a API.");
+            }
+        }
+
+        function atualizarCards(dados) {
+            const precos = dados.map(d => d.preco).filter(p => p > 0);
+            
+            if (precos.length === 0) return;
+
+            const menor = Math.min(...precos);
+            const ultimo = precos[precos.length - 1];
+            const media = precos.reduce((a, b) => a + b, 0) / precos.length;
+
+            document.getElementById('cardMenorPreco').innerText = `R$ ${menor.toFixed(2).replace('.', ',')}`;
+            document.getElementById('cardUltimoPreco').innerText = `R$ ${ultimo.toFixed(2).replace('.', ',')}`;
+            document.getElementById('cardMediaPreco').innerText = `R$ ${media.toFixed(2).replace('.', ',')}`;
+        }
+
+        function renderizarGrafico(dados) {
+            const ctx = document.getElementById('graficoPrecos').getContext('2d');
+
+            // Destrói o gráfico anterior para evitar sobreposição ao buscar novo produto
+            if (meuGrafico) meuGrafico.destroy();
+
+            // Extrai as datas únicas formatadas para o eixo X
+            const datasUnicas = [...new Set(dados.map(d => new Date(d.data_verificacao).toLocaleDateString('pt-BR')))];
+
+            // Agrupa os dados por Loja para criar uma linha no gráfico para cada uma
+            const lojas = [...new Set(dados.map(d => d.loja))];
+
+            const datasets = lojas.map(loja => {
+                const dadosLoja = dados.filter(d => d.loja === loja);
+                
+                return {
+                    label: loja,
+                    borderColor: coresLojas[loja] || '#6b7280',
+                    backgroundColor: coresLojas[loja] || '#6b7280',
+                    fill: false,
+                    tension: 0.2, // Deixa a linha levemente curva
+                    data: datasUnicas.map(dataStr => {
+                        // Encontra o preço na data específica ou retorna null se não houver registro
+                        const registro = dadosLoja.find(d => new Date(d.data_verificacao).toLocaleDateString('pt-BR') === dataStr);
+                        return registro ? registro.preco : null;
+                    })
+                };
+            });
+
+            // Cria o novo gráfico
+            meuGrafico = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: datasUnicas,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: { display: true, text: `Evolução de Preço: ${dados[0].nome}` },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        y: {
+                            title: { display: true, text: 'Preço (R$)' },
+                            ticks: { callback: value => 'R$ ' + value.toFixed(2) }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
