@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,16 +10,19 @@
     <!-- Chart.js para renderização do gráfico -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body class="bg-gray-100 p-6">
 
     <div class="max-w-5xl mx-auto space-y-6">
-        
+
         <!-- Header e Busca -->
         <div class="bg-white p-6 rounded-lg shadow-md flex flex-col md:flex-row gap-4 justify-between items-center">
             <h1 class="text-2xl font-bold text-gray-800">📊 Histórico de Preços</h1>
             <div class="flex gap-2 w-full md:w-auto">
-                <input type="text" id="inputEan" placeholder="Digite o EAN ou Nome" class="border border-gray-300 rounded px-4 py-2 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <button onclick="carregarHistorico()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded transition">Buscar</button>
+                <input type="text" id="inputEan" placeholder="Digite o EAN ou Nome"
+                    class="border border-gray-300 rounded px-4 py-2 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="carregarHistorico()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded transition">Buscar</button>
             </div>
         </div>
 
@@ -48,18 +52,32 @@
     <script>
         let meuGrafico = null;
 
-        // Cores padrão para cada loja no gráfico
         const coresLojas = {
             'Atacadão': '#e11d48',  // Vermelho
             "Sam's Club": '#2563eb' // Azul
         };
+
+        // =========================================================================
+        // 1. TRATAMENTO DO PASSO 2 (OPÇÃO B): Busca automática via URL ao carregar
+        // =========================================================================
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const eanParam = urlParams.get('ean');
+            const nomeParam = urlParams.get('nome');
+
+            const valorBusca = eanParam || nomeParam;
+
+            if (valorBusca) {
+                document.getElementById('inputEan').value = valorBusca;
+                carregarHistorico(); // Executa a busca automaticamente
+            }
+        });
 
         async function carregarHistorico() {
             const termo = document.getElementById('inputEan').value.trim();
             if (!termo) return alert("Digite o EAN ou nome do produto.");
 
             try {
-                // Determina se a busca é por EAN (apenas números) ou Nome
                 const param = /^\d+$/.test(termo) ? `ean=${termo}` : `nome=${encodeURIComponent(termo)}`;
                 const resposta = await fetch(`/api/ObterHistorico?${param}`);
                 const dados = await resposta.json();
@@ -80,7 +98,6 @@
 
         function atualizarCards(dados) {
             const precos = dados.map(d => d.preco).filter(p => p > 0);
-            
             if (precos.length === 0) return;
 
             const menor = Math.min(...precos);
@@ -95,33 +112,34 @@
         function renderizarGrafico(dados) {
             const ctx = document.getElementById('graficoPrecos').getContext('2d');
 
-            // Destrói o gráfico anterior para evitar sobreposição ao buscar novo produto
             if (meuGrafico) meuGrafico.destroy();
 
-            // Extrai as datas únicas formatadas para o eixo X
+            // Extrai as datas únicas e formatadas
             const datasUnicas = [...new Set(dados.map(d => new Date(d.data_verificacao).toLocaleDateString('pt-BR')))];
-
-            // Agrupa os dados por Loja para criar uma linha no gráfico para cada uma
             const lojas = [...new Set(dados.map(d => d.loja))];
 
             const datasets = lojas.map(loja => {
                 const dadosLoja = dados.filter(d => d.loja === loja);
-                
+
                 return {
                     label: loja,
                     borderColor: coresLojas[loja] || '#6b7280',
                     backgroundColor: coresLojas[loja] || '#6b7280',
                     fill: false,
-                    tension: 0.2, // Deixa a linha levemente curva
+
+                    // =========================================================================
+                    // 2. TRATAMENTO DO PASSO 2 (MELHORIA): Gráfico em Degrau (Stepped)
+                    // Mantém o valor constante entre os dias em que não houve gravação
+                    // =========================================================================
+                    stepped: true,
+
                     data: datasUnicas.map(dataStr => {
-                        // Encontra o preço na data específica ou retorna null se não houver registro
                         const registro = dadosLoja.find(d => new Date(d.data_verificacao).toLocaleDateString('pt-BR') === dataStr);
                         return registro ? registro.preco : null;
                     })
                 };
             });
 
-            // Cria o novo gráfico
             meuGrafico = new Chart(ctx, {
                 type: 'line',
                 data: {
