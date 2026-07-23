@@ -685,6 +685,11 @@ async function renderizarDicionario() {
                 const nomeSeguro = escapeHTML(prod.nome_comum);
                 const eanFaltando = !prod.ean ? 'border-orange-300 bg-orange-50' : 'border-gray-100 bg-white';
 
+                // Define se a busca no gráfico será pelo EAN ou pelo Nome
+                const linkHistorico = prod.ean 
+                    ? `historico.html?ean=${prod.ean}` 
+                    : `historico.html?nome=${encodeURIComponent(prod.nome_comum)}`;
+
                 div.innerHTML += `
                     <div class="item-dicionario-lista p-2 rounded-xl border flex flex-col md:flex-row md:items-center mb-2 shadow-sm gap-2 ${eanFaltando}" data-categoria-dict="${cat}">
                         <div class="flex items-center gap-2 flex-1 w-full">
@@ -692,7 +697,9 @@ async function renderizarDicionario() {
                             <div class="w-10 h-10 shrink-0 overflow-hidden rounded-lg bg-gray-50 cursor-pointer" onclick="ampliarImagem('${fotoUrl}', '${nomeSeguro}')"><img src="${fotoUrl}" class="w-full h-full object-cover"></div>
                             <div class="flex-1 flex flex-col min-w-0">
                                 <p class="text-[10px] font-bold text-gray-800 uppercase truncate">${prod.nome_comum}</p>
-                                <button onclick="abrirGrafico('${nomeSeguro.replace(/'/g, "\\'")}')" class="text-[11px] opacity-60 text-left">📊 Gráfico</button>
+                                
+                                <!-- BOTÃO/LINK "📊 Gráfico" MANTIDO COM O MESMO VISUAL -->
+                                <a href="${linkHistorico}" class="text-[11px] opacity-60 text-left hover:opacity-100 transition-opacity">📊 Gráfico</a>
                             </div>
                         </div>
                         <div class="flex items-center justify-between gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-none border-black/5">

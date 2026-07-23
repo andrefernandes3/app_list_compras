@@ -12,21 +12,20 @@
 </head>
 
 <body class="bg-gray-50 font-sans">
-    <nav class="bg-blue-600 p-4 text-white shadow-lg">
+    <nav class="bg-blue-600 p-4 text-white shadow-lg flex justify-between items-center">
         <h1 class="text-xl font-bold">🛒 Minha Lista Inteligente</h1>
     </nav>
 
     <div class="sticky top-0 z-30 bg-blue-600 shadow-lg border-b border-blue-700 transition-all">
         <div class="p-4">
-            <p class="text-[10px] font-black text-blue-200 uppercase text-center tracking-widest">💰 Carrinho / Total
-                Planejado</p>
+            <p class="text-[10px] font-black text-blue-200 uppercase text-center tracking-widest">💰 Carrinho / Total Planejado</p>
             <p id="total-real-dinamico" class="text-3xl font-black text-white text-center">R$ 0,00</p>
         </div>
 
-        <div id="totalizador-estimado" class="px-4 pb-3 hidden bg-blue-700/30 backdrop-blur-md">
-        </div>
+        <div id="totalizador-estimado" class="px-4 pb-3 hidden bg-blue-700/30 backdrop-blur-md"></div>
     </div>
 
+    <!-- MENU DE NAVEGAÇÃO ENTRE ABAS E HISTÓRICO -->
     <div class="flex justify-center border-b border-gray-200 bg-white sticky top-[94px] z-20 shadow-sm transition-all">
         <div class="flex w-full max-w-md md:max-w-3xl lg:max-w-5xl">
             <button onclick="alternarAba('lista')" id="btn-aba-lista"
@@ -35,6 +34,14 @@
                 class="flex-1 py-3 text-sm font-bold text-gray-500">Dicionário</button>
             <button onclick="alternarAba('relatorios')" id="btn-aba-rel"
                 class="flex-1 py-3 text-sm font-bold text-gray-500">Gastos</button>
+            <!-- LINK PARA A PÁGINA DE HISTÓRICO -->
+            <a href="historico.html"
+                class="flex-1 py-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 text-center flex items-center justify-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                </svg>
+                Histórico
+            </a>
         </div>
     </div>
 
@@ -47,15 +54,13 @@
 
     <main class="p-4 w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto transition-all duration-300">
 
+        <!-- ABA LISTA -->
         <div id="secao-lista" class="lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
-
             <div class="lg:col-span-8">
-                <div
-                    class="mb-4 bg-blue-50 p-4 lg:p-6 rounded-2xl shadow-sm border border-blue-200 transition-all hover:shadow-md">
+                <div class="mb-4 bg-blue-50 p-4 lg:p-6 rounded-2xl shadow-sm border border-blue-200 transition-all hover:shadow-md">
                     <h2 class="text-blue-800 font-bold mb-4 flex justify-between italic text-lg">
                         📝 Próxima Compra
-                        <button onclick="carregarLista()"
-                            class="text-xs underline hover:text-blue-500">Sincronizar</button>
+                        <button onclick="carregarLista()" class="text-xs underline hover:text-blue-500">Sincronizar</button>
                     </h2>
 
                     <div class="flex flex-wrap gap-2 mb-4">
@@ -75,9 +80,7 @@
             </div>
 
             <div class="lg:col-span-4 lg:sticky lg:top-[160px] flex flex-col gap-4">
-
-                <div
-                    class="bg-gray-50/95 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none pb-2 lg:pb-0 shadow-md lg:shadow-none mb-2 lg:mb-0 z-20 sticky top-[110px] lg:static">
+                <div class="bg-gray-50/95 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none pb-2 lg:pb-0 shadow-md lg:shadow-none mb-2 lg:mb-0 z-20 sticky top-[110px] lg:static">
                     <div id="totalizador-estimado" class="px-4 lg:px-0 hidden"></div>
                 </div>
 
@@ -86,18 +89,15 @@
                     🗑️ Finalizar Compra e Limpar
                 </button>
 
-                <div
-                    class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                    <h3 class="text-xs font-black text-gray-500 uppercase tracking-widest mb-3 text-center">🧾 Escanear
-                        Nota</h3>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                    <h3 class="text-xs font-black text-gray-500 uppercase tracking-widest mb-3 text-center">🧾 Escanear Nota</h3>
                     <input type="text" id="url-input" placeholder="Cole a URL da nota aqui..."
                         class="w-full p-3 border border-gray-200 rounded-xl text-sm mb-3 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow">
                     <button onclick="processarUrlManual()"
                         class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold active:scale-95 transition-all shadow-md">
                         Processar Nota
                     </button>
-                    <div id="status" class="mt-4 p-3 bg-gray-50 rounded-xl hidden text-xs font-medium text-center">
-                    </div>
+                    <div id="status" class="mt-4 p-3 bg-gray-50 rounded-xl hidden text-xs font-medium text-center"></div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 mt-2">
@@ -113,11 +113,8 @@
 
                 <div id="preview-container" class="mt-2 hidden">
                     <h3 class="text-gray-700 font-bold mb-2 text-sm px-1">Itens da Nota:</h3>
-                    <div id="lista-itens"
-                        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-h-[300px] overflow-y-auto">
-                    </div>
+                    <div id="lista-itens" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-h-[300px] overflow-y-auto"></div>
                 </div>
-
             </div>
         </div>
 
@@ -127,41 +124,27 @@
                 <div class="flex justify-between items-center">
                     <h2 class="text-gray-700 font-bold italic text-sm">Produtos Catalogados</h2>
                     <button id="btn-adicionar-multiplos" onclick="enviarSelecionadosParaLista()"
-                        class="hidden bg-green-600 text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-lg">ADICIONAR
-                        SELECIONADOS</button>
+                        class="hidden bg-green-600 text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-lg">ADICIONAR SELECIONADOS</button>
                     <button id="btn-toggle-robo" class="btn-robo btn-desligar" onclick="alternarRobo()">
                         🔕 DESLIGAR ROBÔ
                     </button>
                 </div>
                 <label class="flex items-center gap-2 text-[10px] text-gray-500 font-bold cursor-pointer">
-                    <input type="checkbox" id="select-all-dict" onchange="selecionarTudoDicionario(this.checked)"
-                        class="w-3 h-3"> SELECIONAR / DESMARCAR TUDO
+                    <input type="checkbox" id="select-all-dict" onchange="selecionarTudoDicionario(this.checked)" class="w-3 h-3"> SELECIONAR / DESMARCAR TUDO
                 </label>
-                <!-- Exemplo de como colocar na coluna de 'Ações' da sua tabela -->
-<td class="px-4 py-2">
-    <a href="historico.html?ean=${produto.ean}" 
-       class="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 hover:underline">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-        </svg>
-        Histórico
-    </a>
-</td>
             </div>
             <div id="lista-dicionario" class="space-y-4"></div>
         </div>
 
         <!-- ABA RELATÓRIOS -->
         <div id="secao-relatorios" class="hidden animate-fade-in p-4">
-
             <div class="mb-4">
-                <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Filtrar por
-                    Unidade:</label>
+                <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Filtrar por Unidade:</label>
                 <select id="filtro-loja-relatorio" onchange="carregarRelatorios()"
                     class="w-full mt-1 p-3 bg-white border border-gray-200 rounded-2xl text-xs font-bold text-blue-600 outline-none shadow-sm focus:ring-2 focus:ring-blue-400">
                     <option value="">📊 TODAS AS UNIDADES</option>
                 </select>
-                <!-- Dentro de <div id="secao-relatorios"> -->
+
                 <div class="flex gap-2 mt-4">
                     <button onclick="carregarRelatorios()"
                         class="flex-1 bg-blue-50 text-blue-600 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-blue-100 active:scale-95">
@@ -178,8 +161,7 @@
                 </div>
             </div>
             <div class="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 mb-4">
-                <h3 class="text-center text-gray-400 font-black text-[10px] uppercase tracking-widest mb-6">Onde está o
-                    seu dinheiro?</h3>
+                <h3 class="text-center text-gray-400 font-black text-[10px] uppercase tracking-widest mb-6">Onde está o seu dinheiro?</h3>
                 <div class="relative h-[300px]">
                     <canvas id="chartCategorias"></canvas>
                 </div>
@@ -187,8 +169,8 @@
             </div>
         </div>
     </main>
-    <script src="script.js"></script>
-    <script type="module" src="script.js"></script>
-</body>
 
+    <!-- CARREGAMENTO DO SCRIPT (APENAS UMA VEZ) -->
+    <script src="script.js"></script>
+</body>
 </html>

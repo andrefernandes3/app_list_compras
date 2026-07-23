@@ -1,49 +1,48 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Histórico de Preços</title>
-    <!-- Tailwind CSS para estilização rápida -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js para renderização do gráfico -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
 <body class="bg-gray-100 p-6">
 
     <div class="max-w-5xl mx-auto space-y-6">
-
-        <!-- Header e Busca -->
-        <div class="bg-white p-6 rounded-lg shadow-md flex flex-col md:flex-row gap-4 justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-800">📊 Histórico de Preços</h1>
+        
+        <!-- Header e Voltar -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center border border-gray-200">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-xl text-xs font-bold transition">
+                    ⬅️ Voltar
+                </a>
+                <h1 class="text-2xl font-bold text-gray-800">📊 Histórico de Preços</h1>
+            </div>
             <div class="flex gap-2 w-full md:w-auto">
-                <input type="text" id="inputEan" placeholder="Digite o EAN ou Nome"
-                    class="border border-gray-300 rounded px-4 py-2 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <button onclick="carregarHistorico()"
-                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded transition">Buscar</button>
+                <input type="text" id="inputEan" placeholder="Digite o EAN ou Nome" class="border border-gray-300 rounded-xl px-4 py-2 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <button onclick="carregarHistorico()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-sm transition">Buscar</button>
             </div>
         </div>
 
         <!-- Cards de Métricas -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
-                <span class="text-sm text-gray-500 font-semibold">Menor Preço Histórico</span>
-                <p id="cardMenorPreco" class="text-2xl font-bold text-gray-800">R$ --</p>
+            <div class="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-green-500">
+                <span class="text-xs text-gray-400 font-bold uppercase tracking-wider">Menor Preço Histórico</span>
+                <p id="cardMenorPreco" class="text-2xl font-black text-gray-800 mt-1">R$ --</p>
             </div>
-            <div class="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
-                <span class="text-sm text-gray-500 font-semibold">Último Preço Registrado</span>
-                <p id="cardUltimoPreco" class="text-2xl font-bold text-gray-800">R$ --</p>
+            <div class="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-blue-500">
+                <span class="text-xs text-gray-400 font-bold uppercase tracking-wider">Último Preço Registrado</span>
+                <p id="cardUltimoPreco" class="text-2xl font-black text-gray-800 mt-1">R$ --</p>
             </div>
-            <div class="bg-white p-4 rounded-lg shadow border-l-4 border-purple-500">
-                <span class="text-sm text-gray-500 font-semibold">Média Histórica</span>
-                <p id="cardMediaPreco" class="text-2xl font-bold text-gray-800">R$ --</p>
+            <div class="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-purple-500">
+                <span class="text-xs text-gray-400 font-bold uppercase tracking-wider">Média Histórica</span>
+                <p id="cardMediaPreco" class="text-2xl font-black text-gray-800 mt-1">R$ --</p>
             </div>
         </div>
 
         <!-- Container do Gráfico -->
-        <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <canvas id="graficoPrecos" class="w-full max-h-[400px]"></canvas>
         </div>
 
@@ -53,13 +52,11 @@
         let meuGrafico = null;
 
         const coresLojas = {
-            'Atacadão': '#e11d48',  // Vermelho
-            "Sam's Club": '#2563eb' // Azul
+            'Atacadão': '#e11d48',
+            "Sam's Club": '#2563eb'
         };
 
-        // =========================================================================
-        // 1. TRATAMENTO DO PASSO 2 (OPÇÃO B): Busca automática via URL ao carregar
-        // =========================================================================
+        // Captura o EAN/Nome vindo do botão da Opção B
         window.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
             const eanParam = urlParams.get('ean');
@@ -69,7 +66,7 @@
 
             if (valorBusca) {
                 document.getElementById('inputEan').value = valorBusca;
-                carregarHistorico(); // Executa a busca automaticamente
+                carregarHistorico();
             }
         });
 
@@ -114,25 +111,18 @@
 
             if (meuGrafico) meuGrafico.destroy();
 
-            // Extrai as datas únicas e formatadas
             const datasUnicas = [...new Set(dados.map(d => new Date(d.data_verificacao).toLocaleDateString('pt-BR')))];
             const lojas = [...new Set(dados.map(d => d.loja))];
 
             const datasets = lojas.map(loja => {
                 const dadosLoja = dados.filter(d => d.loja === loja);
-
+                
                 return {
                     label: loja,
                     borderColor: coresLojas[loja] || '#6b7280',
                     backgroundColor: coresLojas[loja] || '#6b7280',
                     fill: false,
-
-                    // =========================================================================
-                    // 2. TRATAMENTO DO PASSO 2 (MELHORIA): Gráfico em Degrau (Stepped)
-                    // Mantém o valor constante entre os dias em que não houve gravação
-                    // =========================================================================
-                    stepped: true,
-
+                    stepped: true, // Gráfico em degrau (mantém o valor estático até a próxima mudança)
                     data: datasUnicas.map(dataStr => {
                         const registro = dadosLoja.find(d => new Date(d.data_verificacao).toLocaleDateString('pt-BR') === dataStr);
                         return registro ? registro.preco : null;
